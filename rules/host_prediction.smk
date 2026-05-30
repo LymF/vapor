@@ -27,6 +27,7 @@ rule phist:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/phist.tsv"
     conda: "envs/env_phist.yaml"
+    container:  CONTAINERS.get("phist")
     threads: THREADS
     params:
         bins_dir    = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",

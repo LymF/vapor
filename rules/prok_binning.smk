@@ -31,6 +31,7 @@ rule metabat2:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/metabat2.tsv"
     conda: "envs/env_binning.yaml"
+    container:  CONTAINERS.get("metabat2")
     threads: THREADS
     params:
         outdir = f"{OUTDIR}/{{sample}}/bins/metabat2",
@@ -69,6 +70,7 @@ rule vamb:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/vamb.tsv"
     conda: "envs/env_binning.yaml"
+    container:  CONTAINERS.get("vamb")
     threads: THREADS
     params:
         outdir = f"{OUTDIR}/{{sample}}/bins/vamb",
@@ -110,6 +112,7 @@ rule semibin2:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/semibin2.tsv"
     conda: "envs/env_binning.yaml"
+    container:  CONTAINERS.get("semibin")
     threads: THREADS
     params:
         outdir = f"{OUTDIR}/{{sample}}/bins/semibin2",
@@ -151,6 +154,7 @@ rule comebin:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/comebin.tsv"
     conda: "envs/env_comebin.yaml"
+    container:  CONTAINERS.get("comebin")
     threads: THREADS
     params:
         outdir  = f"{OUTDIR}/{{sample}}/bins/comebin",
@@ -273,6 +277,7 @@ rule binette:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/binette.tsv"
     conda: "envs/env_binette.yaml"
+    container:  CONTAINERS.get("binette")
     threads: THREADS
     params:
         s2b_dir = f"{OUTDIR}/{{sample}}/bins/scaffold2bin",
@@ -336,6 +341,7 @@ rule checkm2:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/checkm2.tsv"
     conda: "envs/env_checkm2.yaml"
+    container:  CONTAINERS.get("checkm2")
     threads: THREADS
     params:
         bins_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
@@ -384,6 +390,7 @@ rule gtdbtk:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/gtdbtk.tsv"
     conda: "envs/env_gtdbtk.yaml"
+    container:  CONTAINERS.get("gtdbtk")
     threads: THREADS
     params:
         bins_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",

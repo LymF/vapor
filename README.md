@@ -39,7 +39,16 @@ vapor/
 │   ├── genome_map_universal.py  # circular genome maps (phage / virus / prok)
 │   ├── compute_diversity.py     # alpha, beta diversity, Procrustes
 │   ├── make_votu_table.py       # consolidated vOTU summary table
-│   └── generate_report.py       # standalone Plotly HTML report
+│   ├── generate_report.py       # standalone Plotly HTML report
+│   └── pin_containers.py        # resolve quay.io tags → containers.lock.yaml
+│
+├── containers.yaml              ← container version definitions (edit to update)
+├── containers.lock.yaml         ← resolved quay.io URIs (generated, commit this)
+│
+├── docker/                      ← custom Dockerfiles for tools without official images
+│   ├── Dockerfile.genome-map    # pycirclize + matplotlib + biopython
+│   ├── Dockerfile.medaka-gpu    # medaka with CUDA (optional GPU mode)
+│   └── Dockerfile.comebin-gpu   # COMEBin with PyTorch CUDA (optional GPU mode)
 │
 └── envs/                        ← reproducible conda environment definitions
     ├── env_qc.yaml
@@ -67,16 +76,46 @@ vapor/
 
 ## Running the pipeline
 
-```bash
-# Activate the Snakemake environment (required)
-conda activate snakemake
+VAPOR supports two execution modes. Both require the `snakemake` conda environment to be active.
 
-# Dry-run — validate the workflow without executing any jobs
+```bash
+conda activate snakemake
+```
+
+### Container mode (default — recommended for production)
+
+Uses Apptainer/Singularity to pull tool images from quay.io/biocontainers.
+Requires `containers.lock.yaml` (generated once with `pin_containers.py`).
+
+```bash
+# One-time setup: resolve exact container tags
+python3 scripts/pin_containers.py
+
+# Dry-run
 vapor --dry-run
 
 # Full execution with 32 cores
 vapor --threads 32
 
+# Enable GPU pass-through (medaka, COMEBin)
+vapor --threads 32 --apptainer-args '--nv'
+```
+
+### Conda mode (development / offline)
+
+Uses conda environments from `envs/*.yaml`. No internet required after env creation.
+
+```bash
+# One-time setup: create all environments
+vapor --create-envs
+
+# Run in conda mode
+vapor --threads 32 --use-conda
+```
+
+### Other commands
+
+```bash
 # Use a custom config file
 vapor --threads 32 --config /path/to/config.yaml
 

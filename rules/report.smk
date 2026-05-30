@@ -67,6 +67,7 @@ rule multiqc:
     benchmark:
         f"{OUTDIR}/benchmarks/multiqc.tsv"
     conda: "envs/env_qc.yaml"
+    container:  CONTAINERS.get("multiqc")
     shell:
         """
         multiqc {OUTDIR} \

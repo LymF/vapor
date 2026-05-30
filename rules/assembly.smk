@@ -28,7 +28,8 @@ rule megahit:
         f"{OUTDIR}/{{sample}}/logs/megahit.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/megahit.tsv"
-    conda: "envs/env_assembly.yaml"
+    conda:      "envs/env_assembly.yaml"
+    container:  CONTAINERS.get("megahit")
     threads: THREADS
     params:
         outdir = f"{OUTDIR}/{{sample}}/assembly/megahit",
@@ -67,7 +68,8 @@ rule metaspades:
         f"{OUTDIR}/{{sample}}/logs/metaspades.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/metaspades.tsv"
-    conda: "envs/env_assembly.yaml"
+    conda:      "envs/env_assembly.yaml"
+    container:  CONTAINERS.get("spades")
     threads: THREADS
     params:
         kmers = f"-k {SPADES_KMER_LIST}" if SPADES_KMERS == "custom" else "",
@@ -100,7 +102,8 @@ rule metaviral_spades:
         f"{OUTDIR}/{{sample}}/logs/metaviral_spades.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/metaviral_spades.tsv"
-    conda: "envs/env_assembly.yaml"
+    conda:      "envs/env_assembly.yaml"
+    container:  CONTAINERS.get("spades")
     threads: THREADS
     params:
         outdir = f"{OUTDIR}/{{sample}}/assembly/metaviral",
@@ -144,7 +147,8 @@ if LONG_READS:
             done  = f"{OUTDIR}/{{sample}}/assembly/lr/flye/done.txt",
         log:   f"{OUTDIR}/{{sample}}/logs/flye_lr.log"
         benchmark: f"{OUTDIR}/{{sample}}/benchmarks/flye_lr.tsv"
-        conda: "envs/env_flye.yaml"
+        conda:      "envs/env_flye.yaml"
+        container:  CONTAINERS.get("flye")
         threads: THREADS
         params:
             outdir  = f"{OUTDIR}/{{sample}}/assembly/lr/flye",
@@ -191,7 +195,8 @@ if LONG_READS:
             done  = f"{OUTDIR}/{{sample}}/assembly/lr/hifiasm/done.txt",
         log:   f"{OUTDIR}/{{sample}}/logs/hifiasm_lr.log"
         benchmark: f"{OUTDIR}/{{sample}}/benchmarks/hifiasm_lr.tsv"
-        conda: "envs/env_flye.yaml"
+        conda:      "envs/env_flye.yaml"
+        container:  CONTAINERS.get("hifiasm")
         threads: THREADS
         params:
             outdir = f"{OUTDIR}/{{sample}}/assembly/lr/hifiasm",
@@ -253,7 +258,8 @@ if LONG_READS:
             done        = f"{OUTDIR}/{{sample}}/assembly/lr/medaka_done.txt",
         log:   f"{OUTDIR}/{{sample}}/logs/medaka_lr.log"
         benchmark: f"{OUTDIR}/{{sample}}/benchmarks/medaka_lr.tsv"
-        conda: "envs/env_medaka.yaml"
+        conda:      "envs/env_medaka.yaml"
+        container:  CONTAINERS.get("medaka")
         threads: THREADS
         params:
             model       = LR_MEDAKA_MODEL,
@@ -311,7 +317,8 @@ if LONG_READS:
             done  = f"{OUTDIR}/{{sample}}/assembly/lr/metaMDBG/done.txt",
         log:   f"{OUTDIR}/{{sample}}/logs/metaMDBG_lr.log"
         benchmark: f"{OUTDIR}/{{sample}}/benchmarks/metaMDBG_lr.tsv"
-        conda: "envs/env_assembly.yaml"
+        conda:      "envs/env_assembly.yaml"
+        container:  CONTAINERS.get("metamdbg")
         threads: THREADS
         params:
             outdir = f"{OUTDIR}/{{sample}}/assembly/lr/metaMDBG",
@@ -375,7 +382,8 @@ if LONG_READS:
             done   = f"{OUTDIR}/{{sample}}/assembly/lr/merged/done.txt",
         log:   f"{OUTDIR}/{{sample}}/logs/merge_lr.log"
         benchmark: f"{OUTDIR}/{{sample}}/benchmarks/merge_lr.tsv"
-        conda: "envs/env_assembly.yaml"
+        conda:      "envs/env_assembly.yaml"
+        container:  CONTAINERS.get("mmseqs2")
         params:
             scripts_dir = SCRIPTS_DIR,
         shell:

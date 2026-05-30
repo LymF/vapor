@@ -25,6 +25,7 @@ rule coverm_viral:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/coverm_viral.tsv"
     conda: "envs/env_coverm.yaml"
+    container:  CONTAINERS.get("coverm")
     threads: THREADS
     params:
         method = COVERM_METHOD,
@@ -75,6 +76,7 @@ rule coverm_prok:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/coverm_prok.tsv"
     conda: "envs/env_coverm.yaml"
+    container:  CONTAINERS.get("coverm")
     threads: THREADS
     params:
         method  = COVERM_METHOD,

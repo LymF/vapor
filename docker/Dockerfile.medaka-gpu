@@ -1,0 +1,19 @@
+# Dockerfile.medaka-gpu
+# GPU-accelerated Medaka for ONT long-read polishing.
+# Uses the official ONT medaka image which includes CUDA support.
+#
+# Build:
+#   docker build -f docker/Dockerfile.medaka-gpu \
+#       -t ghcr.io/LymF/vapor-medaka-gpu:2.2.0 .
+#   docker push ghcr.io/LymF/vapor-medaka-gpu:2.2.0
+#
+# Enable in vapor.py with --use-gpu flag (sets USE_GPU=True in config).
+# The medaka_lr rule selects ghcr.io/LymF/vapor-medaka-gpu when USE_GPU=True.
+
+FROM ontresearch/medaka:v2.2.0
+
+LABEL org.opencontainers.image.source="https://github.com/LymF/vapor"
+LABEL org.opencontainers.image.description="VAPOR medaka GPU image (ONT official base)"
+LABEL org.opencontainers.image.version="2.2.0"
+
+CMD ["/bin/bash"]

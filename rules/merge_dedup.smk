@@ -84,7 +84,8 @@ rule mmseqs2:
         f"{OUTDIR}/{{sample}}/logs/mmseqs2.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/mmseqs2.tsv"
-    conda: "envs/env_assembly.yaml"
+    conda:      "envs/env_assembly.yaml"
+    container:  CONTAINERS.get("mmseqs2")
     threads: THREADS
     params:
         prefix = f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}",

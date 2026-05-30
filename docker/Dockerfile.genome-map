@@ -1,0 +1,22 @@
+# Dockerfile.genome-map
+# Custom image for VAPOR circular genome map rules.
+# Combines pycirclize + matplotlib + biopython in a single container.
+#
+# Build and push to GHCR:
+#   docker build -f docker/Dockerfile.genome-map -t ghcr.io/LymF/vapor-genome-map:1.0 .
+#   docker push ghcr.io/LymF/vapor-genome-map:1.0
+#
+# Versions must match envs/env_annotation.yaml.
+
+FROM quay.io/biocontainers/pycirclize:1.10.1--pyh7e72e81_0
+
+LABEL org.opencontainers.image.source="https://github.com/LymF/vapor"
+LABEL org.opencontainers.image.description="VAPOR genome map tools: pycirclize + matplotlib + biopython"
+LABEL org.opencontainers.image.version="1.0"
+
+RUN conda install -n base -c conda-forge -c bioconda --no-deps -y \
+        "matplotlib-base>=3.9" \
+        "biopython=1.87" \
+    && conda clean -afy
+
+CMD ["/bin/bash"]

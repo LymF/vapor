@@ -11,10 +11,11 @@ Follow the steps in order — database downloads are the most time-consuming par
 2. [Install Miniforge3](#2-install-miniforge3)
 3. [Install Snakemake](#3-install-snakemake)
 4. [Create conda environments](#4-create-conda-environments)
-5. [Install databases](#5-install-databases)
-6. [Optional: custom Diamond databases](#6-optional-custom-diamond-databases)
-7. [Configure config.yaml](#7-configure-configyaml)
-8. [Verify installation](#8-verify-installation)
+5. [Install Apptainer (container mode)](#5-install-apptainer-container-mode)
+6. [Install databases](#6-install-databases)
+7. [Optional: custom Diamond databases](#7-optional-custom-diamond-databases)
+8. [Configure config.yaml](#8-configure-configyaml)
+9. [Verify installation](#9-verify-installation)
 
 ---
 
@@ -152,7 +153,66 @@ mamba create -n env_coverm -c conda-forge -c bioconda \
 
 ---
 
-## 5. Install databases
+## 5. Install Apptainer (container mode)
+
+Container mode is the recommended way to run VAPOR for reproducibility and publication.
+Skip this section if you plan to use conda mode only (`vapor --use-conda`).
+
+### Install Apptainer
+
+```bash
+# Ubuntu 22.04 / Debian 12
+sudo apt-get update
+sudo apt-get install -y software-properties-common
+sudo add-apt-repository -y ppa:apptainer/ppa
+sudo apt-get update
+sudo apt-get install -y apptainer
+
+apptainer --version   # should print 1.1+
+
+# Create singularity → apptainer symlink (for Snakemake compatibility)
+sudo ln -sf $(which apptainer) /usr/local/bin/singularity
+```
+
+### Resolve container tags
+
+Run this once from the VAPOR directory to query quay.io/biocontainers and generate
+`containers.lock.yaml` with the exact image tags for each tool:
+
+```bash
+conda activate snakemake
+python3 scripts/pin_containers.py
+```
+
+The lock file should be committed to the repository so all users get identical images.
+
+### Build custom images (optional)
+
+For genome maps (pycirclize + matplotlib + biopython) and GPU-accelerated tools:
+
+```bash
+# Circular genome maps
+docker build -f docker/Dockerfile.genome-map \
+    -t ghcr.io/LymF/vapor-genome-map:1.0 .
+docker push ghcr.io/LymF/vapor-genome-map:1.0
+
+# GPU medaka (requires NVIDIA Docker runtime)
+docker build -f docker/Dockerfile.medaka-gpu \
+    -t ghcr.io/LymF/vapor-medaka-gpu:2.2.0 .
+docker push ghcr.io/LymF/vapor-medaka-gpu:2.2.0
+
+# GPU COMEBin
+docker build -f docker/Dockerfile.comebin-gpu \
+    -t ghcr.io/LymF/vapor-comebin-gpu:1.0.4 .
+docker push ghcr.io/LymF/vapor-comebin-gpu:1.0.4
+```
+
+After pushing, update the corresponding entries in `containers.yaml` and re-run
+`scripts/pin_containers.py`.
+
+---
+
+## 6. Install databases
 
 Set a base directory for all databases:
 
@@ -296,7 +356,7 @@ conda deactivate
 
 ---
 
-## 6. Optional: custom Diamond databases
+## 7. Optional: custom Diamond databases
 
 Custom databases allow classifying contigs and bins not covered by primary databases.
 
@@ -321,7 +381,7 @@ conda deactivate
 
 ---
 
-## 7. Configure config.yaml
+## 8. Configure config.yaml
 
 ```yaml
 # Input / output
@@ -357,7 +417,7 @@ custom_prok_meta:  ""
 
 ---
 
-## 8. Verify installation
+## 9. Verify installation
 
 ```bash
 conda activate snakemake

@@ -28,6 +28,7 @@ rule virsorter2:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/virsorter2.tsv"
     conda: "envs/env_viral.yaml"
+    container:  CONTAINERS.get("virsorter")
     threads: THREADS
     shell:
         """
@@ -57,6 +58,7 @@ rule genomad:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/genomad.tsv"
     conda: "envs/env_genomad.yaml"
+    container:  CONTAINERS.get("genomad")
     threads: THREADS
     params:
         outdir = f"{OUTDIR}/{{sample}}/viral/genomad",
@@ -95,6 +97,7 @@ rule vibrant:
     log:   f"{OUTDIR}/{{sample}}/logs/vibrant.log"
     benchmark: f"{OUTDIR}/{{sample}}/benchmarks/vibrant.tsv"
     conda: "envs/phage_vibrant.yaml"
+    container:  CONTAINERS.get("vibrant")
     threads: THREADS
     params:
         outdir   = f"{OUTDIR}/{{sample}}/viral/vibrant",

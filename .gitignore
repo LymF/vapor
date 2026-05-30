@@ -36,8 +36,14 @@ skills-lock.json
 
 # ── Projeto separado (VAPOR CLI wrapper) ─────────────────────────────
 vapor/
-vapor.py
 pyproject.toml
+
+# ── Containers ────────────────────────────────────────────────────────
+# containers.lock.yaml SHOULD be committed (pins exact image tags)
+# Apptainer image cache — large SIF files, do not commit
+.apptainer/
+singularity/
+*.sif
 
 # ── Misc ──────────────────────────────────────────────────────────────
 *.svg

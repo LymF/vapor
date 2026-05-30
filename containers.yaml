@@ -1,0 +1,184 @@
+# containers.yaml — VAPOR container definitions
+#
+# Each entry maps a pipeline key to the tool's bioconda package name and version.
+# Run once to resolve exact quay.io tags and generate containers.lock.yaml:
+#
+#   python3 scripts/pin_containers.py
+#   python3 scripts/pin_containers.py --check   # verify existing lock
+#
+# Rules use CONTAINERS.get("key") loaded from containers.lock.yaml.
+# If the lock file is absent, all container: directives resolve to null
+# and Snakemake falls back to --use-conda automatically.
+#
+# GPU-capable tools (medaka, comebin) have optional GPU Dockerfiles
+# in docker/. Build and push them to GHCR before using --use-gpu.
+
+# ── QC ─────────────────────────────────────────────────────────────────
+fastp:
+  image: fastp
+  version: "1.3.3"
+
+quast:
+  image: quast
+  version: "5.3.0"
+
+multiqc:
+  image: multiqc
+  version: "1.33"
+
+# ── Long-read QC ────────────────────────────────────────────────────────
+nanoplot:
+  image: nanoplot
+  version: "1.46.2"
+
+filtlong:
+  image: filtlong
+  version: "0.3.1"
+
+porechop_abi:
+  image: porechop_abi
+  version: "0.5.1"
+
+# ── Assembly ────────────────────────────────────────────────────────────
+megahit:
+  image: megahit
+  version: "1.2.9"
+
+spades:
+  image: spades
+  version: "4.2.0"
+
+mmseqs2:
+  image: mmseqs2
+  version: "18.8cc5c"
+
+metamdbg:
+  image: metamdbg
+  version: "1.4"
+
+# ── Long-read assembly ──────────────────────────────────────────────────
+flye:
+  image: flye
+  version: "2.9.6"
+
+hifiasm:
+  image: hifiasm
+  version: "0.25.0"
+
+medaka:
+  image: medaka
+  version: "2.2.0"
+  # GPU variant: docker/Dockerfile.medaka-gpu → ghcr.io/LymF/vapor-medaka-gpu:2.2.0
+
+# ── Mapping ─────────────────────────────────────────────────────────────
+bwa_mem2:
+  image: bwa-mem2
+  version: "2.3"
+
+minimap2:
+  image: minimap2
+  version: "2.30"
+
+samtools:
+  image: samtools
+  version: "1.23"
+
+# ── Viral detection ─────────────────────────────────────────────────────
+virsorter:
+  image: virsorter
+  version: "2.2.4"
+
+checkv:
+  image: checkv
+  version: "1.0.3"
+
+diamond:
+  image: diamond
+  version: "2.1.8"
+
+prodigal:
+  image: prodigal
+  version: "2.6.3"
+
+genomad:
+  image: genomad
+  version: "1.11.2"
+
+vibrant:
+  image: vibrant
+  version: "1.0.1"
+
+# ── Viral binning ───────────────────────────────────────────────────────
+vrhyme:
+  image: vrhyme
+  version: "1.1.0"
+
+# ── Prokaryotic binning ─────────────────────────────────────────────────
+metabat2:
+  image: metabat2
+  version: "2.18"
+
+vamb:
+  image: vamb
+  version: "5.0.4"
+
+semibin:
+  image: semibin
+  version: "2.2.1"
+
+comebin:
+  image: comebin
+  version: "1.0.4"
+  # GPU variant: docker/Dockerfile.comebin-gpu → ghcr.io/LymF/vapor-comebin-gpu:1.0.4
+
+binette:
+  image: binette
+  version: "1.2.1"
+
+checkm2:
+  image: checkm2
+  version: "1.1.0"
+
+gtdbtk:
+  image: gtdbtk
+  version: "2.6.1"
+
+# ── Host prediction ─────────────────────────────────────────────────────
+phist:
+  image: phist
+  version: "1.0.0"
+
+# ── Taxonomy ────────────────────────────────────────────────────────────
+vcontact3:
+  image: vcontact3
+  version: "3.1.6"
+
+# ── Annotation ──────────────────────────────────────────────────────────
+pharokka:
+  image: pharokka
+  version: "1.9.1"
+
+phold:
+  image: phold
+  version: "1.2.5"
+
+bakta:
+  image: bakta
+  version: "1.12.0"
+
+eggnog_mapper:
+  image: eggnog-mapper
+  version: "2.1.13"
+
+# Custom multi-tool image for circular genome maps (pycirclize + matplotlib + biopython).
+# Built from docker/Dockerfile.genome-map and pushed to GHCR.
+# Run: docker build -t ghcr.io/LymF/vapor-genome-map:1.0 docker/Dockerfile.genome-map
+genome_map:
+  image: "ghcr.io/LymF/vapor-genome-map"
+  version: "1.0"
+  custom: true
+
+# ── Abundance ───────────────────────────────────────────────────────────
+coverm:
+  image: coverm
+  version: "0.7.0"

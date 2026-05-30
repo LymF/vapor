@@ -39,6 +39,7 @@ rule pharokka:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/pharokka.tsv"
     conda: "envs/env_annotation.yaml"
+    container:  CONTAINERS.get("pharokka")
     threads: THREADS
     params:
         outdir   = f"{OUTDIR}/{{sample}}/annotation/pharokka",
@@ -157,6 +158,7 @@ rule phold:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/phold.tsv"
     conda: "envs/env_annotation.yaml"
+    container:  CONTAINERS.get("phold")
     threads: THREADS
     params:
         outdir = f"{OUTDIR}/{{sample}}/annotation/phold",
@@ -210,6 +212,7 @@ rule bakta:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/bakta.tsv"
     conda: "envs/env_annotation.yaml"
+    container:  CONTAINERS.get("bakta")
     threads: THREADS
     params:
         outdir    = f"{OUTDIR}/{{sample}}/annotation/bakta",
@@ -299,6 +302,7 @@ rule eggnog_prok:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/eggnog_prok.tsv"
     conda: "envs/env_annotation.yaml"
+    container:  CONTAINERS.get("eggnog_mapper")
     threads: THREADS
     params:
         outdir      = f"{OUTDIR}/{{sample}}/annotation/eggnog",
@@ -434,6 +438,7 @@ rule genome_map_phage:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/genome_map_phage.tsv"
     conda: "envs/env_annotation.yaml"
+    container:  CONTAINERS.get("genome_map")
     threads: 1
     params:
         outdir      = f"{OUTDIR}/{{sample}}/annotation/genome_maps/phage",
@@ -475,6 +480,7 @@ rule genome_map_virus:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/genome_map_virus.tsv"
     conda: "envs/env_annotation.yaml"
+    container:  CONTAINERS.get("genome_map")
     threads: 1
     params:
         outdir      = f"{OUTDIR}/{{sample}}/annotation/genome_maps/virus",
@@ -538,6 +544,7 @@ rule genome_map_prok:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/genome_map_prok.tsv"
     conda: "envs/env_annotation.yaml"
+    container:  CONTAINERS.get("genome_map")
     threads: 1
     params:
         outdir      = f"{OUTDIR}/{{sample}}/annotation/genome_maps/prok",
