@@ -1,0 +1,49 @@
+# ── Resultados e dados ────────────────────────────────────────────────
+results/
+results-teste/
+fastqs/
+*.fastq.gz
+*.fq.gz
+*.bam
+*.bai
+*.sam
+
+# ── Snakemake runtime ─────────────────────────────────────────────────
+.snakemake/
+*.log
+logs/
+
+# ── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Documentos internos (não para publicação) ─────────────────────────
+README-old.md
+README-new.md
+ROADMAP.md
+datasets-validacao.md
+docker-tools.md
+tools-parameters.md
+tutorial_docker_singularity_debian.md
+results-reference/
+helps/
+skills-lock.json
+
+# ── Projeto separado (VAPOR CLI wrapper) ─────────────────────────────
+vapor/
+vapor.py
+pyproject.toml
+
+# ── Misc ──────────────────────────────────────────────────────────────
+*.svg
+*.pdf
+*.html
+*.zip
+*.tar.gz
+.DS_Store
+check_containers.sh

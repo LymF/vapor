@@ -1,0 +1,301 @@
+# ══════════════════════════════════════════════════════════════════════
+# Snakefile — Metagenomic + Virome Pipeline
+#
+# PIPELINE OVERVIEW:
+#   FASTQs
+#     └─► Trim Galore / NanoPlot+Filtlong (QC + trimming)
+#           └─► MEGAHIT + metaSPAdes + metaviralSPAdes / Flye + hifiasm (assembly)
+#                 └─► Merge + filter + MMseqs2 (deduplication)
+#                       ├─► QUAST (assembly quality)
+#                       ├─► Viral detection ──► CheckV ──► vRhyme ──► vConTACT3
+#                       │     VirSorter2, GeNomad, VIBRANT
+#                       │
+#                       └─► BWA-MEM2 / minimap2 (read mapping → contigs)
+#                                 └─► depth.txt (coverage per contig)
+#                                       └─► MetaBAT2, VAMB,
+#                                           SemiBin2
+#                                                 └─► Binette
+#                                                       └─► CheckM2
+#                                                             └─► GTDB-Tk
+#                                                                   └─► HTML Report
+#
+# HOW TO RUN:
+#   snakemake -n --use-conda --cores 32        # dry-run
+#   snakemake --use-conda --cores 32           # run
+#   snakemake --dag | dot -Tsvg > dag.svg      # visualise DAG
+#
+# MODULES (rules/):
+#   qc.smk              — BLOCK 1  : FastQC, Trim Galore, NanoPlot, Porechop, Filtlong
+#   assembly.smk        — BLOCK 2  : MEGAHIT, metaSPAdes, metaviralSPAdes, Flye, hifiasm, Medaka
+#   merge_dedup.smk     — BLOCK 3  : merge_contigs, MMseqs2
+#   quast.smk           — BLOCK 4  : QUAST
+#   viral_detection.smk — BLOCK 5  : VS2, GeNomad, VIBRANT, viral_consensus
+#   mapping.smk         — BLOCK 6  : BWA-MEM2, minimap2, calc_depth
+#   viral_binning.smk   — BLOCK 7  : vRhyme, CheckV (×2)
+#   prok_binning.smk    — BLOCK 8  : MetaBAT2, VAMB, SemiBin2, Binette, CheckM2, GTDB-Tk
+#   taxonomy.smk        — BLOCK 9  : Prodigal, Diamond, vConTACT3, viral_taxonomy
+#   host_prediction.smk — BLOCK 10 : PHIST, iPHoP
+#   finalize.smk        — BLOCK 11 : organize_outputs
+#   report.smk          — BLOCK 12/13: generate_report, MultiQC
+# ══════════════════════════════════════════════════════════════════════
+
+import os
+import re
+from pathlib import Path
+
+PIPELINE_DIR = workflow.basedir
+SCRIPTS_DIR  = os.path.join(PIPELINE_DIR, "scripts")
+SCRIPTS_DIR  = os.path.join(PIPELINE_DIR, "scripts")
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  CONFIGURATION — loaded from config.yaml
+#
+#  Edit config.yaml (in your working directory) before running.
+#  Run via the VAPOR CLI:
+#    vapor --dry-run              # validate
+#    vapor --threads 32           # execute
+#    vapor --config my.yaml       # custom config path
+#    vapor -h                     # full help
+#
+#  Or directly with Snakemake (must pass --configfile explicitly):
+#    snakemake --use-conda --cores 32 --configfile config.yaml
+# ══════════════════════════════════════════════════════════════════════
+
+configfile: "config.yaml"
+
+# ── Map config dict → pipeline variables ──────────────────────────────
+FASTQ_DIR            = str(Path(config["fastq_dir"]).expanduser())
+OUTDIR               = str(Path(config["outdir"]).expanduser())
+THREADS              = config["threads"]
+
+SPADES_MEM           = config["spades_mem"]
+SPADES_KMERS         = config["spades_kmers"]
+SPADES_KMER_LIST     = config["spades_kmer_list"]
+
+MEGAHIT_MEM          = config["megahit_mem_gb"] * 1_000_000_000  # bytes
+MEGAHIT_PRESET       = config["megahit_preset"]
+MEGAHIT_CUSTOM_PARAMS = config["megahit_custom_params"]
+
+MIN_CONTIG           = config["min_contig"]
+MIN_SEQ_ID           = config["min_seq_id"]
+
+CHECKV_DB            = config["checkv_db"]
+VS2_DB               = config["vs2_db"]
+_VIBRANT_BASE        = config["vibrant_base"]
+GENOMAD_DB           = config["genomad_db"]
+CHECKM2_DB           = config["checkm2_db"]
+INPHARED_DB          = config["inphared_db"]
+VCONTACT3_DB         = config["vcontact3_db"]
+VCONTACT3_VER        = config["vcontact3_ver"]
+GTDBTK_DB            = config["gtdbtk_db"]
+
+CUSTOM_VIRAL_DMND    = config["custom_viral_dmnd"]
+CUSTOM_VIRAL_META    = config["custom_viral_meta"]
+CUSTOM_PROK_DMND     = config["custom_prok_dmnd"]
+CUSTOM_PROK_META     = config["custom_prok_meta"]
+
+SEMIBIN_ENV          = config["semibin_env"]
+
+MIN_VIRAL_TOOLS      = config["min_viral_tools"]
+VIRAL_CONSENSUS_MODE = config["viral_consensus_mode"]
+SCORE_VS2_MIN        = config["score_vs2_min"]
+SCORE_GENOMAD_MIN    = config["score_genomad_min"]
+
+LONG_READS           = config["long_reads"]
+LR_TECH              = config["lr_tech"]
+LR_MIN_LEN           = config["lr_min_len"]
+LR_MIN_MEAN_Q        = config["lr_min_mean_q"]
+LR_FLYE_OVERLAP      = config["lr_flye_overlap"]
+LR_HIFIASM_HOM       = config["lr_hifiasm_hom"]
+LR_MEDAKA_MODEL      = config["lr_medaka_model"]
+LR_ONT_CHEM          = config["lr_ont_chem"]
+LR_METAMDBG          = config.get("lr_metaMDBG", True)
+
+# metaMDBG is only applicable for HiFi or ONT R10+ (not R9)
+USE_METAMDBG = (
+    LONG_READS and LR_METAMDBG and
+    (LR_TECH == "hifi" or (LR_TECH == "ont" and LR_ONT_CHEM == "hq"))
+)
+
+COMEBIN_ENABLED      = config.get("comebin_enabled", True)
+USE_GPU              = config.get("use_gpu", False)
+COVERM_METHOD        = config.get("coverm_method", "rpkm")
+
+PHAROKKA_DB               = config.get("pharokka_db", "")
+PHOLD_DB                  = config.get("phold_db", "")
+PHAROKKA_MIN_COMPLETENESS = config.get("pharokka_min_completeness", 90.0)
+PHAROKKA_MAX_GENOMES      = config.get("pharokka_max_genomes", 20)
+BAKTA_DB                  = config.get("bakta_db", "")
+BAKTA_MIN_COMPLETENESS    = config.get("bakta_min_completeness", 70.0)
+BAKTA_MAX_CONTAMINATION   = config.get("bakta_max_contamination", 10.0)
+EGGNOG_DB                 = config.get("eggnog_db", "")
+
+GENOME_MAP_TOP_N           = config.get("genome_map_top_n", 5)
+GENOME_MAP_MIN_COMP_VIRAL  = config.get("genome_map_min_completeness_viral", 90.0)
+GENOME_MAP_MIN_COMP_PROK   = config.get("genome_map_min_completeness_prok", 90.0)
+GENOME_MAP_MAX_CONT_PROK   = config.get("genome_map_max_contamination_prok", 5.0)
+GENOME_MAP_MAX_CONTIGS_PROK = config.get("genome_map_max_contigs_prok", 5)
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  SAMPLE DISCOVERY
+#  SR: paired *_R1*/*_R2* FASTQs | LR: single-end *.fastq.gz / *.fq.gz
+# ══════════════════════════════════════════════════════════════════════
+
+def find_samples(fastq_dir, long_reads=False):
+    samples = {}
+    fq_dir = Path(fastq_dir).expanduser()
+    if long_reads:
+        patterns = ["*.fastq.gz", "*.fq.gz", "*.fastq", "*.fq"]
+        seen = set()
+        for pat in patterns:
+            for f in sorted(fq_dir.glob(pat)):
+                sample = re.sub(r"\.f(ast)?q(\.gz)?$", "", f.name)
+                if sample not in seen:
+                    samples[sample] = {"LR": str(f)}
+                    seen.add(sample)
+    else:
+        seen = set()
+        # Support both _R1/_R2 and _1/_2 naming conventions
+        for pattern, tag1, tag2 in [
+            ("*_R1*.f*q.gz", "_R1", "_R2"),
+            ("*_1.f*q.gz",   "_1.", "_2."),
+        ]:
+            for r1 in sorted(fq_dir.glob(pattern)):
+                sample = re.sub(r"_R1.*|_1\.f.*", "", r1.name)
+                if sample in seen:
+                    continue
+                r2_name = re.sub(re.escape(tag1), tag2, r1.name, count=1)
+                r2 = fq_dir / r2_name
+                if r2.exists():
+                    samples[sample] = {"R1": str(r1), "R2": str(r2)}
+                    seen.add(sample)
+    return samples
+
+SAMPLES = find_samples(FASTQ_DIR, long_reads=LONG_READS)
+if not SAMPLES:
+    mode = "long read (single-end)" if LONG_READS else "paired short read"
+    raise ValueError(f"No {mode} FASTQs found in {FASTQ_DIR}")
+
+print(f"[Snakemake] Samples ({'LR' if LONG_READS else 'SR'}): {list(SAMPLES.keys())}")
+
+# Pre-create logs/ directories — Snakemake creates output dirs automatically
+# but NOT log dirs, which causes redirect failures on first run.
+_outdir_expanded = Path(OUTDIR).expanduser()
+for _s in SAMPLES:
+    (_outdir_expanded / _s / "logs").mkdir(parents=True, exist_ok=True)
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  MODULE INCLUDES
+#  Order matters only within a module — cross-module rule references
+#  (rules.X.output.Y) work because all modules are loaded before execution.
+# ══════════════════════════════════════════════════════════════════════
+
+include: "rules/qc.smk"
+include: "rules/assembly.smk"
+include: "rules/merge_dedup.smk"
+include: "rules/quast.smk"
+include: "rules/viral_detection.smk"
+include: "rules/mapping.smk"
+include: "rules/viral_binning.smk"
+include: "rules/prok_binning.smk"
+include: "rules/taxonomy.smk"
+include: "rules/host_prediction.smk"
+include: "rules/abundance.smk"
+include: "rules/annotation.smk"
+include: "rules/finalize.smk"
+include: "rules/report.smk"
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  RULEORDER — must live in the main Snakefile so Snakemake resolves
+#  ambiguity between minimap2_lr and bwa_mem before building the DAG.
+# ══════════════════════════════════════════════════════════════════════
+
+if LONG_READS:
+    ruleorder: minimap2_lr > bwa_mem
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  RULE ALL — final targets
+# ══════════════════════════════════════════════════════════════════════
+
+rule all:
+    input:
+        # ── QC ────────────────────────────────────────────────────────
+        *(expand(f"{OUTDIR}/{{sample}}/qc_raw/done.txt",
+                 sample=SAMPLES) if not LONG_READS else []),
+        *(expand(f"{OUTDIR}/{{sample}}/qc_lr/nanoplot_done.txt",
+                 sample=SAMPLES) if LONG_READS else []),
+
+        # ── Assembly ──────────────────────────────────────────────────
+        expand(f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta",
+               sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/quast/report.tsv",
+               sample=SAMPLES),
+        *(expand(f"{OUTDIR}/{{sample}}/assembly/lr/merged/done.txt",
+                 sample=SAMPLES) if LONG_READS else []),
+
+        # ── Viral detection ───────────────────────────────────────────
+        expand(f"{OUTDIR}/{{sample}}/viral/virsorter2/final-viral-combined.fa",
+               sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/genomad/done.txt",           sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/vibrant/done.txt",           sample=SAMPLES),
+
+        # ── Viral QC ──────────────────────────────────────────────────
+        expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_consensus.fasta",
+               sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_tool_support.tsv",
+               sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/checkv/quality_summary.tsv",                         sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/vrhyme/done.txt",                                     sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme/quality_summary.tsv",                 sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_nonredundant.fasta",     sample=SAMPLES),
+
+        # ── Mapping ───────────────────────────────────────────────────
+        expand(f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",    sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/mapping/{{sample}}_depth.txt",     sample=SAMPLES),
+        *(expand(f"{OUTDIR}/{{sample}}/mapping/bwa_mem_done.txt",
+                 sample=SAMPLES) if not LONG_READS else []),
+
+        # ── Prokaryote binning ────────────────────────────────────────
+        expand(f"{OUTDIR}/{{sample}}/bins/metabat2/done.txt",           sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/vamb/done.txt",               sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/semibin2/done.txt",           sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/comebin/done.txt",            sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/binette/done.txt",            sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/checkm2/quality_report.tsv",  sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/done.txt",             sample=SAMPLES),
+
+        # ── vOTU table ────────────────────────────────────────────────
+        expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv",      sample=SAMPLES),
+
+        # ── Taxonomy + host prediction ────────────────────────────────
+        expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",           sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/custom_viral_done.txt",       sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/done.txt",          sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/done.txt",                   sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/phist/done.txt",                       sample=SAMPLES),
+
+        # ── Abundance + Diversity ─────────────────────────────────────
+        expand(f"{OUTDIR}/{{sample}}/abundance/viral_abundance.tsv",     sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/abundance/prok_abundance.tsv",      sample=SAMPLES),
+        f"{OUTDIR}/diversity/diversity_done.txt",
+
+        # ── Annotation ────────────────────────────────────────────────
+        expand(f"{OUTDIR}/{{sample}}/annotation/pharokka/done.txt",      sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/annotation/phold/done.txt",         sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/annotation/bakta/done.txt",         sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/annotation/eggnog/done.txt",        sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/annotation/kegg_decoder/done.txt",  sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/phage_maps_done.txt", sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/virus_maps_done.txt", sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/prok_maps_done.txt",  sample=SAMPLES),
+
+        # ── Final outputs ─────────────────────────────────────────────
+        expand(f"{OUTDIR}/{{sample}}/final/done.txt",                    sample=SAMPLES),
+        f"{OUTDIR}/benchmarks/pipeline_timing_summary.tsv",
+        f"{OUTDIR}/report.html",
+        *([ f"{OUTDIR}/multiqc_report/multiqc_report.html" ] if not LONG_READS else []),

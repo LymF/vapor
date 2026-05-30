@@ -1,0 +1,106 @@
+# ══════════════════════════════════════════════════════════════════════
+# VAPOR — Viral And Prokaryotic genOme Recovery
+# config.yaml — edit this file before running the pipeline
+#
+# Run:
+#   vapor --dry-run          # validate
+#   vapor --threads 32       # execute
+#   vapor -h                 # full help
+# ══════════════════════════════════════════════════════════════════════
+
+# ── I/O ────────────────────────────────────────────────────────────────
+fastq_dir: "~/analyses/fastq-teste/"
+outdir:    "~/analyses/fastq-teste/results"
+threads:   32
+
+# ── Assembly — SPAdes ──────────────────────────────────────────────────
+spades_mem:       250          # RAM limit in GB
+spades_kmers:     "default"   # "default" | "custom"
+spades_kmer_list: "21,33,55,77,99,127"  # used only when spades_kmers = "custom"
+
+# ── Assembly — MEGAHIT ────────────────────────────────────────────────
+megahit_mem_gb:       32       # RAM limit in GB (converted to bytes internally)
+megahit_preset:       "default"  # "default" | "meta-sensitive" | "meta-large" | "custom"
+megahit_custom_params: ""      # used only when megahit_preset = "custom"
+                               # e.g. "--k-list 21,29,39,59,79,99,119,141 --k-step 10"
+
+# ── Contig filtering / deduplication ──────────────────────────────────
+min_contig: 3000    # bp — minimum contig length post-assembly
+min_seq_id: 0.95    # MMseqs2 clustering identity (0–1)
+
+# ── Databases ──────────────────────────────────────────────────────────
+checkv_db:   "/media/nas1/LITRP.DBs/metagenDBs/checkv/checkv-db-v1.5"
+vs2_db:      "/media/nas1/LITRP.DBs/metagenDBs/virsorter2"
+vibrant_base: "/media/nas1/LITRP.DBs/metagenDBs/vibrant-1.0.1"
+genomad_db:  "/media/nas1/LITRP.DBs/metagenDBs/genomad/genomad_db"
+checkm2_db:  "/media/nas1/LITRP.DBs/metagenDBs/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
+inphared_db: "/media/nas1/LITRP.DBs/metagenDBs/inphared"
+vcontact3_db: "/media/nas1/LITRP.DBs/metagenDBs/vcontact3"
+vcontact3_ver: "230"
+gtdbtk_db:   "/media/nas1/LITRP.DBs/metagenDBs/gtdbtk/release226"
+
+# ── Custom Diamond databases (leave "" to skip) ────────────────────────
+# Prepare with: python3 scripts/prepare_diamond_db.py
+custom_viral_dmnd: "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916.dmnd"
+custom_viral_meta: "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916_meta.tsv"
+custom_prok_dmnd:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916.dmnd"
+custom_prok_meta:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916_meta.tsv"
+
+# ── Binning ─────────────────────────────────────────────────────────────
+semibin_env: "global"   # soil | ocean | gut | wastewater | global
+
+# ── Viral consensus ─────────────────────────────────────────────────────
+# 3 tools: VirSorter2, GeNomad, VIBRANT
+min_viral_tools:      2      # >= N tools must agree (count/hybrid mode)
+viral_consensus_mode: "score"  # "count" | "score" | "hybrid"
+score_vs2_min:        0.5
+score_genomad_min:    0.5
+# VIBRANT: binary lytic/lysogenic call = high confidence (no numeric score)
+
+# ── Long read mode ──────────────────────────────────────────────────────
+# Set long_reads: true to use NanoPlot/Filtlong/Flye/hifiasm/minimap2.
+# All downstream steps (viral, binning, taxonomy) remain unchanged.
+long_reads:      false       # true for long read metagenomics
+lr_tech:         "ont"       # "ont" (Nanopore) | "hifi" (PacBio HiFi/CCS)
+lr_min_len:      3000        # Filtlong minimum read length (bp)
+lr_min_mean_q:   10          # Filtlong minimum mean quality (ONT only)
+lr_flye_overlap: 3000        # metaFlye --min-overlap (bp)
+lr_hifiasm_hom:  0.01        # hifiasm-meta --hom-cov (0 = auto)
+lr_medaka_model: "auto"      # "auto" = --bacteria | or explicit model string
+lr_ont_chem:     "hq"        # "hq" = R10/Q20+ | "raw" = R9 legacy
+lr_metaMDBG:     true        # add metaMDBG as 3rd LR assembler (HiFi or ONT R10+)
+                             # automatically skipped for ONT R9 (lr_ont_chem: "raw")
+
+# ── GPU acceleration ────────────────────────────────────────────────────
+# Enables GPU for all tools that support it:
+#   VAMB       — --cuda          (PyTorch VAE; large speedup on binning)
+#   SemiBin2   — --engine gpu    (PyTorch; large speedup on training)
+#   COMEBin    — CUDA_VISIBLE_DEVICES=0 (PyTorch transformer; very large speedup)
+#   GeNomad    — auto (PyTorch NN classifier re-enabled; moderate speedup)
+# Requires: NVIDIA GPU + CUDA drivers + PyTorch with CUDA in each conda env.
+# Leave false if no GPU is available — all tools fall back to CPU gracefully.
+use_gpu: false
+
+# ── Prokaryotic binning — extra binner ─────────────────────────────────
+comebin_enabled: true        # add COMEBin as 4th binner (rank 1 in 2025 benchmark)
+                             # requires more RAM; GPU highly recommended (see use_gpu)
+
+# ── Abundance normalisation ─────────────────────────────────────────────
+coverm_method: "rpkm"        # rpkm | tpm | mean | covered_fraction
+
+# ── Annotation ─────────────────────────────────────────────────────────
+pharokka_db:              "/media/nas1/LITRP.DBs/metagenDBs/pharokka"
+phold_db:                 "/media/nas1/LITRP.DBs/metagenDBs/phold_db"
+pharokka_min_completeness: 90.0   # % CheckV completeness to include in annotation
+pharokka_max_genomes:      20     # top N phages per sample for Pharokka+Phold
+bakta_db:                 "/media/nas1/LITRP.DBs/metagenDBs/bakta/db"
+bakta_min_completeness:   70.0   # % CheckM2 completeness threshold for MAG annotation
+bakta_max_contamination:  10.0   # % CheckM2 contamination threshold for MAG annotation
+eggnog_db:                "/media/nas1/LITRP.DBs/metagenDBs/eggnog"
+
+# ── Genome maps (annotation/genome_maps/) ──────────────────────────────
+genome_map_top_n:                   5     # max maps per category per sample
+genome_map_min_completeness_viral: 90.0  # % CheckV completeness (phage + virus modes)
+genome_map_min_completeness_prok:  90.0  # % CheckM2 completeness (prok mode)
+genome_map_max_contamination_prok:  5.0  # % CheckM2 contamination threshold
+genome_map_max_contigs_prok:         5   # max contigs per MAG (skip fragmented genomes)

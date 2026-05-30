@@ -1,0 +1,166 @@
+# ══════════════════════════════════════════════════════════════════════
+# rules/qc.smk — BLOCK 1: Quality Control
+#
+# Short reads : fastp (adapter trimming + QC report in one step)
+# Long reads  : nanoplot_lr → porechop_lr → filtlong_lr
+#
+# All variables (OUTDIR, THREADS, LONG_READS, …) come from the main
+# Snakefile namespace — no imports needed.
+# ══════════════════════════════════════════════════════════════════════
+
+
+# ── Short read QC ─────────────────────────────────────────────────────
+
+rule fastp:
+    """
+    Adapter trimming + quality filtering + QC report with fastp.
+    Replaces FastQC + Trim Galore with a single multi-threaded step.
+    Outputs:
+      - trimmed paired FASTQs used by all assemblers
+      - JSON report consumed by MultiQC and generate_report.py
+      - HTML report for manual inspection
+    """
+    input:
+        r1 = lambda wc: SAMPLES[wc.sample]["R1"],
+        r2 = lambda wc: SAMPLES[wc.sample]["R2"],
+    output:
+        tr1  = f"{OUTDIR}/{{sample}}/trimmed/{{sample}}_R1_fastp.fq.gz",
+        tr2  = f"{OUTDIR}/{{sample}}/trimmed/{{sample}}_R2_fastp.fq.gz",
+        json = f"{OUTDIR}/{{sample}}/qc_raw/{{sample}}_fastp.json",
+        html = f"{OUTDIR}/{{sample}}/qc_raw/{{sample}}_fastp.html",
+        done = f"{OUTDIR}/{{sample}}/qc_raw/done.txt",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/fastp.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/fastp.tsv"
+    conda: "envs/env_qc.yaml"
+    threads: min(THREADS, 16)
+    shell:
+        """
+        mkdir -p {OUTDIR}/{wildcards.sample}/trimmed \
+                 {OUTDIR}/{wildcards.sample}/qc_raw
+        fastp \
+            -i {input.r1} -I {input.r2} \
+            -o {output.tr1} -O {output.tr2} \
+            --json {output.json} \
+            --html {output.html} \
+            --thread {threads} \
+            --detect_adapter_for_pe \
+            --qualified_quality_phred 20 \
+            --length_required 50 \
+            --low_complexity_filter \
+            --complexity_threshold 30 \
+            2> {log}
+        touch {output.done}
+        """
+
+
+# ── Long read QC ──────────────────────────────────────────────────────
+# Rules below are only active when LONG_READS=True.
+
+if LONG_READS:
+
+    rule nanoplot_lr:
+        """Long read QC with NanoPlot. Replaces FastQC for long reads."""
+        input:
+            reads = (
+                lambda wc: SAMPLES[wc.sample]["LR"]
+                if LONG_READS else []
+            ),
+        output:
+            done = f"{OUTDIR}/{{sample}}/qc_lr/nanoplot_done.txt",
+        log:   f"{OUTDIR}/{{sample}}/logs/nanoplot_lr.log"
+        benchmark: f"{OUTDIR}/{{sample}}/benchmarks/nanoplot_lr.tsv"
+        conda: "envs/env_lr_utils.yaml"
+        threads: min(THREADS, 8)
+        params:
+            outdir = f"{OUTDIR}/{{sample}}/qc_lr",
+        shell:
+            """
+            if [ "{LONG_READS}" != "True" ]; then touch {output.done}; exit 0; fi
+            mkdir -p {params.outdir}
+            # NanoPlot accepts space-separated list of fastq files
+            READS=$(echo {input.reads} | tr '\n' ' ')
+            NanoPlot \
+                --fastq $READS \
+                --outdir {params.outdir} \
+                --threads {threads} \
+                --N50 \
+                --loglength \
+                --tsv_stats \
+                --plots dot \
+                --drop_outliers \
+                > {log} 2>&1
+            touch {output.done}
+            """
+
+    rule porechop_lr:
+        """ONT adapter removal with Porechop_ABI. Skipped for HiFi."""
+        input:
+            reads = (
+                lambda wc: SAMPLES[wc.sample]["LR"]
+                if LONG_READS else []
+            ),
+        output:
+            trimmed = f"{OUTDIR}/{{sample}}/lr_trimmed/{{sample}}_porechop.fastq.gz",
+        log:   f"{OUTDIR}/{{sample}}/logs/porechop_lr.log"
+        benchmark: f"{OUTDIR}/{{sample}}/benchmarks/porechop_lr.tsv"
+        conda: "envs/env_lr_utils.yaml"
+        threads: THREADS
+        shell:
+            """
+            if [ "{LONG_READS}" != "True" ] || [ "{LR_TECH}" != "ont" ]; then
+                mkdir -p $(dirname {output.trimmed})
+                cat {input.reads} > {output.trimmed}; exit 0
+            fi
+            mkdir -p $(dirname {output.trimmed})
+            # --no_split: keep chimeric reads intact (split in Filtlong instead)
+            porechop_abi \
+                --input {input.reads} \
+                --output {output.trimmed} \
+                --threads {threads} \
+                --no_split \
+                > {log} 2>&1
+            """
+
+    rule filtlong_lr:
+        """Quality/length filtering with Filtlong. Applies to both ONT and HiFi."""
+        input:
+            reads = (
+                f"{OUTDIR}/{{sample}}/lr_trimmed/{{sample}}_porechop.fastq.gz"
+                if LR_TECH == "ont" and LONG_READS
+                else f"{OUTDIR}/{{sample}}/lr_filtered/{{sample}}_placeholder.fastq.gz"
+            ),
+        output:
+            filtered = f"{OUTDIR}/{{sample}}/lr_filtered/{{sample}}_filtered.fastq.gz",
+        log:   f"{OUTDIR}/{{sample}}/logs/filtlong_lr.log"
+        benchmark: f"{OUTDIR}/{{sample}}/benchmarks/filtlong_lr.tsv"
+        conda: "envs/env_lr_utils.yaml"
+        threads: 2
+        params:
+            min_len      = LR_MIN_LEN,
+            min_mean_q   = LR_MIN_MEAN_Q,
+            min_window_q = 5,
+            keep_pct     = 90,
+        shell:
+            """
+            if [ "{LONG_READS}" != "True" ]; then
+                mkdir -p $(dirname {output.filtered})
+                cp {input.reads} {output.filtered}; exit 0
+            fi
+            mkdir -p $(dirname {output.filtered})
+            if [ "{LR_TECH}" = "ont" ]; then
+                # ONT: filter by length + mean quality + window quality
+                filtlong \
+                    --min_length {params.min_len} \
+                    --min_mean_q {params.min_mean_q} \
+                    --min_window_q {params.min_window_q} \
+                    --keep_percent {params.keep_pct} \
+                    {input.reads} 2> {log} | gzip > {output.filtered}
+            else
+                # HiFi: already Q20+, only filter by length
+                filtlong \
+                    --min_length {params.min_len} \
+                    {input.reads} 2> {log} | gzip > {output.filtered}
+            fi
+            """

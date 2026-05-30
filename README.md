@@ -1,0 +1,215 @@
+# VAPOR — Viral And Prokaryotic mOdular pipelineR
+
+Pipeline Snakemake modular para metagenômica e viromica.
+Suporta **short reads (Illumina PE)** e **long reads (ONT / PacBio HiFi)**.
+
+---
+
+## Estrutura do projeto
+
+```
+vapor/
+│
+├── Snakefile                    ← configuração + includes + rule all
+├── config.yaml                  ← todos os parâmetros editáveis
+│
+├── rules/                       ← módulos (um por bloco funcional)
+│   ├── qc.smk                   # BLOCO 1  — fastp, NanoPlot, Porechop_ABI, Filtlong
+│   ├── assembly.smk             # BLOCO 2  — MEGAHIT, metaSPAdes, metaviralSPAdes,
+│   │                            #            Flye, hifiasm, Medaka, metaMDBG
+│   ├── merge_dedup.smk          # BLOCO 3  — merge_contigs, MMseqs2
+│   ├── quast.smk                # BLOCO 4  — QUAST
+│   ├── viral_detection.smk      # BLOCO 5  — VirSorter2, GeNomad, VIBRANT, consensus
+│   ├── mapping.smk              # BLOCO 6  — BWA-MEM2 / minimap2, calc_depth
+│   ├── viral_binning.smk        # BLOCO 7  — CheckV, vRhyme, CheckV(vRhyme)
+│   ├── prok_binning.smk         # BLOCO 8  — MetaBAT2, VAMB, SemiBin2, COMEBin,
+│   │                            #            Binette, CheckM2, GTDB-Tk
+│   ├── taxonomy.smk             # BLOCO 9  — Prodigal, Diamond, vConTACT3
+│   ├── host_prediction.smk      # BLOCO 10 — PHIST
+│   ├── annotation.smk           # BLOCO 11 — Pharokka, Phold, Bakta, EggNOG, genome maps
+│   ├── abundance.smk            # BLOCO 12 — CoverM (viral + prok), diversidade
+│   ├── finalize.smk             # BLOCO 13 — organize_outputs, benchmarks
+│   └── report.smk               # BLOCO 14 — relatório HTML Plotly, MultiQC
+│
+├── scripts/                     ← scripts Python auxiliares
+│   ├── filter_checkv_hq.py      # filtra FASTA viral para vConTACT3
+│   ├── merge_lr_assemblies.py   # funde Flye + hifiasm + metaMDBG
+│   ├── prepare_diamond_db.py    # prepara Diamond DB + metadata TSV
+│   ├── split_viral_fastas.py    # divide FASTA viral em per-genome para PHIST
+│   ├── genome_map_universal.py  # mapas circulares de genomas (phage/virus/prok)
+│   ├── compute_diversity.py     # alpha, beta, Procrustes
+│   ├── make_votu_table.py       # tabela vOTU consolidada
+│   └── generate_report.py       # relatório HTML Plotly standalone
+│
+└── envs/                        ← ambientes conda (YAML reprodutíveis)
+    ├── env_qc.yaml
+    ├── env_assembly.yaml        # inclui MMseqs2 + metaMDBG
+    ├── env_flye.yaml            # inclui hifiasm + hifiasm_meta
+    ├── env_medaka.yaml
+    ├── env_lr_utils.yaml
+    ├── env_mapping.yaml
+    ├── env_viral.yaml
+    ├── env_genomad.yaml
+    ├── phage_vibrant.yaml
+    ├── env_vrhyme.yaml
+    ├── env_binning.yaml
+    ├── env_comebin.yaml
+    ├── env_binette.yaml
+    ├── env_checkm2.yaml
+    ├── env_gtdbtk.yaml
+    ├── env_phist.yaml
+    ├── env_annotation.yaml      # inclui mapas circulares (pycirclize)
+    ├── env_vcontact3.yaml
+    └── env_coverm.yaml          # inclui diversidade (numpy + scipy)
+```
+
+---
+
+## Como rodar
+
+```bash
+# Ativar Snakemake
+conda activate snakemake
+
+# Dry-run (verificar DAG sem executar)
+snakemake -n --use-conda --cores 32
+
+# Executar
+snakemake --use-conda --cores 32
+
+# Visualizar DAG
+snakemake --dag | dot -Tsvg > dag.svg
+
+# Forçar re-execução de uma regra
+snakemake --use-conda --cores 32 --forcerun viral_consensus
+
+# Rodar até um target específico
+snakemake --use-conda --cores 32 \
+    results/sample1/viral/taxonomy/taxonomy_done.txt
+```
+
+---
+
+## Configuração
+
+Edite **`config.yaml`** — todos os parâmetros estão centralizados ali.
+Não é necessário editar os arquivos `.smk`.
+
+### Parâmetros principais
+
+| Variável | Descrição |
+|---|---|
+| `fastq_dir` | Diretório com os FASTQs de entrada |
+| `outdir` | Diretório de saída |
+| `threads` | Número de threads padrão |
+| `min_contig` | Tamanho mínimo de contig (bp) |
+| `long_reads` | `true` para dados de long read |
+| `lr_tech` | `"ont"` ou `"hifi"` |
+| `viral_consensus_mode` | `"count"` / `"score"` / `"hybrid"` |
+| `min_viral_tools` | Mínimo de ferramentas para consenso viral |
+| `use_gpu` | `true` para ativar GPU em VAMB, SemiBin2, COMEBin, GeNomad |
+
+### Bancos de dados
+
+```yaml
+checkv_db:    "/path/to/checkv-db-v1.5"
+vs2_db:       "/path/to/virsorter2"
+genomad_db:   "/path/to/genomad_db"
+vibrant_base: "/path/to/vibrant-1.0.1"
+checkm2_db:   "/path/to/uniref100.KO.1.dmnd"
+inphared_db:  "/path/to/inphared"
+vcontact3_db: "/path/to/vcontact3"
+gtdbtk_db:    "/path/to/gtdbtk/release226"
+pharokka_db:  "/path/to/pharokka"
+phold_db:     "/path/to/phold_db"
+bakta_db:     "/path/to/bakta/db"
+eggnog_db:    "/path/to/eggnog"
+
+# Opcional — deixar "" para pular
+custom_viral_dmnd: ""
+custom_viral_meta: ""
+custom_prok_dmnd:  ""
+custom_prok_meta:  ""
+```
+
+---
+
+## Ambientes conda
+
+Todos os ambientes são definidos em `envs/*.yaml` para reprodutibilidade.
+Criar todos de uma vez:
+
+```bash
+snakemake --use-conda --cores 1 --create-envs-only
+```
+
+| Ambiente | Ferramentas principais |
+|---|---|
+| `env_qc` | fastp, quast, multiqc |
+| `env_assembly` | megahit, spades, metaMDBG, mmseqs2 |
+| `env_flye` | flye, hifiasm, hifiasm_meta |
+| `env_medaka` | medaka (ONT polishing) |
+| `env_lr_utils` | nanoplot, porechop_abi, filtlong |
+| `env_mapping` | bwa-mem2, minimap2, samtools |
+| `env_viral` | virsorter2, checkv, prodigal, diamond |
+| `env_genomad` | genomad |
+| `phage_vibrant` | vibrant |
+| `env_vrhyme` | vrhyme |
+| `env_binning` | metabat2, vamb, semibin2 |
+| `env_comebin` | comebin |
+| `env_binette` | binette |
+| `env_checkm2` | checkm2 |
+| `env_gtdbtk` | gtdb-tk |
+| `env_phist` | phist, kmer-db |
+| `env_annotation` | pharokka, phold, bakta, eggnog-mapper, pycirclize |
+| `env_vcontact3` | vcontact3 |
+| `env_coverm` | coverm, numpy, scipy |
+
+---
+
+## Hub central: `rep_seq.fasta`
+
+As sequências representativas deduplificadas (`{sample}_rep_seq.fasta`, geradas pelo MMseqs2 a 95% de identidade) servem como referência central para todas as análises downstream: detecção viral, mapeamento, binning, taxonomia e predição de hospedeiro.
+
+---
+
+## Scripts auxiliares
+
+### `prepare_diamond_db.py`
+```bash
+# IMG NR (viral)
+python3 scripts/prepare_diamond_db.py \
+    --faa img_nr.faa --format img \
+    --img-tax taxonOId2Taxonomy.tsv \
+    --filter-domain Viruses \
+    --out /path/to/img_viral --threads 32
+
+# NCBI RefSeq viral
+python3 scripts/prepare_diamond_db.py \
+    --faa viral.protein.faa --format ncbi \
+    --out /path/to/refseq_viral --threads 32
+```
+
+### `filter_checkv_hq.py`
+```bash
+python3 scripts/filter_checkv_hq.py \
+    quality_summary.tsv viral_consensus.fasta hq_viral.fasta
+```
+
+### `split_viral_fastas.py`
+```bash
+python3 scripts/split_viral_fastas.py \
+    viral_consensus.fasta vrhyme_dir/ output_fastas_dir/
+```
+
+---
+
+## Requisitos de sistema
+
+| Componente | Mínimo | Recomendado |
+|---|---|---|
+| OS | Linux (Ubuntu 20.04+) | Ubuntu 22.04 LTS |
+| CPU | 16 cores | 32–64 cores |
+| RAM | 64 GB | 128–256 GB |
+| Disco (bancos) | 400 GB | 600 GB |
+| Disco (resultados) | 200 GB / projeto | SSD preferencial |
