@@ -155,7 +155,7 @@ mamba create -n env_coverm -c conda-forge -c bioconda \
 
 ## 5. Install Apptainer (container mode)
 
-Container mode is the recommended way to run VAPOR for reproducibility and publication.
+Container mode is the recommended way to run VAPOR for reproducibility and portability.
 Skip this section if you plan to use conda mode only (`vapor --use-conda`).
 
 ### Install Apptainer
@@ -174,41 +174,22 @@ apptainer --version   # should print 1.1+
 sudo ln -sf $(which apptainer) /usr/local/bin/singularity
 ```
 
-### Resolve container tags
+### Populate the container lock file
 
-Run this once from the VAPOR directory to query quay.io/biocontainers and generate
-`containers.lock.yaml` with the exact image tags for each tool:
+Run once from the VAPOR directory. The script queries quay.io/biocontainers to
+resolve the exact image tag for each tool and writes `containers.lock.yaml`.
+All images — including custom ones published on GHCR — are already built and
+available; this step only downloads the lock file metadata, not the images themselves
+(those are pulled on first use by Apptainer).
 
 ```bash
 conda activate snakemake
 python3 scripts/pin_containers.py
 ```
 
-The lock file should be committed to the repository so all users get identical images.
-
-### Build custom images (optional)
-
-For genome maps (pycirclize + matplotlib + biopython) and GPU-accelerated tools:
-
-```bash
-# Circular genome maps
-docker build -f docker/Dockerfile.genome-map \
-    -t ghcr.io/LymF/vapor-genome-map:1.0 .
-docker push ghcr.io/LymF/vapor-genome-map:1.0
-
-# GPU medaka (requires NVIDIA Docker runtime)
-docker build -f docker/Dockerfile.medaka-gpu \
-    -t ghcr.io/LymF/vapor-medaka-gpu:2.2.0 .
-docker push ghcr.io/LymF/vapor-medaka-gpu:2.2.0
-
-# GPU COMEBin
-docker build -f docker/Dockerfile.comebin-gpu \
-    -t ghcr.io/LymF/vapor-comebin-gpu:1.0.4 .
-docker push ghcr.io/LymF/vapor-comebin-gpu:1.0.4
-```
-
-After pushing, update the corresponding entries in `containers.yaml` and re-run
-`scripts/pin_containers.py`.
+> **Note:** `containers.lock.yaml` is committed to the repository and updated
+> with each VAPOR release, so in most cases you can skip this step and use the
+> lock file that ships with the code.
 
 ---
 
