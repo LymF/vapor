@@ -25,7 +25,7 @@ rule quast:
         f"{OUTDIR}/{{sample}}/logs/quast.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/quast.tsv"
-    conda:      "envs/env_qc.yaml"
+    conda:      "../envs/env_qc.yaml"
     container:  CONTAINERS.get("quast")
     threads: THREADS
     params:

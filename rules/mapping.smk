@@ -19,7 +19,7 @@ rule bwa_index:
         f"{OUTDIR}/{{sample}}/logs/bwa_index.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/bwa_index.tsv"
-    conda:      "envs/env_mapping.yaml"
+    conda:      "../envs/env_mapping.yaml"
     container:  CONTAINERS.get("bwa_mem2")
     params:
         prefix = f"{OUTDIR}/{{sample}}/mapping/contigs_index"
@@ -49,7 +49,7 @@ rule bwa_mem:
         f"{OUTDIR}/{{sample}}/logs/bwa_mem.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/bwa_mem.tsv"
-    conda:      "envs/env_mapping.yaml"
+    conda:      "../envs/env_mapping.yaml"
     container:  CONTAINERS.get("bwa_mem2")
     threads: THREADS
     params:
@@ -91,7 +91,7 @@ if LONG_READS:
             stats = f"{OUTDIR}/{{sample}}/mapping/flagstat.txt",
         log:   f"{OUTDIR}/{{sample}}/logs/minimap2_lr.log"
         benchmark: f"{OUTDIR}/{{sample}}/benchmarks/minimap2_lr.tsv"
-        conda:      "envs/env_mapping.yaml"
+        conda:      "../envs/env_mapping.yaml"
         container:  CONTAINERS.get("minimap2")
         threads: THREADS
         shell:
@@ -127,7 +127,7 @@ rule calc_depth:
         f"{OUTDIR}/{{sample}}/logs/calc_depth.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/calc_depth.tsv"
-    conda:      "envs/env_mapping.yaml"
+    conda:      "../envs/env_mapping.yaml"
     container:  CONTAINERS.get("metabat2")
     shell:
         """

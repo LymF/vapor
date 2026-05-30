@@ -33,7 +33,7 @@ rule fastp:
         f"{OUTDIR}/{{sample}}/logs/fastp.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/fastp.tsv"
-    conda:      "envs/env_qc.yaml"
+    conda:      "../envs/env_qc.yaml"
     container:  CONTAINERS.get("fastp")
     threads: min(THREADS, 16)
     shell:
@@ -72,7 +72,7 @@ if LONG_READS:
             done = f"{OUTDIR}/{{sample}}/qc_lr/nanoplot_done.txt",
         log:   f"{OUTDIR}/{{sample}}/logs/nanoplot_lr.log"
         benchmark: f"{OUTDIR}/{{sample}}/benchmarks/nanoplot_lr.tsv"
-        conda:      "envs/env_lr_utils.yaml"
+        conda:      "../envs/env_lr_utils.yaml"
         container:  CONTAINERS.get("nanoplot")
         threads: min(THREADS, 8)
         params:
@@ -107,7 +107,7 @@ if LONG_READS:
             trimmed = f"{OUTDIR}/{{sample}}/lr_trimmed/{{sample}}_porechop.fastq.gz",
         log:   f"{OUTDIR}/{{sample}}/logs/porechop_lr.log"
         benchmark: f"{OUTDIR}/{{sample}}/benchmarks/porechop_lr.tsv"
-        conda:      "envs/env_lr_utils.yaml"
+        conda:      "../envs/env_lr_utils.yaml"
         container:  CONTAINERS.get("porechop_abi")
         threads: THREADS
         shell:
@@ -138,7 +138,7 @@ if LONG_READS:
             filtered = f"{OUTDIR}/{{sample}}/lr_filtered/{{sample}}_filtered.fastq.gz",
         log:   f"{OUTDIR}/{{sample}}/logs/filtlong_lr.log"
         benchmark: f"{OUTDIR}/{{sample}}/benchmarks/filtlong_lr.tsv"
-        conda:      "envs/env_lr_utils.yaml"
+        conda:      "../envs/env_lr_utils.yaml"
         container:  CONTAINERS.get("filtlong")
         threads: 2
         params:
