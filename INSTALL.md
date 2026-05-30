@@ -1,38 +1,38 @@
-# Guia de Instalação — VAPOR
+# Installation Guide — VAPOR
 
-Este guia cobre a instalação de todas as dependências e bancos de dados necessários.
-Siga os passos em ordem — o download dos bancos é a etapa mais demorada (~400 GB no total).
-
----
-
-## Índice
-
-1. [Requisitos de sistema](#1-requisitos-de-sistema)
-2. [Instalar Miniforge3](#2-instalar-miniforge3)
-3. [Instalar Snakemake](#3-instalar-snakemake)
-4. [Criar ambientes conda](#4-criar-ambientes-conda)
-5. [Instalar bancos de dados](#5-instalar-bancos-de-dados)
-6. [Bancos Diamond customizados (opcional)](#6-bancos-diamond-customizados-opcional)
-7. [Configurar config.yaml](#7-configurar-configyaml)
-8. [Verificar instalação](#8-verificar-instalação)
+This guide covers installing all software dependencies and databases required by the pipeline.
+Follow the steps in order — database downloads are the most time-consuming part (~400 GB total).
 
 ---
 
-## 1. Requisitos de sistema
+## Table of Contents
 
-| Componente | Mínimo | Recomendado |
+1. [System requirements](#1-system-requirements)
+2. [Install Miniforge3](#2-install-miniforge3)
+3. [Install Snakemake](#3-install-snakemake)
+4. [Create conda environments](#4-create-conda-environments)
+5. [Install databases](#5-install-databases)
+6. [Optional: custom Diamond databases](#6-optional-custom-diamond-databases)
+7. [Configure config.yaml](#7-configure-configyaml)
+8. [Verify installation](#8-verify-installation)
+
+---
+
+## 1. System requirements
+
+| Component | Minimum | Recommended |
 |---|---|---|
 | OS | Linux (Ubuntu 20.04+) | Ubuntu 22.04 LTS |
 | CPU | 16 cores | 32–64 cores |
 | RAM | 64 GB | 128–256 GB |
-| Disco (bancos) | 400 GB | 600 GB |
-| Disco (resultados) | 200 GB / projeto | SSD preferencial |
+| Disk (databases) | 400 GB | 600 GB |
+| Disk (results) | 200 GB / project | SSD preferred |
 
-> **Nota de memória:** metaSPAdes usa 80–150 GB RAM para metagenomas grandes. vConTACT3 pode usar 30–60 GB. Planeje de acordo.
+> **Memory note:** metaSPAdes routinely uses 80–150 GB RAM for large metagenomes. vConTACT3 can use 30–60 GB. Plan accordingly.
 
 ---
 
-## 2. Instalar Miniforge3
+## 2. Install Miniforge3
 
 ```bash
 curl -L -O https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
@@ -44,30 +44,32 @@ source ~/.bashrc
 
 ---
 
-## 3. Instalar Snakemake
+## 3. Install Snakemake
+
+Snakemake must run in its own dedicated environment.
 
 ```bash
 mamba create -n snakemake -c conda-forge -c bioconda \
     "snakemake>=8.0" python=3.11 -y
 conda activate snakemake
-snakemake --version   # deve imprimir 8.x.x
+snakemake --version   # should print 8.x.x
 ```
 
 ---
 
-## 4. Criar ambientes conda
+## 4. Create conda environments
 
-Os ambientes são definidos nos YAMLs em `envs/`. O Snakemake pode criá-los automaticamente:
+Environments are defined in `envs/*.yaml`. Snakemake can create them automatically:
 
 ```bash
 conda activate snakemake
 snakemake --use-conda --cores 1 --create-envs-only
 ```
 
-Ou criar manualmente (útil para testar individualmente):
+Or create manually (useful for testing individual environments):
 
 ```bash
-# QC (short reads: fastp, quast, multiqc)
+# Short-read QC
 mamba create -n env_qc -c conda-forge -c bioconda \
     fastp quast multiqc -y
 
@@ -75,11 +77,11 @@ mamba create -n env_qc -c conda-forge -c bioconda \
 mamba create -n env_assembly -c conda-forge -c bioconda \
     megahit spades metamdbg mmseqs2 -y
 
-# Long reads: Flye + hifiasm (merged)
+# Long-read assembly: Flye + hifiasm (merged)
 mamba create -n env_flye -c conda-forge -c bioconda \
     flye hifiasm hifiasm_meta -y
 
-# Medaka — polimento ONT (GPU via CUDA)
+# ONT polishing (GPU via CUDA)
 mamba create -n env_medaka -c conda-forge -c bioconda \
     medaka -y
 
@@ -87,11 +89,11 @@ mamba create -n env_medaka -c conda-forge -c bioconda \
 mamba create -n env_lr_utils -c conda-forge -c bioconda \
     nanoplot filtlong porechop_abi -y
 
-# Mapeamento
+# Read mapping
 mamba create -n env_mapping -c conda-forge -c bioconda \
     bwa-mem2 minimap2 samtools -y
 
-# Detecção viral + taxonomia
+# Viral detection + taxonomy
 mamba create -n env_viral -c conda-forge -c bioconda \
     "virsorter=2" diamond prodigal checkv -y
 
@@ -111,11 +113,11 @@ conda deactivate
 mamba create -n env_vrhyme -c conda-forge -c bioconda \
     vrhyme -y
 
-# Binning prokarioto
+# Prokaryotic binning
 mamba create -n env_binning -c conda-forge -c bioconda \
     metabat2 vamb semibin2 -y
 
-# COMEBin (transformer binner, rank 1 em 2025)
+# COMEBin (transformer-based, rank 1 in 2025 benchmark)
 mamba create -n env_comebin -c conda-forge -c bioconda -c pytorch \
     comebin pytorch -y
 
@@ -135,7 +137,7 @@ mamba create -n env_gtdbtk -c conda-forge -c bioconda \
 mamba create -n env_phist -c conda-forge -c bioconda \
     phist -y
 
-# Anotação (Pharokka + Phold + Bakta + EggNOG + mapas circulares)
+# Annotation (Pharokka + Phold + Bakta + EggNOG + circular genome maps)
 mamba create -n env_annotation -c conda-forge -c bioconda \
     pharokka phold bakta eggnog-mapper pycirclize matplotlib biopython -y
 
@@ -143,16 +145,16 @@ mamba create -n env_annotation -c conda-forge -c bioconda \
 mamba create -n env_vcontact3 -c conda-forge -c bioconda \
     vcontact3 -y
 
-# CoverM + diversidade (alpha, beta, Procrustes)
+# CoverM + diversity (alpha, beta, Procrustes)
 mamba create -n env_coverm -c conda-forge -c bioconda \
     coverm numpy scipy -y
 ```
 
 ---
 
-## 5. Instalar bancos de dados
+## 5. Install databases
 
-Defina um diretório base para todos os bancos:
+Set a base directory for all databases:
 
 ```bash
 DB_BASE="/path/to/your/databases"
@@ -164,7 +166,7 @@ mkdir -p "$DB_BASE"
 ```bash
 conda activate env_checkm2
 checkv download_database "$DB_BASE/checkv"
-# Resultado: $DB_BASE/checkv/checkv-db-v1.5/
+# Output: $DB_BASE/checkv/checkv-db-v1.5/
 conda deactivate
 ```
 
@@ -181,7 +183,7 @@ conda deactivate
 ```bash
 conda activate env_genomad
 genomad download-database "$DB_BASE/genomad"
-# Resultado: $DB_BASE/genomad/genomad_db/
+# Output: $DB_BASE/genomad/genomad_db/
 conda deactivate
 ```
 
@@ -201,6 +203,7 @@ git clone --depth 1 https://github.com/AnantharamanLab/VIBRANT /tmp/vibrant_src
 cp /tmp/vibrant_src/files/* "$DB_BASE/vibrant-1.0.1/files/"
 rm -rf /tmp/vibrant_src
 
+# Press-index HMM databases
 for hmm in "$DB_BASE/vibrant-1.0.1/databases/"*.HMM; do
     hmmpress "$hmm"
 done
@@ -213,7 +216,7 @@ conda deactivate
 mkdir -p "$DB_BASE/inphared"
 cd "$DB_BASE/inphared"
 
-# Verificar a data mais recente em: https://github.com/RyanCook94/inphared
+# Check https://github.com/RyanCook94/inphared for the latest date tag
 DATE="1Feb2024"
 wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_genomes.fa"
 wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_data_excluding_refseq.tsv"
@@ -237,7 +240,7 @@ vcontact3 prepare_database \
     --output "$DB_BASE/vcontact3" \
     --threads 32
 conda deactivate
-# Anotar a versão impressa — configurar VCONTACT3_VER no config.yaml
+# Note the version string printed — set vcontact3_ver in config.yaml accordingly
 ```
 
 ### CheckM2
@@ -245,7 +248,7 @@ conda deactivate
 ```bash
 conda activate env_checkm2
 checkm2 database --download --path "$DB_BASE/checkm2"
-# Resultado: $DB_BASE/checkm2/CheckM2_database/uniref100.KO.1.dmnd
+# Output: $DB_BASE/checkm2/CheckM2_database/uniref100.KO.1.dmnd
 conda deactivate
 ```
 
@@ -293,21 +296,21 @@ conda deactivate
 
 ---
 
-## 6. Bancos Diamond customizados (opcional)
+## 6. Optional: custom Diamond databases
 
-Permitem classificar contigs e bins não cobertos pelos bancos primários.
+Custom databases allow classifying contigs and bins not covered by primary databases.
 
 ```bash
-# IMG NR — subconjunto viral
+# IMG NR — viral subset
 conda activate env_viral
 python3 scripts/prepare_diamond_db.py \
     --faa img_nr.faa --format img \
     --img-tax taxonOId2Taxonomy.tsv \
     --filter-domain Viruses \
     --out "$DB_BASE/img/img_viral" --threads 32
-# Produz: img_viral.dmnd + img_viral_meta.tsv
+# Output: img_viral.dmnd + img_viral_meta.tsv
 
-# IMG NR — subconjunto prokarioto
+# IMG NR — prokaryote subset
 python3 scripts/prepare_diamond_db.py \
     --faa img_nr.faa --format img \
     --img-tax taxonOId2Taxonomy.tsv \
@@ -318,34 +321,34 @@ conda deactivate
 
 ---
 
-## 7. Configurar config.yaml
+## 7. Configure config.yaml
 
 ```yaml
-# Entrada/saída
+# Input / output
 fastq_dir: "fastqs"
 outdir:    "results"
 threads:   32
 
-# Tipo de dado
+# Data type
 long_reads: false
 lr_tech:    "ont"   # "ont" | "hifi"
 
-# Bancos de dados — substituir pelos seus caminhos
-checkv_db:    "/path/to/checkv/checkv-db-v1.5"
-vs2_db:       "/path/to/virsorter2"
-genomad_db:   "/path/to/genomad/genomad_db"
-vibrant_base: "/path/to/vibrant-1.0.1"
-checkm2_db:   "/path/to/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
-gtdbtk_db:    "/path/to/gtdbtk/release226"
-inphared_db:  "/path/to/inphared"
-vcontact3_db: "/path/to/vcontact3"
+# Database paths — update to match your installation
+checkv_db:     "/path/to/checkv/checkv-db-v1.5"
+vs2_db:        "/path/to/virsorter2"
+genomad_db:    "/path/to/genomad/genomad_db"
+vibrant_base:  "/path/to/vibrant-1.0.1"
+checkm2_db:    "/path/to/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
+gtdbtk_db:     "/path/to/gtdbtk/release226"
+inphared_db:   "/path/to/inphared"
+vcontact3_db:  "/path/to/vcontact3"
 vcontact3_ver: "230"
-pharokka_db:  "/path/to/pharokka"
-phold_db:     "/path/to/phold_db"
-bakta_db:     "/path/to/bakta/db"
-eggnog_db:    "/path/to/eggnog"
+pharokka_db:   "/path/to/pharokka"
+phold_db:      "/path/to/phold_db"
+bakta_db:      "/path/to/bakta/db"
+eggnog_db:     "/path/to/eggnog"
 
-# Bancos customizados (opcional — deixar "" para pular)
+# Custom databases — leave "" to skip
 custom_viral_dmnd: ""
 custom_viral_meta: ""
 custom_prok_dmnd:  ""
@@ -354,23 +357,23 @@ custom_prok_meta:  ""
 
 ---
 
-## 8. Verificar instalação
+## 8. Verify installation
 
 ```bash
 conda activate snakemake
 
-# Criar FASTQs de teste
+# Create dummy FASTQs to test sample detection
 mkdir -p fastqs
 touch fastqs/TEST_R1.fastq.gz fastqs/TEST_R2.fastq.gz
 
-# Dry-run
+# Dry run
 snakemake --use-conda --cores 4 --dry-run 2>&1 | tail -20
 
-# Limpar arquivos de teste
+# Clean up
 rm fastqs/TEST_R1.fastq.gz fastqs/TEST_R2.fastq.gz
 ```
 
-### Verificar ambientes individualmente
+### Check individual environments
 
 ```bash
 for env in env_qc env_assembly env_flye env_medaka env_lr_utils \
@@ -384,9 +387,9 @@ done
 
 ---
 
-## Espaço em disco
+## Disk space summary
 
-| Banco | Tamanho aproximado |
+| Database | Approximate size |
 |---|---|
 | CheckV v1.5 | 3 GB |
 | VirSorter2 | 4 GB |
@@ -400,22 +403,22 @@ done
 | Phold | 10 GB |
 | Bakta (full) | 30 GB |
 | EggNOG-mapper | 50 GB |
-| IMG viral (opcional) | 5–20 GB |
-| IMG prokarioto (opcional) | 50–200 GB |
-| **Total (sem customizados)** | **~218 GB** |
+| IMG viral (optional) | 5–20 GB |
+| IMG prokaryote (optional) | 50–200 GB |
+| **Total (without custom)** | **~218 GB** |
 
 ---
 
 ## Troubleshooting
 
-**metaSPAdes sem memória**
-Reduza `spades_mem` no `config.yaml`. Se RAM for o gargalo, use apenas MEGAHIT.
+**metaSPAdes runs out of memory**
+Reduce `spades_mem` in `config.yaml`. If RAM is the bottleneck, use MEGAHIT only.
 
-**VIBRANT: erro `-f older`**
-Este pipeline usa `cd` para o diretório de saída antes de rodar VIBRANT, passando apenas `-f nucl`. Confirme que está usando a versão atual do `Snakefile`.
+**VIBRANT: `-f older` error**
+This pipeline uses `cd` to the output directory before running VIBRANT, passing only `-f nucl` explicitly. Ensure you are using the current version of the `Snakefile`.
 
-**vConTACT3 muito lento**
-Pode levar horas para datasets virais grandes. Rode com `--cores 32` e confirme que `vcontact3_ver` no config.yaml bate com sua versão do banco.
+**vConTACT3 takes too long**
+vConTACT3 can take several hours for large viral datasets. Run with `--cores 32` and confirm that `vcontact3_ver` in `config.yaml` matches your installed database version.
 
-**GTDB-Tk: erro pplacer**
-Confirme que `GTDBTK_DATA_PATH` aponta para o diretório correto e que a versão do banco é compatível com o gtdbtk instalado (`gtdbtk check_install`).
+**GTDB-Tk: pplacer error**
+Confirm that `gtdbtk_db` points to the correct directory and that the database version is compatible with your installed GTDB-Tk (`gtdbtk check_install`).
