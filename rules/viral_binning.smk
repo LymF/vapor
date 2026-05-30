@@ -1,21 +1,154 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/viral_binning.smk — BLOCK 7: Viral Binning and QC
 #
-# checkv       — quality assessment on viral_consensus output
+# cobra        — extend/join viral contigs using metaSPAdes assembly graph
+# checkv       — quality assessment on (cobra_extended | viral_consensus)
 # vrhyme       — groups viral contigs into vMAGs (coverage + protein homology)
 # checkv_vrhyme — quality assessment on vRhyme vMAGs
+# skani_votu   — ICTV vOTU clustering (95% ANI + 85% AF)
 # ══════════════════════════════════════════════════════════════════════
+
+
+def _viral_qc_input(wc):
+    """FASTA used as input to CheckV / vRhyme / vOTU clustering.
+    When COBRA_ENABLED (short reads only) the COBRA-extended FASTA is used;
+    otherwise viral_consensus.fasta passes through unchanged."""
+    if COBRA_ENABLED:
+        return f"{OUTDIR}/{wc.sample}/viral/cobra/cobra_extended.fasta"
+    return f"{OUTDIR}/{wc.sample}/viral/consensus/{wc.sample}_viral_consensus.fasta"
+
+
+rule cobra:
+    """
+    COBRA-meta — extend and join viral contigs using the metaSPAdes assembly
+    graph (Chen et al., Nature Microbiology 2023).
+
+    Constraint: COBRA needs single-assembler contigs whose names match the
+    GFA. Our merged FASTA carries assembler prefixes (MEGAHIT_, SPADES_,
+    METAVIRAL_). This rule operates only on SPADES_-prefixed contigs:
+
+      1. extract SPADES_* viral contigs and strip prefix      → query.fa
+      2. convert jgi depth to 2-col, strip SPADES_ prefix     → coverage.tsv
+      3. run COBRA against metaspades/contigs.fasta (prefix-free)
+      4. re-add SPADES_ prefix to COBRA's extended output
+      5. append the non-SPADES viral contigs unchanged
+
+    Skipped when long_reads: true or cobra_enabled: false (passthrough copy).
+    """
+    input:
+        viral              = rules.viral_consensus.output.fasta,
+        metaspades_contigs = (rules.metaspades.output.contigs if not LONG_READS else []),
+        metaspades_graph   = (rules.metaspades.output.graph   if not LONG_READS else []),
+        depth              = rules.calc_depth.output.depth,
+    output:
+        extended = f"{OUTDIR}/{{sample}}/viral/cobra/cobra_extended.fasta",
+        stats    = f"{OUTDIR}/{{sample}}/viral/cobra/cobra_stats.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/cobra.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/cobra.tsv"
+    conda: "../envs/env_cobra.yaml"
+    container: CONTAINERS.get("cobra_meta")
+    threads: THREADS
+    params:
+        outdir   = f"{OUTDIR}/{{sample}}/viral/cobra",
+        cobra_wd = f"{OUTDIR}/{{sample}}/viral/cobra/cobra_run",
+        mink     = COBRA_MINK,
+        maxk     = COBRA_MAXK,
+        enabled  = COBRA_ENABLED,
+    shell:
+        """
+        mkdir -p {params.outdir}
+        rm -rf {params.cobra_wd}
+
+        if [ "{params.enabled}" != "True" ]; then
+            echo "[cobra] Disabled (long reads or cobra_enabled=false) — passthrough" | tee {log}
+            cp {input.viral} {output.extended}
+            printf "metric\tvalue\nmode\tpassthrough\n" > {output.stats}
+            exit 0
+        fi
+
+        N_TOTAL=$(grep -c '^>' {input.viral} 2>/dev/null || echo 0)
+        N_SPADES=$(grep -c '^>SPADES_' {input.viral} 2>/dev/null || echo 0)
+        N_OTHER=$(( N_TOTAL - N_SPADES ))
+        echo "[cobra] viral_consensus: total=$N_TOTAL SPADES=$N_SPADES other=$N_OTHER" | tee {log}
+
+        if [ "$N_SPADES" -eq 0 ] || [ ! -s "{input.metaspades_contigs}" ]; then
+            echo "[cobra] No SPADES viral contigs or no metaspades assembly — passthrough" | tee -a {log}
+            cp {input.viral} {output.extended}
+            printf "metric\tvalue\nmode\tpassthrough\nn_query_spades\t%s\n" "$N_SPADES" \
+                > {output.stats}
+            exit 0
+        fi
+
+        mkdir -p {params.cobra_wd}
+
+        # 1) SPADES_ viral contigs → strip prefix → query.fa
+        awk 'BEGIN{{w=0}} /^>/{{w=0; if($0 ~ /^>SPADES_/){{sub("^>SPADES_",">"); w=1; print}} next}} \
+             w{{print}}' {input.viral} > {params.cobra_wd}/query.fa
+
+        # 2) jgi depth → 2-col (contig <tab> coverage); only SPADES_ rows, strip prefix
+        awk 'BEGIN{{FS=OFS="\\t"}} NR==1{{next}} \
+             /^SPADES_/ {{sub("^SPADES_",""); print $1, $3}}' {input.depth} \
+             > {params.cobra_wd}/coverage.tsv
+
+        # 3) Run COBRA against the (prefix-free) metaspades contigs
+        cobra-meta \
+            -q {params.cobra_wd}/query.fa \
+            -f {input.metaspades_contigs} \
+            -c {params.cobra_wd}/coverage.tsv \
+            -a metaspades \
+            -mink {params.mink} -maxk {params.maxk} \
+            -o {params.cobra_wd}/out \
+            -t {threads} \
+            >> {log} 2>&1 || echo "[cobra] WARNING: cobra-meta failed" | tee -a {log}
+
+        # 4) Locate COBRA's extended FASTA (filename varies across versions)
+        COBRA_OUT=""
+        for cand in \
+            {params.cobra_wd}/out/COBRA_all_assemblies.fasta \
+            {params.cobra_wd}/out/all.cobra.fasta \
+            {params.cobra_wd}/out/*_extended_*.fasta \
+            {params.cobra_wd}/out/*.new.fasta; do
+            for f in $cand; do
+                [ -f "$f" ] && [ -s "$f" ] && COBRA_OUT="$f" && break 2
+            done
+        done
+
+        if [ -z "$COBRA_OUT" ]; then
+            echo "[cobra] No extended FASTA produced — passthrough" | tee -a {log}
+            cp {input.viral} {output.extended}
+            printf "metric\tvalue\nmode\tpassthrough_failed\nn_query_spades\t%s\n" "$N_SPADES" \
+                > {output.stats}
+            exit 0
+        fi
+
+        # 5) Re-prefix COBRA output, then append non-SPADES viral contigs unchanged
+        awk '/^>/{{sub("^>",">SPADES_"); print; next}} {{print}}' "$COBRA_OUT" \
+            > {output.extended}
+        awk 'BEGIN{{w=0}} /^>/{{w=( $0 !~ /^>SPADES_/ ); if(w) print; next}} w{{print}}' \
+            {input.viral} >> {output.extended}
+
+        N_OUT=$(grep -c '^>' {output.extended} || echo 0)
+        printf "metric\tvalue\n"                       > {output.stats}
+        printf "mode\trun\n"                          >> {output.stats}
+        printf "n_query_spades\t%s\n" "$N_SPADES"     >> {output.stats}
+        printf "n_passthrough_other\t%s\n" "$N_OTHER" >> {output.stats}
+        printf "n_final\t%s\n" "$N_OUT"               >> {output.stats}
+        echo "[cobra] Final extended viral set: $N_OUT contigs" | tee -a {log}
+        """
 
 
 rule checkv:
     """
     CheckV — quality assessment of consensus viral contigs.
     Classifies: Complete / High-quality / Medium-quality / Low-quality / Not-determined.
+    Input is COBRA-extended FASTA when cobra_enabled, else viral_consensus.
     NOTE: always removes output dir before running — CheckV skips gene calling
     if it finds existing files, causing KeyError when contig names changed.
     """
     input:
-        viral = rules.viral_consensus.output.fasta,
+        viral = _viral_qc_input,
     output:
         summary = f"{OUTDIR}/{{sample}}/viral/checkv/quality_summary.tsv",
     log:
@@ -40,12 +173,13 @@ rule checkv:
 rule vrhyme:
     """
     vRhyme — group viral contigs into vMAGs using coverage + protein homology.
+    Input is COBRA-extended FASTA when cobra_enabled, else viral_consensus.
     NOTE: vRhyme creates its output dir itself — fails if it already exists.
           rm -rf before run; mkdir -p after ensures pipeline continues.
     NOTE: exits silently with no output if no contigs pass coverage threshold.
     """
     input:
-        viral    = rules.viral_consensus.output.fasta,
+        viral    = _viral_qc_input,
         bam      = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
         bwa_done = (f"{OUTDIR}/{{sample}}/mapping/bwa_mem_done.txt"
                     if not LONG_READS else []),
@@ -119,14 +253,14 @@ rule viral_nonredundant:
     Non-redundant viral genome set for all downstream analyses.
     Strategy (bins-first):
       1. vRhyme bins  — each bin = one assembled viral genome (may span multiple contigs)
-      2. Unbinned     — contigs from viral_consensus NOT in any vRhyme bin
+      2. Unbinned     — contigs from the viral QC input NOT in any vRhyme bin
     This replaces viral_consensus.fasta in taxonomy, host prediction and vConTACT3
     so that each viral genome is analysed exactly once.
-    CheckV quality from rule checkv (run on viral_consensus.fasta) covers every
-    contig in this set since viral_consensus contains all contig sequences.
+    CheckV quality from rule checkv covers every contig in this set since the
+    QC input contains all contig sequences.
     """
     input:
-        viral = rules.viral_consensus.output.fasta,
+        viral = _viral_qc_input,
         done  = rules.vrhyme.output.done,
     output:
         fasta = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_nonredundant.fasta",
@@ -167,6 +301,66 @@ rule viral_nonredundant:
             lf.write(f'vRhyme bins: {n_bins} ({len(binned)} binned contigs)\n')
             lf.write(f'Unbinned contigs: {n_total - len(binned)}\n')
             lf.write(f'Total non-redundant set: {n_total}\n')
+
+
+rule skani_votu:
+    """
+    skani — pairwise ANI for viral genomes, then ICTV/Roux 2019 vOTU clustering.
+
+    Strategy:
+      1. skani triangle over viral_nonredundant.fasta (per-genome alignment + ANI)
+      2. greedy single-linkage clustering at VOTU_ANI / VOTU_AF (defaults: 95/85)
+      3. emit cluster TSV (representative<TAB>member) and per-vOTU representative FASTA
+
+    Output replaces the MMseqs2 95% identity grouping for vOTU definition only.
+    The MMseqs2 deduplication (rep_seq.fasta) remains the assembly hub.
+    """
+    input:
+        fasta = rules.viral_nonredundant.output.fasta,
+    output:
+        ani      = f"{OUTDIR}/{{sample}}/viral/votu/skani_ani.tsv",
+        clusters = f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/skani_votu.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/skani_votu.tsv"
+    conda: "../envs/env_derep.yaml"
+    container: CONTAINERS.get("skani")
+    threads: THREADS
+    params:
+        outdir      = f"{OUTDIR}/{{sample}}/viral/votu",
+        ani_min     = VOTU_ANI,
+        af_min      = VOTU_AF,
+        enabled     = VOTU_CLUSTERING_ENABLED,
+        scripts_dir = SCRIPTS_DIR,
+    shell:
+        """
+        mkdir -p {params.outdir}
+        if [ "{params.enabled}" != "True" ]; then
+            echo "[skani_votu] Disabled via config" | tee {log}
+            printf "qname\trname\tani\taf_q\taf_r\n" > {output.ani}
+            printf "representative\tmember\n" > {output.clusters}
+            exit 0
+        fi
+        N_SEQ=$(grep -c '^>' {input.fasta} 2>/dev/null || echo 0)
+        if [ "$N_SEQ" -eq 0 ]; then
+            echo "[skani_votu] Empty viral set" | tee {log}
+            printf "qname\trname\tani\taf_q\taf_r\n" > {output.ani}
+            printf "representative\tmember\n" > {output.clusters}
+            exit 0
+        fi
+        # skani triangle: per-pair ANI for all sequences in the FASTA
+        skani triangle \
+            -i {input.fasta} \
+            -o {output.ani} \
+            -t {threads} \
+            --slow \
+            > {log} 2>&1 || echo "[skani_votu] WARNING: triangle failed" | tee -a {log}
+        # Greedy single-linkage clustering at VOTU_ANI / VOTU_AF (helper script)
+        python3 {params.scripts_dir}/skani_cluster_votus.py \
+            {output.ani} {input.fasta} {params.ani_min} {params.af_min} {output.clusters} \
+            >> {log} 2>&1
+        """
 
 
 rule make_votu_table:

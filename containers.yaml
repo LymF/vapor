@@ -113,6 +113,11 @@ vrhyme:
   image: vrhyme
   version: "1.1.0"
 
+# ── Viral contig extension (COBRA-meta) ─────────────────────────────────
+cobra_meta:
+  image: cobra-meta
+  version: "1.2.3"
+
 # ── Prokaryotic binning ─────────────────────────────────────────────────
 metabat2:
   image: metabat2
@@ -142,6 +147,19 @@ checkm2:
 gtdbtk:
   image: gtdbtk
   version: "2.6.1"
+
+# ── MAG chimera detection / dereplication ───────────────────────────────
+gunc:
+  image: gunc
+  version: "1.1.1"
+
+skani:
+  image: skani
+  version: "0.3.1"
+
+galah:
+  image: galah
+  version: "0.4.2"
 
 # ── Host prediction ─────────────────────────────────────────────────────
 phist:

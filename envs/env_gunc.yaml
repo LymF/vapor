@@ -1,0 +1,9 @@
+name: env_gunc
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - gunc=1.1.1
+  - diamond=2.1.11
+  - prodigal=2.6.3

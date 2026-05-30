@@ -179,6 +179,29 @@ GENOME_MAP_MIN_COMP_PROK   = config.get("genome_map_min_completeness_prok", 90.0
 GENOME_MAP_MAX_CONT_PROK   = config.get("genome_map_max_contamination_prok", 5.0)
 GENOME_MAP_MAX_CONTIGS_PROK = config.get("genome_map_max_contigs_prok", 5)
 
+# ── Viral filtering for prokaryotic binning ────────────────────────────
+PROK_FILTER_VIRAL          = config.get("prok_filter_viral", True)
+PROK_FILTER_KEEP_PROVIRUS  = config.get("prok_filter_keep_provirus", True)
+
+# ── COBRA-meta (viral contig extension) ────────────────────────────────
+COBRA_ENABLED   = config.get("cobra_enabled", True) and not LONG_READS
+COBRA_ASSEMBLER = config.get("cobra_assembler", "metaspades")
+COBRA_MINK      = config.get("cobra_mink", 21)
+COBRA_MAXK      = config.get("cobra_maxk", 127)
+
+# ── GUNC chimera detection ─────────────────────────────────────────────
+GUNC_ENABLED = config.get("gunc_enabled", True)
+GUNC_DB      = _expand(config.get("gunc_db", "")) if config.get("gunc_db", "") else ""
+
+# ── vOTU clustering (skani / ICTV) ─────────────────────────────────────
+VOTU_CLUSTERING_ENABLED = config.get("votu_clustering_enabled", True)
+VOTU_ANI                = config.get("votu_ani", 95.0)
+VOTU_AF                 = config.get("votu_af", 85.0)
+
+# ── MAG dereplication (galah) ──────────────────────────────────────────
+MAG_DEREP_ENABLED = config.get("mag_derep_enabled", True)
+MAG_DEREP_ANI     = config.get("mag_derep_ani", 95.0)
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  SAMPLE DISCOVERY
@@ -311,6 +334,20 @@ rule all:
         expand(f"{OUTDIR}/{{sample}}/bins/binette/done.txt",            sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/checkm2/quality_report.tsv",  sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/done.txt",             sample=SAMPLES),
+
+        # ── MAG quality refinement (optional) ─────────────────────────
+        *(expand(f"{OUTDIR}/{{sample}}/bins/gunc/GUNC.progenomes_2.1.maxCSS_level.tsv",
+                 sample=SAMPLES) if GUNC_ENABLED else []),
+        *(expand(f"{OUTDIR}/{{sample}}/bins/derep/done.txt",
+                 sample=SAMPLES) if MAG_DEREP_ENABLED else []),
+
+        # ── COBRA-meta extended viral contigs (SR only) ──────────────
+        *(expand(f"{OUTDIR}/{{sample}}/viral/cobra/cobra_extended.fasta",
+                 sample=SAMPLES) if COBRA_ENABLED else []),
+
+        # ── vOTU clustering (skani) ──────────────────────────────────
+        *(expand(f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv",
+                 sample=SAMPLES) if VOTU_CLUSTERING_ENABLED else []),
 
         # ── vOTU table ────────────────────────────────────────────────
         expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv",      sample=SAMPLES),

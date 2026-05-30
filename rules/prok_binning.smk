@@ -1,28 +1,165 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/prok_binning.smk — BLOCK 8: Prokaryote Binning
 #
+# Pre-binning:
+#   filter_viral_for_prok — remove free-living viral contigs (keep provirus)
+#
 # Binners:
 #   metabat2          — tetranucleotide + coverage
 #   vamb              — Variational Autoencoder (v5 interface)
 #   semibin2          — semi-supervised with environment priors
+#   comebin           — transformer + contrastive learning (optional)
 #
 # Integration:
 #   prepare_scaffold2bin — convert binner outputs to scaffold2bin.tsv
 #   binette              — best-bin selection (successor to DAS Tool)
 #
-# QC + taxonomy:
+# QC + refinement + taxonomy:
 #   checkm2           — completeness / contamination (MIMAG standards)
+#   gunc              — chimera detection (optional)
+#   galah_derep       — CheckM2-aware MAG dereplication by ANI (optional)
 #   gtdbtk            — GTDB taxonomy for MAGs
 # ══════════════════════════════════════════════════════════════════════
+
+
+def _prok_input_contigs(wc):
+    """FASTA used as input to all prok binners.
+    Returns filtered (viral-free, provirus-aware) FASTA when PROK_FILTER_VIRAL
+    is enabled; otherwise falls back to the raw MMseqs2 representative set."""
+    if PROK_FILTER_VIRAL:
+        return f"{OUTDIR}/{wc.sample}/prok_input/{wc.sample}_rep_seq_nonviral.fasta"
+    return f"{OUTDIR}/{wc.sample}/mmseqs/{wc.sample}_rep_seq.fasta"
+
+
+def _gtdbtk_bins_dir(wc):
+    """Bin set passed to GTDB-Tk: dereplicated when galah is enabled."""
+    if MAG_DEREP_ENABLED:
+        return f"{OUTDIR}/{wc.sample}/bins/derep/derep_bins"
+    return f"{OUTDIR}/{wc.sample}/bins/binette/final_bins"
+
+
+rule filter_viral_for_prok:
+    """
+    Remove free-living viral contigs from the prokaryotic binning input.
+
+    Strategy:
+      1. viral_consensus.fasta              → set of viral contigs
+      2. CheckV `provirus=Yes` + GeNomad `|provirus_` suffix → set of provirus contigs
+      3. remove = viral_consensus MINUS provirus     (when keep_provirus=True)
+                = viral_consensus                    (when keep_provirus=False)
+      4. {sample}_rep_seq.fasta MINUS remove → {sample}_rep_seq_nonviral.fasta
+
+    Provirus-bearing contigs stay in the prok input because the provirus
+    region is integrated within a bacterial host contig — removing it would
+    drop the host genome with the prophage. Free-living viruses (no host
+    chromosome context) are removed to clean up MAGs.
+
+    NOTE: mapping/calc_depth STILL uses the unfiltered rep_seq.fasta for
+    statistically correct coverage estimation; only contig→bin assignment
+    uses the filtered FASTA.
+    """
+    input:
+        contigs   = rules.mmseqs2.output.rep,
+        viral     = rules.viral_consensus.output.fasta,
+        checkv    = rules.checkv.output.summary,
+        genomad   = rules.genomad.output.done,
+    output:
+        filtered  = f"{OUTDIR}/{{sample}}/prok_input/{{sample}}_rep_seq_nonviral.fasta",
+        stats     = f"{OUTDIR}/{{sample}}/prok_input/filter_stats.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/filter_viral_for_prok.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/filter_viral_for_prok.tsv"
+    params:
+        keep_provirus = PROK_FILTER_KEEP_PROVIRUS,
+        genomad_dir   = lambda wc: f"{OUTDIR}/{wc.sample}/viral/genomad",
+    run:
+        import os, glob, csv
+
+        viral_set = set()
+        with open(input.viral) as f:
+            for line in f:
+                if line.startswith(">"):
+                    viral_set.add(line[1:].strip().split()[0])
+
+        provirus_set = set()
+        if params.keep_provirus:
+            # CheckV column: provirus=Yes
+            try:
+                with open(input.checkv) as f:
+                    rdr = csv.DictReader(f, delimiter="\t")
+                    for row in rdr:
+                        if (row.get("provirus", "") or "").strip().lower() == "yes":
+                            cid = (row.get("contig_id", "") or "").strip()
+                            if cid:
+                                provirus_set.add(cid)
+            except Exception:
+                pass
+
+            # GeNomad: virus_summary entries with "|provirus_" suffix in seq_name
+            for gf in glob.glob(os.path.join(str(params.genomad_dir),
+                                             "**", "*_virus_summary.tsv"),
+                                recursive=True):
+                try:
+                    with open(gf) as f:
+                        rdr = csv.DictReader(f, delimiter="\t")
+                        for row in rdr:
+                            seq = (row.get("seq_name", "") or "").strip()
+                            if "|provirus_" in seq:
+                                provirus_set.add(seq.split("|")[0])
+                except Exception:
+                    pass
+
+        # Contigs we will remove from the prok input
+        remove_set = viral_set - provirus_set
+
+        os.makedirs(os.path.dirname(output.filtered), exist_ok=True)
+        kept = removed = total = 0
+        with open(input.contigs) as fin, open(output.filtered, "w") as fout:
+            write = False
+            header = None
+            for line in fin:
+                if line.startswith(">"):
+                    if header is not None:
+                        # finalize previous record (already written if write=True)
+                        pass
+                    header = line[1:].strip().split()[0]
+                    total += 1
+                    if header in remove_set:
+                        write = False
+                        removed += 1
+                    else:
+                        write = True
+                        kept += 1
+                        fout.write(line)
+                else:
+                    if write:
+                        fout.write(line)
+
+        with open(output.stats, "w") as s:
+            s.write("metric\tcount\n")
+            s.write(f"total_contigs\t{total}\n")
+            s.write(f"viral_total\t{len(viral_set)}\n")
+            s.write(f"provirus_kept\t{len(provirus_set)}\n")
+            s.write(f"removed\t{removed}\n")
+            s.write(f"kept_for_prok\t{kept}\n")
+
+        with open(log[0], "w") as lf:
+            lf.write(f"Total contigs        : {total}\n")
+            lf.write(f"Viral consensus      : {len(viral_set)}\n")
+            lf.write(f"Provirus (kept)      : {len(provirus_set)}\n")
+            lf.write(f"Removed (viral-only) : {removed}\n")
+            lf.write(f"Kept for prok binning: {kept}\n")
 
 
 rule metabat2:
     """
     MetaBAT2 — tetranucleotide + coverage binning.
     --minContig enforced minimum is 1500 (tool limit) — we use max(MIN_CONTIG, 1500).
+    Input FASTA is viral-filtered when PROK_FILTER_VIRAL is enabled.
     """
     input:
-        contigs = rules.mmseqs2.output.rep,
+        contigs = _prok_input_contigs,
         depth   = rules.calc_depth.output.depth,
     output:
         done = f"{OUTDIR}/{{sample}}/bins/metabat2/done.txt",
@@ -59,9 +196,10 @@ rule vamb:
       - No --bamfiles; requires --abundance_tsv
       - TSV header must be: contigname <TAB> sample_name
     NOTE: VAMB creates its output dir itself — rm -rf before run.
+    Input FASTA is viral-filtered when PROK_FILTER_VIRAL is enabled.
     """
     input:
-        contigs = rules.mmseqs2.output.rep,
+        contigs = _prok_input_contigs,
         depth   = rules.calc_depth.output.depth,
     output:
         done = f"{OUTDIR}/{{sample}}/bins/vamb/done.txt",
@@ -99,9 +237,10 @@ rule semibin2:
     SemiBin2 — semi-supervised binning with environment-specific priors.
     Set SEMIBIN_ENV to match your sample type:
     soil / ocean / gut / wastewater / global (use global if unsure).
+    Input FASTA is viral-filtered when PROK_FILTER_VIRAL is enabled.
     """
     input:
-        contigs  = rules.mmseqs2.output.rep,
+        contigs  = _prok_input_contigs,
         bam      = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
         bwa_done = (f"{OUTDIR}/{{sample}}/mapping/bwa_mem_done.txt"
                     if not LONG_READS else []),
@@ -140,9 +279,10 @@ rule comebin:
     Added as 4th binner alongside MetaBAT2 + VAMB + SemiBin2.
     Binette uses all 4 scaffold2bin files for refined bin selection.
     Set comebin_enabled: false in config.yaml to skip.
+    Input FASTA is viral-filtered when PROK_FILTER_VIRAL is enabled.
     """
     input:
-        contigs  = rules.mmseqs2.output.rep,
+        contigs  = _prok_input_contigs,
         bam      = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
         bai      = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam.bai",
         bwa_done = (f"{OUTDIR}/{{sample}}/mapping/bwa_mem_done.txt"
@@ -265,9 +405,11 @@ rule binette:
     Successor to DAS Tool: faster, better scoring, same scaffold2bin input format.
     Outputs: final_bins/ (FASTA) + binette_results.tsv (quality table).
     Filters scaffold2bin to only contigs present in the assembly (safety check).
+    Uses the viral-filtered FASTA when PROK_FILTER_VIRAL is enabled to keep
+    bin assignment consistent with the binners.
     """
     input:
-        contigs = rules.mmseqs2.output.rep,
+        contigs = _prok_input_contigs,
         s2b     = rules.prepare_scaffold2bin.output.done,
     output:
         done    = f"{OUTDIR}/{{sample}}/bins/binette/done.txt",
@@ -372,15 +514,151 @@ rule checkm2:
         """
 
 
+rule gunc:
+    """
+    GUNC — detect chimeric MAGs by checking taxonomic consistency across
+    Diamond-annotated genes (Orakov et al. 2021).
+    Runs on Binette final_bins in parallel with CheckM2. The report flags
+    chimeras for manual review; bins are NOT auto-excluded here.
+
+    Database (~13 GB) must be downloaded once — see INSTALL.md:
+        gunc download_db -db progenomes <dir>
+    """
+    input:
+        done = rules.binette.output.done,
+    output:
+        merged = f"{OUTDIR}/{{sample}}/bins/gunc/GUNC.progenomes_2.1.maxCSS_level.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/gunc.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/gunc.tsv"
+    conda: "../envs/env_gunc.yaml"
+    container: CONTAINERS.get("gunc")
+    threads: THREADS
+    params:
+        bins_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
+        outdir   = f"{OUTDIR}/{{sample}}/bins/gunc",
+        db       = GUNC_DB,
+        enabled  = GUNC_ENABLED,
+    shell:
+        """
+        mkdir -p {params.outdir}
+        if [ "{params.enabled}" != "True" ]; then
+            echo "[gunc] Disabled via config (gunc_enabled: false)" | tee {log}
+            printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
+            exit 0
+        fi
+        if [ -z "{params.db}" ] || [ ! -e "{params.db}" ]; then
+            echo "[gunc] WARNING: gunc_db not set or missing — skipping" | tee {log}
+            printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
+            exit 0
+        fi
+        N_BINS=$(ls {params.bins_dir}/*.fa 2>/dev/null | wc -l)
+        if [ "$N_BINS" -eq 0 ]; then
+            echo "[gunc] No bins to evaluate" | tee {log}
+            printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
+            exit 0
+        fi
+        gunc run \
+            --input_dir {params.bins_dir} \
+            --out_dir   {params.outdir} \
+            --db_file   {params.db} \
+            --threads   {threads} \
+            --file_suffix .fa \
+            > {log} 2>&1 || echo "[gunc] WARNING: gunc run failed" | tee -a {log}
+        # Locate produced TSV (filename includes DB version)
+        for cand in {params.outdir}/GUNC.progenomes_2.1.maxCSS_level.tsv \
+                    {params.outdir}/GUNC.*.maxCSS_level.tsv; do
+            [ -f "$cand" ] && cp "$cand" {output.merged} && break
+        done
+        [ -f {output.merged} ] || \
+            printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
+        """
+
+
+rule galah_derep:
+    """
+    galah — CheckM2-aware MAG dereplication by ANI (Woodcroft).
+    Clusters Binette final_bins at MAG_DEREP_ANI; keeps the bin with the
+    highest CheckM2 quality score per cluster (completeness − 5×contamination).
+    Output dir feeds GTDB-Tk so taxonomy runs only on representatives.
+    """
+    input:
+        bins_done   = rules.binette.output.done,
+        checkm2_tsv = rules.checkm2.output.report,
+    output:
+        done    = f"{OUTDIR}/{{sample}}/bins/derep/done.txt",
+        cluster = f"{OUTDIR}/{{sample}}/bins/derep/galah_clusters.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/galah_derep.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/galah_derep.tsv"
+    conda: "../envs/env_derep.yaml"
+    container: CONTAINERS.get("galah")
+    threads: THREADS
+    params:
+        bins_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
+        outdir   = f"{OUTDIR}/{{sample}}/bins/derep",
+        repdir   = f"{OUTDIR}/{{sample}}/bins/derep/derep_bins",
+        ani      = MAG_DEREP_ANI,
+        enabled  = MAG_DEREP_ENABLED,
+    shell:
+        """
+        mkdir -p {params.outdir} {params.repdir}
+        if [ "{params.enabled}" != "True" ]; then
+            echo "[galah] Disabled via config — symlinking original bins" | tee {log}
+            # Mirror binette/final_bins into derep_bins for a uniform GTDB-Tk input
+            shopt -s nullglob
+            for fa in {params.bins_dir}/*.fa; do
+                ln -sf "$fa" {params.repdir}/
+            done
+            printf "representative\tmember\n" > {output.cluster}
+            touch {output.done}; exit 0
+        fi
+        shopt -s nullglob
+        BINS=({params.bins_dir}/*.fa)
+        if [ ${{#BINS[@]}} -eq 0 ]; then
+            echo "[galah] No bins to dereplicate" | tee {log}
+            printf "representative\tmember\n" > {output.cluster}
+            touch {output.done}; exit 0
+        fi
+        # galah cluster: pass CheckM2 quality (col 1=Name col 2=Completeness col 3=Contamination)
+        QUAL_TSV={params.outdir}/checkm2_quality.tsv
+        awk 'BEGIN{{FS=OFS="\\t"}} NR==1{{print "genome","completeness","contamination"; next}} \
+             {{print $1".fa",$2,$3}}' {input.checkm2_tsv} > "$QUAL_TSV"
+        galah cluster \
+            --genome-fasta-files "${{BINS[@]}}" \
+            --ani {params.ani} \
+            --checkm2-quality-report "$QUAL_TSV" \
+            --output-cluster-definition {output.cluster} \
+            --output-representative-fasta-directory {params.repdir} \
+            --threads {threads} \
+            > {log} 2>&1 || echo "[galah] WARNING: cluster failed — falling back to original bins" | tee -a {log}
+        # Fallback: if galah produced nothing usable, mirror original bins
+        if [ -z "$(ls {params.repdir}/*.fa 2>/dev/null)" ]; then
+            for fa in {params.bins_dir}/*.fa; do
+                ln -sf "$fa" {params.repdir}/
+            done
+            [ -s {output.cluster} ] || printf "representative\tmember\n" > {output.cluster}
+        fi
+        touch {output.done}
+        """
+
+
 rule gtdbtk:
     """
-    GTDB-Tk classify_wf: assign GTDB taxonomy to Binette MAGs.
+    GTDB-Tk classify_wf: assign GTDB taxonomy to MAGs.
     Replaces NCBI taxonomy for metagenome-assembled genomes.
     Outputs: bac120.summary.tsv + ar53.summary.tsv
     Creates empty outputs if no bins are available (safe fallback).
+
+    Input bins:
+      - MAG_DEREP_ENABLED=True  → bins/derep/derep_bins/   (galah representatives)
+      - MAG_DEREP_ENABLED=False → bins/binette/final_bins/ (all Binette bins)
     """
     input:
-        done = rules.checkm2.output.report,
+        checkm2_done = rules.checkm2.output.report,
+        derep_done   = (rules.galah_derep.output.done if MAG_DEREP_ENABLED else []),
     output:
         done    = f"{OUTDIR}/{{sample}}/bins/gtdbtk/done.txt",
         bac_tsv = f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.bac120.summary.tsv",
@@ -393,7 +671,7 @@ rule gtdbtk:
     container:  CONTAINERS.get("gtdbtk")
     threads: THREADS
     params:
-        bins_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
+        bins_dir = _gtdbtk_bins_dir,
         outdir   = f"{OUTDIR}/{{sample}}/bins/gtdbtk",
     shell:
         """

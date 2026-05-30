@@ -302,6 +302,27 @@ download-db.sh "$DB_BASE/gtdbtk"
 conda deactivate
 ```
 
+### GUNC (chimera detection)
+
+Required only when `gunc_enabled: true` in `config.yaml` (default).
+The progenomes_2.1 DIAMOND database is ~13 GB.
+
+```bash
+mkdir -p "$DB_BASE/gunc"
+conda activate env_gunc
+gunc download_db -db progenomes "$DB_BASE/gunc"
+# Output: $DB_BASE/gunc/gunc_db_progenomes2.1.dmnd
+conda deactivate
+```
+
+Then set in `config.yaml`:
+
+```yaml
+gunc_db: "/path/to/your/databases/gunc/gunc_db_progenomes2.1.dmnd"
+```
+
+To disable GUNC entirely set `gunc_enabled: false`.
+
 ### Pharokka
 
 ```bash

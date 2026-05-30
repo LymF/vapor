@@ -49,6 +49,39 @@ custom_prok_meta:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916_
 # ── Binning ─────────────────────────────────────────────────────────────
 semibin_env: "global"   # soil | ocean | gut | wastewater | global
 
+# Filter viral contigs out of the input to prokaryotic binners.
+# Greatly reduces viral contamination in MAGs while keeping provirus regions
+# attached to their bacterial hosts (provirus-containing contigs are kept).
+prok_filter_viral:         true   # remove free-living viral contigs from prok binning
+prok_filter_keep_provirus: true   # keep contigs flagged as provirus by CheckV/GeNomad
+
+# ── COBRA-meta (viral contig extension via assembly graph) ──────────────
+# Uses the metaSPAdes GFA to join viral contigs that share graph edges.
+# Short reads only — skipped when long_reads: true.
+cobra_enabled:   true        # disable to keep viral_consensus.fasta unchanged
+cobra_assembler: "metaspades" # which GFA to use ("metaspades" or "megahit")
+cobra_mink:      21           # min k-mer of the assembler
+cobra_maxk:      127          # max k-mer of the assembler
+
+# ── GUNC (chimera detection on MAGs) ────────────────────────────────────
+# Runs in parallel with CheckM2 on Binette final_bins.
+# Database (~13 GB) must be downloaded once — see INSTALL.md.
+gunc_enabled: true
+gunc_db:      "/media/nas1/LITRP.DBs/metagenDBs/gunc/gunc_db_progenomes2.1.dmnd"
+
+# ── vOTU clustering (skani, ICTV 95% ANI + 85% AF) ──────────────────────
+# Replaces the MMseqs2 95% identity grouping for vOTU definition only.
+# The original mmseqs deduplication is still used for the assembly hub.
+votu_clustering_enabled: true
+votu_ani:                95.0   # %ANI threshold (ICTV/Roux 2019)
+votu_af:                 85.0   # %aligned fraction
+
+# ── MAG dereplication (galah, CheckM2-aware) ────────────────────────────
+# Dereplicates Binette final_bins by ANI; keeps the best representative
+# (highest CheckM2 quality score). Output feeds GTDB-Tk.
+mag_derep_enabled: true
+mag_derep_ani:     95.0   # %ANI threshold for clustering MAGs
+
 # ── Viral consensus ─────────────────────────────────────────────────────
 # 3 tools: VirSorter2, GeNomad, VIBRANT
 min_viral_tools:      2      # >= N tools must agree (count/hybrid mode)
