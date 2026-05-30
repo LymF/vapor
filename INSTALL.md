@@ -366,8 +366,8 @@ conda activate snakemake
 mkdir -p fastqs
 touch fastqs/TEST_R1.fastq.gz fastqs/TEST_R2.fastq.gz
 
-# Dry run
-snakemake --use-conda --cores 4 --dry-run 2>&1 | tail -20
+# Dry run via VAPOR CLI
+vapor --dry-run 2>&1 | tail -20
 
 # Clean up
 rm fastqs/TEST_R1.fastq.gz fastqs/TEST_R2.fastq.gz

@@ -68,24 +68,32 @@ vapor/
 ## Running the pipeline
 
 ```bash
-# Activate Snakemake environment
+# Activate the Snakemake environment (required)
 conda activate snakemake
 
-# Dry-run — validate the DAG without executing
-snakemake -n --use-conda --cores 32
+# Dry-run — validate the workflow without executing any jobs
+vapor --dry-run
 
-# Full execution
-snakemake --use-conda --cores 32
+# Full execution with 32 cores
+vapor --threads 32
 
-# Visualize the DAG
-snakemake --dag | dot -Tsvg > dag.svg
+# Use a custom config file
+vapor --threads 32 --config /path/to/config.yaml
 
-# Force re-run a specific rule
-snakemake --use-conda --cores 32 --forcerun viral_consensus
+# Visualize the DAG (requires graphviz)
+vapor --dag
 
-# Run up to a specific target
-snakemake --use-conda --cores 32 \
-    results/sample1/viral/taxonomy/taxonomy_done.txt
+# Force re-run specific rules
+vapor --threads 32 --forcerun viral_consensus
+
+# Resume an interrupted run
+vapor --threads 32 --rerun-incomplete
+
+# Unlock directory after a crash
+vapor --unlock
+
+# Run up to a specific output file
+vapor --threads 32 --target results/sample1/viral/taxonomy/taxonomy_done.txt
 ```
 
 ---
@@ -136,10 +144,10 @@ custom_prok_meta:  ""
 ## Conda environments
 
 All environments are defined as YAML files in `envs/` for full reproducibility.
-Create all environments at once:
+Create all environments at once (one-time setup):
 
 ```bash
-snakemake --use-conda --cores 1 --create-envs-only
+snakemake --snakefile Snakefile --use-conda --cores 1 --create-envs-only
 ```
 
 | Environment | Main tools |
