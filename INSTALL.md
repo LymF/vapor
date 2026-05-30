@@ -214,8 +214,22 @@ DB_BASE="/path/to/your/databases"
 mkdir -p "$DB_BASE"
 ```
 
+> **Container mode (no conda required)**
+> Every download step below has a Docker alternative — no conda environment is needed.
+> The general pattern is:
+> ```bash
+> docker run --rm -v "$DB_BASE:/dbs" quay.io/biocontainers/<tool>:<tag> <command /dbs/...>
+> ```
+> Exact image tags (with build hash) can be obtained by running `python3 scripts/pin_containers.py`
+> which generates `containers.lock.yaml`, or looked up directly at
+> `https://quay.io/repository/biocontainers/<tool>?tab=tags`.
+> The tool versions in `containers.yaml` are the reference versions used by VAPOR.
+
+---
+
 ### CheckV
 
+**Conda:**
 ```bash
 conda activate env_checkm2
 checkv download_database "$DB_BASE/checkv"
@@ -223,16 +237,36 @@ checkv download_database "$DB_BASE/checkv"
 conda deactivate
 ```
 
+**Docker:**
+```bash
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/checkv:1.0.3--pyhdfd78af_0 \
+    checkv download_database /dbs/checkv
+```
+
+---
+
 ### VirSorter2
 
+**Conda:**
 ```bash
 conda activate env_viral
 virsorter setup -d "$DB_BASE/virsorter2" -j 4
 conda deactivate
 ```
 
+**Docker:**
+```bash
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/virsorter:2.2.4--pyhdfd78af_1 \
+    virsorter setup -d /dbs/virsorter2 -j 4
+```
+
+---
+
 ### GeNomad
 
+**Conda:**
 ```bash
 conda activate env_genomad
 genomad download-database "$DB_BASE/genomad"
@@ -240,8 +274,18 @@ genomad download-database "$DB_BASE/genomad"
 conda deactivate
 ```
 
+**Docker:**
+```bash
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/genomad:1.11.2--pyhdfd78af_0 \
+    genomad download-database /dbs/genomad
+```
+
+---
+
 ### VIBRANT
 
+**Conda:**
 ```bash
 mkdir -p "$DB_BASE/vibrant-1.0.1/databases"
 mkdir -p "$DB_BASE/vibrant-1.0.1/files"
@@ -263,8 +307,27 @@ done
 conda deactivate
 ```
 
+**Docker:** (wget needs no container; hmmpress via hmmer image)
+```bash
+mkdir -p "$DB_BASE/vibrant-1.0.1/databases" "$DB_BASE/vibrant-1.0.1/files"
+cd "$DB_BASE/vibrant-1.0.1/databases"
+wget https://zenodo.org/record/4543735/files/VIBRANT_v1.0.1.tar.gz
+tar -xzf VIBRANT_v1.0.1.tar.gz --strip-components=2 "VIBRANT_v1.0.1/databases/"
+cd "$DB_BASE/vibrant-1.0.1/files"
+git clone --depth 1 https://github.com/AnantharamanLab/VIBRANT /tmp/vibrant_src
+cp /tmp/vibrant_src/files/* ./ && rm -rf /tmp/vibrant_src
+
+# hmmpress via Docker
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/hmmer:3.4--hdbdd923_1 \
+    bash -c 'for hmm in /dbs/vibrant-1.0.1/databases/*.HMM; do hmmpress "$hmm"; done'
+```
+
+---
+
 ### INPHARED
 
+**Conda:**
 ```bash
 mkdir -p "$DB_BASE/inphared"
 cd "$DB_BASE/inphared"
@@ -284,8 +347,28 @@ diamond makedb \
 conda deactivate
 ```
 
+**Docker:** (wget needs no container; diamond via Docker)
+```bash
+mkdir -p "$DB_BASE/inphared" && cd "$DB_BASE/inphared"
+DATE="1Feb2024"
+wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_genomes.fa"
+wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_data_excluding_refseq.tsv"
+wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_vConTACT2_proteins.faa"
+wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_vConTACT2_gene2genome.csv"
+
+docker run --rm -v "$DB_BASE/inphared:/dbs" \
+    quay.io/biocontainers/diamond:2.1.8--h43eeafb_0 \
+    diamond makedb \
+        --in "/dbs/${DATE}_vConTACT2_proteins.faa" \
+        --db "/dbs/inphared_proteins" \
+        --threads 32
+```
+
+---
+
 ### vConTACT3
 
+**Conda:**
 ```bash
 mkdir -p "$DB_BASE/vcontact3"
 conda activate env_vcontact3
@@ -296,8 +379,18 @@ conda deactivate
 # Note the version string printed — set vcontact3_ver in config.yaml accordingly
 ```
 
+**Docker:**
+```bash
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/vcontact3:3.1.6--pyhdfd78af_0 \
+    vcontact3 prepare_database --output /dbs/vcontact3 --threads 32
+```
+
+---
+
 ### CheckM2
 
+**Conda:**
 ```bash
 conda activate env_checkm2
 checkm2 database --download --path "$DB_BASE/checkm2"
@@ -305,8 +398,18 @@ checkm2 database --download --path "$DB_BASE/checkm2"
 conda deactivate
 ```
 
+**Docker:**
+```bash
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/checkm2:1.1.0--pyh7e72e81_0 \
+    checkm2 database --download --path /dbs/checkm2
+```
+
+---
+
 ### GTDB-Tk
 
+**Conda:**
 ```bash
 mkdir -p "$DB_BASE/gtdbtk"
 conda activate env_gtdbtk
@@ -314,17 +417,35 @@ download-db.sh "$DB_BASE/gtdbtk"
 conda deactivate
 ```
 
+**Docker:**
+```bash
+mkdir -p "$DB_BASE/gtdbtk"
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/gtdbtk:2.6.1--pyhdfd78af_0 \
+    download-db.sh /dbs/gtdbtk
+```
+
+---
+
 ### GUNC (chimera detection)
 
 Required only when `gunc_enabled: true` in `config.yaml` (default).
 The progenomes_2.1 DIAMOND database is ~13 GB.
 
+**Conda:**
 ```bash
 mkdir -p "$DB_BASE/gunc"
 conda activate env_gunc
 gunc download_db -db progenomes "$DB_BASE/gunc"
 # Output: $DB_BASE/gunc/gunc_db_progenomes2.1.dmnd
 conda deactivate
+```
+
+**Docker:**
+```bash
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/gunc:1.1.1--pyhdfd78af_0 \
+    gunc download_db -db progenomes /dbs/gunc
 ```
 
 Then set in `config.yaml`:
@@ -335,37 +456,77 @@ gunc_db: "/path/to/your/databases/gunc/gunc_db_progenomes2.1.dmnd"
 
 To disable GUNC entirely set `gunc_enabled: false`.
 
+---
+
 ### Pharokka
 
+**Conda:**
 ```bash
 conda activate env_annotation
 pharokka_install_databases.py -o "$DB_BASE/pharokka"
 conda deactivate
 ```
 
+**Docker:**
+```bash
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/pharokka:1.9.1--pyhdfd78af_0 \
+    pharokka_install_databases.py -o /dbs/pharokka
+```
+
+---
+
 ### Phold
 
+**Conda:**
 ```bash
 conda activate env_annotation
 phold install -d "$DB_BASE/phold_db"
 conda deactivate
 ```
 
+**Docker:**
+```bash
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/phold:1.2.5--pyhdfd78af_0 \
+    phold install -d /dbs/phold_db
+```
+
+---
+
 ### Bakta
 
+**Conda:**
 ```bash
 conda activate env_annotation
 bakta_db download --output "$DB_BASE/bakta" --type full
 conda deactivate
 ```
 
+**Docker:**
+```bash
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/bakta:1.12.0--pyhdfd78af_0 \
+    bakta_db download --output /dbs/bakta --type full
+```
+
+---
+
 ### EggNOG-mapper
 
+**Conda:**
 ```bash
 conda activate env_annotation
 export EGGNOG_DATA_DIR="$DB_BASE/eggnog"
 download_eggnog_data.py -y -f --data_dir "$DB_BASE/eggnog"
 conda deactivate
+```
+
+**Docker:**
+```bash
+docker run --rm -v "$DB_BASE:/dbs" \
+    quay.io/biocontainers/eggnog-mapper:2.1.13--pyhdfd78af_0 \
+    download_eggnog_data.py -y -f --data_dir /dbs/eggnog
 ```
 
 ---
