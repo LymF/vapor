@@ -26,7 +26,7 @@ rule phist:
         f"{OUTDIR}/{{sample}}/logs/phist.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/phist.tsv"
-    conda: "envs/env_phist.yaml"
+    conda: "../envs/env_phist.yaml"
     container:  CONTAINERS.get("phist")
     threads: THREADS
     params:

@@ -24,7 +24,7 @@ rule coverm_viral:
         f"{OUTDIR}/{{sample}}/logs/coverm_viral.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/coverm_viral.tsv"
-    conda: "envs/env_coverm.yaml"
+    conda: "../envs/env_coverm.yaml"
     container:  CONTAINERS.get("coverm")
     threads: THREADS
     params:
@@ -75,7 +75,7 @@ rule coverm_prok:
         f"{OUTDIR}/{{sample}}/logs/coverm_prok.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/coverm_prok.tsv"
-    conda: "envs/env_coverm.yaml"
+    conda: "../envs/env_coverm.yaml"
     container:  CONTAINERS.get("coverm")
     threads: THREADS
     params:
@@ -136,7 +136,7 @@ rule compute_diversity:
         f"{OUTDIR}/diversity/compute_diversity.log"
     benchmark:
         f"{OUTDIR}/benchmarks/compute_diversity.tsv"
-    conda: "envs/env_coverm.yaml"
+    conda: "../envs/env_coverm.yaml"
     params:
         outdir  = f"{OUTDIR}/diversity",
         samples = list(SAMPLES.keys()),

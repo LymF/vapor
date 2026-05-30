@@ -38,7 +38,7 @@ rule pharokka:
         f"{OUTDIR}/{{sample}}/logs/pharokka.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/pharokka.tsv"
-    conda: "envs/env_annotation.yaml"
+    conda: "../envs/env_annotation.yaml"
     container:  CONTAINERS.get("pharokka")
     threads: THREADS
     params:
@@ -157,7 +157,7 @@ rule phold:
         f"{OUTDIR}/{{sample}}/logs/phold.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/phold.tsv"
-    conda: "envs/env_annotation.yaml"
+    conda: "../envs/env_annotation.yaml"
     container:  CONTAINERS.get("phold")
     threads: THREADS
     params:
@@ -211,7 +211,7 @@ rule bakta:
         f"{OUTDIR}/{{sample}}/logs/bakta.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/bakta.tsv"
-    conda: "envs/env_annotation.yaml"
+    conda: "../envs/env_annotation.yaml"
     container:  CONTAINERS.get("bakta")
     threads: THREADS
     params:
@@ -301,7 +301,7 @@ rule eggnog_prok:
         f"{OUTDIR}/{{sample}}/logs/eggnog_prok.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/eggnog_prok.tsv"
-    conda: "envs/env_annotation.yaml"
+    conda: "../envs/env_annotation.yaml"
     container:  CONTAINERS.get("eggnog_mapper")
     threads: THREADS
     params:
@@ -368,7 +368,7 @@ rule extract_kegg_kos:
         f"{OUTDIR}/{{sample}}/logs/extract_kegg_kos.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/extract_kegg_kos.tsv"
-    conda: "envs/env_annotation.yaml"
+    conda: "../envs/env_annotation.yaml"
     threads: 1
     params:
         outdir = f"{OUTDIR}/{{sample}}/annotation/kegg_decoder",
@@ -437,7 +437,7 @@ rule genome_map_phage:
         f"{OUTDIR}/{{sample}}/logs/genome_map_phage.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/genome_map_phage.tsv"
-    conda: "envs/env_annotation.yaml"
+    conda: "../envs/env_annotation.yaml"
     container:  CONTAINERS.get("genome_map")
     threads: 1
     params:
@@ -479,7 +479,7 @@ rule genome_map_virus:
         f"{OUTDIR}/{{sample}}/logs/genome_map_virus.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/genome_map_virus.tsv"
-    conda: "envs/env_annotation.yaml"
+    conda: "../envs/env_annotation.yaml"
     container:  CONTAINERS.get("genome_map")
     threads: 1
     params:
@@ -543,7 +543,7 @@ rule genome_map_prok:
         f"{OUTDIR}/{{sample}}/logs/genome_map_prok.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/genome_map_prok.tsv"
-    conda: "envs/env_annotation.yaml"
+    conda: "../envs/env_annotation.yaml"
     container:  CONTAINERS.get("genome_map")
     threads: 1
     params:

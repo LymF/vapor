@@ -22,7 +22,7 @@ rule checkv:
         f"{OUTDIR}/{{sample}}/logs/checkv.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/checkv.tsv"
-    conda: "envs/env_viral.yaml"
+    conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("checkv")
     threads: THREADS
     shell:
@@ -55,7 +55,7 @@ rule vrhyme:
         f"{OUTDIR}/{{sample}}/logs/vrhyme.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/vrhyme.tsv"
-    conda: "envs/env_vrhyme.yaml"
+    conda: "../envs/env_vrhyme.yaml"
     container:  CONTAINERS.get("vrhyme")
     threads: THREADS
     params:
@@ -89,7 +89,7 @@ rule checkv_vrhyme:
         f"{OUTDIR}/{{sample}}/logs/checkv_vrhyme.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/checkv_vrhyme.tsv"
-    conda: "envs/env_viral.yaml"
+    conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("checkv")
     threads: THREADS
     params:
@@ -199,7 +199,7 @@ rule make_votu_table:
     params:
         vibrant_dir = f"{OUTDIR}/{{sample}}/viral/vibrant",
         phist_csv   = f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv",
-    conda: "envs/env_viral.yaml"
+    conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("prodigal")
     script:
         "../scripts/make_votu_table.py"

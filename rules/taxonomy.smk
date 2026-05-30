@@ -22,7 +22,7 @@ rule prodigal_viral:
         done = f"{OUTDIR}/{{sample}}/viral/taxonomy/prodigal_done.txt",
     log:   f"{OUTDIR}/{{sample}}/logs/prodigal_viral.log"
     benchmark: f"{OUTDIR}/{{sample}}/benchmarks/prodigal_viral.tsv"
-    conda: "envs/env_viral.yaml"
+    conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("prodigal")
     threads: 1
     shell:
@@ -50,7 +50,7 @@ rule diamond_inphared:
         done = f"{OUTDIR}/{{sample}}/viral/taxonomy/diamond_done.txt",
     log:   f"{OUTDIR}/{{sample}}/logs/diamond_inphared.log"
     benchmark: f"{OUTDIR}/{{sample}}/benchmarks/diamond_inphared.tsv"
-    conda: "envs/env_viral.yaml"
+    conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("diamond")
     threads: THREADS
     params:
@@ -95,7 +95,7 @@ rule diamond_custom_viral:
         done = f"{OUTDIR}/{{sample}}/viral/taxonomy/custom_viral_done.txt",
     log:   f"{OUTDIR}/{{sample}}/logs/diamond_custom_viral.log"
     benchmark: f"{OUTDIR}/{{sample}}/benchmarks/diamond_custom_viral.tsv"
-    conda: "envs/env_viral.yaml"
+    conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("diamond")
     threads: THREADS
     params:
@@ -138,7 +138,7 @@ rule diamond_custom_prok:
         done = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/done.txt",
     log:   f"{OUTDIR}/{{sample}}/logs/diamond_custom_prok.log"
     benchmark: f"{OUTDIR}/{{sample}}/benchmarks/diamond_custom_prok.tsv"
-    conda: "envs/env_viral.yaml"
+    conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("diamond")
     threads: THREADS
     params:
@@ -200,7 +200,7 @@ rule vcontact3:
         network = f"{OUTDIR}/{{sample}}/viral/vcontact3/genome_clusters.tsv",
     log:   f"{OUTDIR}/{{sample}}/logs/vcontact3.log"
     benchmark: f"{OUTDIR}/{{sample}}/benchmarks/vcontact3.tsv"
-    conda: "envs/env_vcontact3.yaml"
+    conda: "../envs/env_vcontact3.yaml"
     container:  CONTAINERS.get("vcontact3")
     threads: THREADS
     params:
@@ -283,7 +283,7 @@ rule viral_taxonomy:
         done = f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",
     log:   f"{OUTDIR}/{{sample}}/logs/viral_taxonomy.log"
     benchmark: f"{OUTDIR}/{{sample}}/benchmarks/viral_taxonomy.tsv"
-    conda: "envs/env_viral.yaml"
+    conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("diamond")
     threads: 1
     params:

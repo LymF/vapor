@@ -30,7 +30,7 @@ rule metabat2:
         f"{OUTDIR}/{{sample}}/logs/metabat2.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/metabat2.tsv"
-    conda: "envs/env_binning.yaml"
+    conda: "../envs/env_binning.yaml"
     container:  CONTAINERS.get("metabat2")
     threads: THREADS
     params:
@@ -69,7 +69,7 @@ rule vamb:
         f"{OUTDIR}/{{sample}}/logs/vamb.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/vamb.tsv"
-    conda: "envs/env_binning.yaml"
+    conda: "../envs/env_binning.yaml"
     container:  CONTAINERS.get("vamb")
     threads: THREADS
     params:
@@ -111,7 +111,7 @@ rule semibin2:
         f"{OUTDIR}/{{sample}}/logs/semibin2.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/semibin2.tsv"
-    conda: "envs/env_binning.yaml"
+    conda: "../envs/env_binning.yaml"
     container:  CONTAINERS.get("semibin")
     threads: THREADS
     params:
@@ -153,7 +153,7 @@ rule comebin:
         f"{OUTDIR}/{{sample}}/logs/comebin.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/comebin.tsv"
-    conda: "envs/env_comebin.yaml"
+    conda: "../envs/env_comebin.yaml"
     container:  CONTAINERS.get("comebin")
     threads: THREADS
     params:
@@ -276,7 +276,7 @@ rule binette:
         f"{OUTDIR}/{{sample}}/logs/binette.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/binette.tsv"
-    conda: "envs/env_binette.yaml"
+    conda: "../envs/env_binette.yaml"
     container:  CONTAINERS.get("binette")
     threads: THREADS
     params:
@@ -340,7 +340,7 @@ rule checkm2:
         f"{OUTDIR}/{{sample}}/logs/checkm2.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/checkm2.tsv"
-    conda: "envs/env_checkm2.yaml"
+    conda: "../envs/env_checkm2.yaml"
     container:  CONTAINERS.get("checkm2")
     threads: THREADS
     params:
@@ -389,7 +389,7 @@ rule gtdbtk:
         f"{OUTDIR}/{{sample}}/logs/gtdbtk.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/gtdbtk.tsv"
-    conda: "envs/env_gtdbtk.yaml"
+    conda: "../envs/env_gtdbtk.yaml"
     container:  CONTAINERS.get("gtdbtk")
     threads: THREADS
     params:
