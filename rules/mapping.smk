@@ -37,8 +37,8 @@ rule bwa_mem:
     Outputs done.txt sentinel to decouple from minimap2_lr BAM output.
     """
     input:
-        tr1 = rules.fastp.output.tr1,
-        tr2 = rules.fastp.output.tr2,
+        tr1 = _clean_r1,
+        tr2 = _clean_r2,
         idx = rules.bwa_index.output.idx,
     output:
         bam   = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
@@ -84,7 +84,7 @@ if LONG_READS:
         """
         input:
             contigs = rules.mmseqs2.output.rep,
-            reads   = f"{OUTDIR}/{{sample}}/lr_filtered/{{sample}}_filtered.fastq.gz",
+            reads   = _clean_lr,
         output:
             bam   = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
             bai   = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam.bai",

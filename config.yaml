@@ -71,6 +71,18 @@ lr_ont_chem:     "hq"        # "hq" = R10/Q20+ | "raw" = R9 legacy
 lr_metaMDBG:     true        # add metaMDBG as 3rd LR assembler (HiFi or ONT R10+)
                              # automatically skipped for ONT R9 (lr_ont_chem: "raw")
 
+# ── Host genome removal (optional) ──────────────────────────────────────
+# Map reads against a host reference; keep only unmapped reads.
+# Recommended for clinical, gut, plant-associated or any host-contaminated samples.
+# Leave host_genome empty ("") to skip this step entirely.
+#
+# SR: bwa-mem2 keeps pairs where BOTH mates are unmapped (-f 12)
+# LR: minimap2 keeps reads where the read is unmapped (-f 4)
+#
+host_genome: ""    # path to host reference FASTA (e.g., /path/to/hg38.fa)
+host_index:  ""    # path to pre-built bwa-mem2 index prefix (optional)
+                   # if empty, the index is built once in {outdir}/host_index/
+
 # ── GPU acceleration ────────────────────────────────────────────────────
 # Enables GPU for all tools that support it:
 #   VAMB       — --cuda          (PyTorch VAE; large speedup on binning)

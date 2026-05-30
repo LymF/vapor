@@ -3,8 +3,9 @@
 #
 # PIPELINE OVERVIEW:
 #   FASTQs
-#     └─► Trim Galore / NanoPlot+Filtlong (QC + trimming)
-#           └─► MEGAHIT + metaSPAdes + metaviralSPAdes / Flye + hifiasm (assembly)
+#     └─► fastp / NanoPlot+Porechop+Filtlong (QC + trimming)
+#           └─► [host removal — optional] bwa-mem2 / minimap2
+#                 └─► MEGAHIT + metaSPAdes + metaviralSPAdes / Flye + hifiasm (assembly)
 #                 └─► Merge + filter + MMseqs2 (deduplication)
 #                       ├─► QUAST (assembly quality)
 #                       ├─► Viral detection ──► CheckV ──► vRhyme ──► vConTACT3
@@ -25,7 +26,8 @@
 #   snakemake --dag | dot -Tsvg > dag.svg      # visualise DAG
 #
 # MODULES (rules/):
-#   qc.smk              — BLOCK 1  : FastQC, Trim Galore, NanoPlot, Porechop, Filtlong
+#   qc.smk              — BLOCK 1  : fastp, NanoPlot, Porechop, Filtlong
+#   host_removal.smk    — BLOCK 1.5: bwa-mem2/minimap2 host decontamination (optional)
 #   assembly.smk        — BLOCK 2  : MEGAHIT, metaSPAdes, metaviralSPAdes, Flye, hifiasm, Medaka
 #   merge_dedup.smk     — BLOCK 3  : merge_contigs, MMseqs2
 #   quast.smk           — BLOCK 4  : QUAST
@@ -135,6 +137,29 @@ USE_METAMDBG = (
     (LR_TECH == "hifi" or (LR_TECH == "ont" and LR_ONT_CHEM == "hq"))
 )
 
+# ── Host genome removal (optional) ────────────────────────────────────
+HOST_GENOME      = _expand(config.get("host_genome", "")) if config.get("host_genome", "") else ""
+HOST_INDEX       = _expand(config.get("host_index",  "")) if config.get("host_index",  "") else ""
+USE_HOST_REMOVAL = bool(HOST_GENOME)
+
+def _clean_r1(wc):
+    """R1 input after optional host removal; falls back to fastp output."""
+    if USE_HOST_REMOVAL:
+        return f"{OUTDIR}/{wc.sample}/host_removed/{wc.sample}_R1_clean.fq.gz"
+    return f"{OUTDIR}/{wc.sample}/trimmed/{wc.sample}_R1_fastp.fq.gz"
+
+def _clean_r2(wc):
+    """R2 input after optional host removal; falls back to fastp output."""
+    if USE_HOST_REMOVAL:
+        return f"{OUTDIR}/{wc.sample}/host_removed/{wc.sample}_R2_clean.fq.gz"
+    return f"{OUTDIR}/{wc.sample}/trimmed/{wc.sample}_R2_fastp.fq.gz"
+
+def _clean_lr(wc):
+    """LR input after optional host removal; falls back to filtlong output."""
+    if USE_HOST_REMOVAL:
+        return f"{OUTDIR}/{wc.sample}/host_removed/{wc.sample}_lr_clean.fastq.gz"
+    return f"{OUTDIR}/{wc.sample}/lr_filtered/{wc.sample}_filtered.fastq.gz"
+
 COMEBIN_ENABLED      = config.get("comebin_enabled", True)
 USE_GPU              = config.get("use_gpu", False)
 COVERM_METHOD        = config.get("coverm_method", "rpkm")
@@ -211,6 +236,7 @@ for _s in SAMPLES:
 # ══════════════════════════════════════════════════════════════════════
 
 include: "rules/qc.smk"
+include: "rules/host_removal.smk"
 include: "rules/assembly.smk"
 include: "rules/merge_dedup.smk"
 include: "rules/quast.smk"

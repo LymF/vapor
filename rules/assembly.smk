@@ -20,8 +20,8 @@ rule megahit:
     NOTE: -m is in bytes (MEGAHIT_MEM is defined in bytes in the config).
     """
     input:
-        tr1 = rules.fastp.output.tr1,
-        tr2 = rules.fastp.output.tr2,
+        tr1 = _clean_r1,
+        tr2 = _clean_r2,
     output:
         contigs = f"{OUTDIR}/{{sample}}/assembly/megahit/final.contigs.fa",
     log:
@@ -59,8 +59,8 @@ rule metaspades:
       "custom"  — uses SPADES_KMER_LIST (e.g. "21,33,55,77,99,127")
     """
     input:
-        tr1 = rules.fastp.output.tr1,
-        tr2 = rules.fastp.output.tr2,
+        tr1 = _clean_r1,
+        tr2 = _clean_r2,
     output:
         contigs = f"{OUTDIR}/{{sample}}/assembly/metaspades/contigs.fasta",
         graph   = f"{OUTDIR}/{{sample}}/assembly/metaspades/assembly_graph_with_scaffolds.gfa",
@@ -93,8 +93,8 @@ rule metaviral_spades:
     Falls back to an empty FASTA if no viral contigs are produced.
     """
     input:
-        tr1   = rules.fastp.output.tr1,
-        tr2   = rules.fastp.output.tr2,
+        tr1   = _clean_r1,
+        tr2   = _clean_r2,
         graph = rules.metaspades.output.graph,
     output:
         contigs = f"{OUTDIR}/{{sample}}/assembly/metaviral/contigs.fasta",
@@ -141,7 +141,7 @@ if LONG_READS:
         HiFi: --pacbio-hifi for CCS/HiFi reads.
         """
         input:
-            reads = f"{OUTDIR}/{{sample}}/lr_filtered/{{sample}}_filtered.fastq.gz",
+            reads = _clean_lr,
         output:
             fasta = f"{OUTDIR}/{{sample}}/assembly/lr/flye/assembly.fasta",
             done  = f"{OUTDIR}/{{sample}}/assembly/lr/flye/done.txt",
@@ -189,7 +189,7 @@ if LONG_READS:
         Produces GFA graph — converted to FASTA via awk.
         """
         input:
-            reads = f"{OUTDIR}/{{sample}}/lr_filtered/{{sample}}_filtered.fastq.gz",
+            reads = _clean_lr,
         output:
             fasta = f"{OUTDIR}/{{sample}}/assembly/lr/hifiasm/assembly.fasta",
             done  = f"{OUTDIR}/{{sample}}/assembly/lr/hifiasm/done.txt",
@@ -251,7 +251,7 @@ if LONG_READS:
         input:
             flye_fa    = f"{OUTDIR}/{{sample}}/assembly/lr/flye/assembly.fasta",
             hifiasm_fa = f"{OUTDIR}/{{sample}}/assembly/lr/hifiasm/assembly.fasta",
-            reads      = f"{OUTDIR}/{{sample}}/lr_filtered/{{sample}}_filtered.fastq.gz",
+            reads      = _clean_lr,
         output:
             flye_pol    = f"{OUTDIR}/{{sample}}/assembly/lr/flye_polished/assembly.fasta",
             hifiasm_pol = f"{OUTDIR}/{{sample}}/assembly/lr/hifiasm_polished/assembly.fasta",
@@ -311,7 +311,7 @@ if LONG_READS:
         Set lr_metaMDBG: false in config.yaml to disable entirely.
         """
         input:
-            reads = f"{OUTDIR}/{{sample}}/lr_filtered/{{sample}}_filtered.fastq.gz",
+            reads = _clean_lr,
         output:
             fasta = f"{OUTDIR}/{{sample}}/assembly/lr/metaMDBG/assembly.fasta",
             done  = f"{OUTDIR}/{{sample}}/assembly/lr/metaMDBG/done.txt",
