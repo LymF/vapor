@@ -34,9 +34,8 @@ results-reference/
 helps/
 skills-lock.json
 
-# ── Projeto separado (VAPOR CLI wrapper) ─────────────────────────────
+# ── Diretório separado (build artifacts) ─────────────────────────────
 vapor/
-pyproject.toml
 
 # ── Containers ────────────────────────────────────────────────────────
 # containers.lock.yaml SHOULD be committed (pins exact image tags)
