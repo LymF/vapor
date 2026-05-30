@@ -75,8 +75,15 @@ else:
 configfile: "config.yaml"
 
 # ── Map config dict → pipeline variables ──────────────────────────────
-FASTQ_DIR            = str(Path(config["fastq_dir"]).expanduser())
-OUTDIR               = str(Path(config["outdir"]).expanduser())
+def _expand(p):
+    """expanduser with fallback when $HOME is not set (some HPC environments)."""
+    try:
+        return str(Path(p).expanduser())
+    except RuntimeError:
+        return str(Path(p))
+
+FASTQ_DIR            = _expand(config["fastq_dir"])
+OUTDIR               = _expand(config["outdir"])
 THREADS              = config["threads"]
 
 SPADES_MEM           = config["spades_mem"]
