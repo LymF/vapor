@@ -149,6 +149,18 @@ mamba create -n env_vcontact3 -c conda-forge -c bioconda \
 # CoverM + diversity (alpha, beta, Procrustes)
 mamba create -n env_coverm -c conda-forge -c bioconda \
     coverm numpy scipy -y
+
+# COBRA-meta (viral contig extension via assembly graph)
+mamba create -n env_cobra -c conda-forge -c bioconda \
+    "cobra-meta=1.2.3" blast pysam mash -y
+
+# GUNC (MAG chimera detection)
+mamba create -n env_gunc -c conda-forge -c bioconda \
+    "gunc=1.1.1" diamond prodigal -y
+
+# skani + galah (vOTU clustering + MAG dereplication)
+mamba create -n env_derep -c conda-forge -c bioconda \
+    "skani=0.3.1" "galah=0.4.2" -y
 ```
 
 ---
@@ -441,7 +453,8 @@ rm fastqs/TEST_R1.fastq.gz fastqs/TEST_R2.fastq.gz
 for env in env_qc env_assembly env_flye env_medaka env_lr_utils \
            env_mapping env_viral env_genomad phage_vibrant env_vrhyme \
            env_binning env_comebin env_binette env_checkm2 env_gtdbtk \
-           env_phist env_annotation env_vcontact3 env_coverm; do
+           env_phist env_annotation env_vcontact3 env_coverm \
+           env_cobra env_gunc env_derep; do
     echo -n "$env: "
     conda run -n "$env" python --version 2>/dev/null || echo "MISSING"
 done
@@ -465,9 +478,10 @@ done
 | Phold | 10 GB |
 | Bakta (full) | 30 GB |
 | EggNOG-mapper | 50 GB |
+| GUNC progenomes_2.1 | 13 GB |
 | IMG viral (optional) | 5–20 GB |
 | IMG prokaryote (optional) | 50–200 GB |
-| **Total (without custom)** | **~218 GB** |
+| **Total (without custom)** | **~231 GB** |
 
 ---
 
@@ -484,3 +498,12 @@ vConTACT3 can take several hours for large viral datasets. Run with `--cores 32`
 
 **GTDB-Tk: pplacer error**
 Confirm that `gtdbtk_db` points to the correct directory and that the database version is compatible with your installed GTDB-Tk (`gtdbtk check_install`).
+
+**COBRA: no contigs extended**
+COBRA only processes SPADES_-prefixed contigs (metaSPAdes assembly). If all viral contigs come from MEGAHIT or metaviralSPAdes, COBRA will produce a passthrough FASTA identical to the input. Set `cobra_enabled: false` for long-read-only runs.
+
+**GUNC: `gunc_db` not found**
+Set the full path to `gunc_db_progenomes2.1.dmnd` in `config.yaml` (key `gunc_db`). To disable GUNC entirely set `gunc_enabled: false`.
+
+**galah: no bins to dereplicute**
+galah requires CheckM2 quality scores. If CheckM2 failed or produced no output, galah will exit with an error. Set `mag_derep_enabled: false` to skip dereplication and feed all Binette bins directly to GTDB-Tk.
