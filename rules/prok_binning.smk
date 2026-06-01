@@ -353,7 +353,7 @@ for l in hdr.splitlines():
             -t {threads} \
             >> {log} 2>&1 || true
         touch {output.done}
-        N=$(find {params.outdir}/bins -name "*.fa" 2>/dev/null | wc -l)
+        N=$(find {params.outdir}/comebin_res/comebin_res_bins -name "*.fa" 2>/dev/null | wc -l) || true
         echo "[COMEBin] $N bins produced" | tee -a {log}
         """
 
@@ -422,8 +422,8 @@ rule prepare_scaffold2bin:
                         contig, bin_num = parts
                         fout.write(f"{contig}\tSemiBin_{bin_num}\n")
 
-        # COMEBin: bins/*.fa files (same format as MetaBAT2)
-        cb_bins = glob.glob(f"{params.s}/bins/comebin/bins/*.fa")
+        # COMEBin: comebin_res/comebin_res_bins/*.fa (run_comebin.sh output layout)
+        cb_bins = glob.glob(f"{params.s}/bins/comebin/comebin_res/comebin_res_bins/*.fa")
         if cb_bins:
             write_s2b(cb_bins, f"{outdir}/comebin_s2b.tsv", ".fa")
 
