@@ -164,7 +164,7 @@ mamba create -n env_derep -c conda-forge -c bioconda \
 ## 5. Install Apptainer (container mode)
 
 Container mode is the recommended way to run VAPOR for reproducibility and portability.
-Skip this section if you plan to use conda mode only (`vapor --use-conda`).
+Skip this section if you plan to use conda mode only (`vapor --executor conda`).
 
 ### Install Apptainer
 
