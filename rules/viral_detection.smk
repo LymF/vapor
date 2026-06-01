@@ -100,18 +100,10 @@ rule vibrant:
     container:  CONTAINERS.get("vibrant")
     threads: THREADS
     params:
-        outdir   = f"{OUTDIR}/{{sample}}/viral/vibrant",
-        minlen   = MIN_CONTIG,
-        hmm_kegg = f"{_VIBRANT_BASE}/databases/KEGG_profiles_prokaryotes.HMM",
-        hmm_pfam = f"{_VIBRANT_BASE}/databases/Pfam-A_v32.HMM",
-        hmm_vog  = f"{_VIBRANT_BASE}/databases/VOGDB94_phage.HMM",
-        hmm_plas = f"{_VIBRANT_BASE}/databases/Pfam-A_plasmid_v32.HMM",
-        hmm_phag = f"{_VIBRANT_BASE}/databases/Pfam-A_phage_v32.HMM",
-        f_cat    = f"{_VIBRANT_BASE}/files/VIBRANT_categories.tsv",
-        f_names  = f"{_VIBRANT_BASE}/files/VIBRANT_names.tsv",
-        f_kegg   = f"{_VIBRANT_BASE}/files/VIBRANT_KEGG_pathways_summary.tsv",
-        f_model  = f"{_VIBRANT_BASE}/files/VIBRANT_machine_model.sav",
-        f_amgs   = f"{_VIBRANT_BASE}/files/VIBRANT_AMGs.tsv",
+        outdir    = f"{OUTDIR}/{{sample}}/viral/vibrant",
+        minlen    = MIN_CONTIG,
+        db_dir    = f"{_VIBRANT_BASE}/databases",
+        files_dir = f"{_VIBRANT_BASE}/files",
     shell:
         """
         mkdir -p {params.outdir}
@@ -123,16 +115,8 @@ rule vibrant:
             -t {threads} \
             -l {params.minlen} \
             -no_plot \
-            -k {params.hmm_kegg} \
-            -p {params.hmm_pfam} \
-            -v {params.hmm_vog} \
-            -e {params.hmm_plas} \
-            -a {params.hmm_phag} \
-            -c {params.f_cat} \
-            -n {params.f_names} \
-            -s {params.f_kegg} \
-            -m {params.f_model} \
-            -g {params.f_amgs} \
+            -d {params.db_dir} \
+            -m {params.files_dir} \
             > {log} 2>&1 || true
         touch {output.done}
         """
