@@ -1,0 +1,52 @@
+name: Build and push custom containers
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "docker/Dockerfile.genome-map"
+      - "docker/Dockerfile.medaka-gpu"
+      - "docker/Dockerfile.comebin-gpu"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ${{ github.repository_owner }}
+
+jobs:
+  genome-map:
+    name: genome-map image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from Dockerfile
+        id: meta
+        run: |
+          VERSION=$(grep 'image.version' docker/Dockerfile.genome-map | grep -oP '"\K[^"]+')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          IMAGE="${{ env.REGISTRY }}/${{ env.OWNER }}/vapor-genome-map"
+          echo "image=${IMAGE,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.genome-map
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:latest

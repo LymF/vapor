@@ -187,7 +187,7 @@ eggnog_mapper:
 # Built from docker/Dockerfile.genome-map and pushed to GHCR.
 # Run: docker build -t ghcr.io/LymF/vapor-genome-map:1.0 docker/Dockerfile.genome-map
 genome_map:
-  image: "lymff/vapor-genome-map"
+  image: "ghcr.io/lymf/vapor-genome-map"
   version: "1.0"
   custom: true
 
