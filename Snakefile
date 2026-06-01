@@ -122,6 +122,7 @@ SCORE_VS2_MIN        = config["score_vs2_min"]
 SCORE_GENOMAD_MIN    = config["score_genomad_min"]
 
 LONG_READS           = config["long_reads"]
+SINGLE_END           = config.get("single_end", False) and not LONG_READS
 LR_TECH              = config["lr_tech"]
 LR_MIN_LEN           = config["lr_min_len"]
 LR_MIN_MEAN_Q        = config["lr_min_mean_q"]
@@ -143,13 +144,15 @@ HOST_INDEX       = _expand(config.get("host_index",  "")) if config.get("host_in
 USE_HOST_REMOVAL = bool(HOST_GENOME)
 
 def _clean_r1(wc):
-    """R1 input after optional host removal; falls back to fastp output."""
+    """R1 (or SE read) after optional host removal; falls back to fastp output."""
     if USE_HOST_REMOVAL:
         return f"{OUTDIR}/{wc.sample}/host_removed/{wc.sample}_R1_clean.fq.gz"
     return f"{OUTDIR}/{wc.sample}/trimmed/{wc.sample}_R1_fastp.fq.gz"
 
 def _clean_r2(wc):
-    """R2 input after optional host removal; falls back to fastp output."""
+    """R2 after optional host removal. Returns [] for single-end mode."""
+    if SINGLE_END:
+        return []
     if USE_HOST_REMOVAL:
         return f"{OUTDIR}/{wc.sample}/host_removed/{wc.sample}_R2_clean.fq.gz"
     return f"{OUTDIR}/{wc.sample}/trimmed/{wc.sample}_R2_fastp.fq.gz"
@@ -199,10 +202,14 @@ MAG_DEREP_ANI     = config.get("mag_derep_ani", 95.0)
 
 # ══════════════════════════════════════════════════════════════════════
 #  SAMPLE DISCOVERY
-#  SR: paired *_R1*/*_R2* FASTQs | LR: single-end *.fastq.gz / *.fq.gz
+#  SR PE : paired *_R1*/*_R2* or *_1.*/*_2.* FASTQs
+#  SR SE : single *.fq.gz / *.fastq.gz (no _R1/_R2 suffix)
+#  LR    : single-end *.fastq.gz / *.fq.gz
 # ══════════════════════════════════════════════════════════════════════
 
-def find_samples(fastq_dir, long_reads=False):
+_PE_PATTERNS = re.compile(r"_R[12]|_[12]\.")
+
+def find_samples(fastq_dir, long_reads=False, single_end=False):
     samples = {}
     fq_dir = Path(fastq_dir).expanduser()
     if long_reads:
@@ -213,6 +220,16 @@ def find_samples(fastq_dir, long_reads=False):
                 sample = re.sub(r"\.f(ast)?q(\.gz)?$", "", f.name)
                 if sample not in seen:
                     samples[sample] = {"LR": str(f)}
+                    seen.add(sample)
+    elif single_end:
+        seen = set()
+        for pat in ["*.fastq.gz", "*.fq.gz"]:
+            for f in sorted(fq_dir.glob(pat)):
+                if _PE_PATTERNS.search(f.name):
+                    continue  # skip R1/R2 files
+                sample = re.sub(r"\.f(ast)?q(\.gz)?$", "", f.name)
+                if sample not in seen:
+                    samples[sample] = {"R1": str(f)}
                     seen.add(sample)
     else:
         seen = set()
@@ -232,9 +249,14 @@ def find_samples(fastq_dir, long_reads=False):
                     seen.add(sample)
     return samples
 
-SAMPLES = find_samples(FASTQ_DIR, long_reads=LONG_READS)
+SAMPLES = find_samples(FASTQ_DIR, long_reads=LONG_READS, single_end=SINGLE_END)
 if not SAMPLES:
-    mode = "long read (single-end)" if LONG_READS else "paired short read"
+    if LONG_READS:
+        mode = "long read (single-end)"
+    elif SINGLE_END:
+        mode = "single-end short read"
+    else:
+        mode = "paired short read"
     raise ValueError(f"No {mode} FASTQs found in {FASTQ_DIR}")
 
 print(f"[Snakemake] Samples ({'LR' if LONG_READS else 'SR'}): {list(SAMPLES.keys())}")

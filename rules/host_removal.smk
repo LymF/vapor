@@ -40,13 +40,14 @@ if USE_HOST_REMOVAL:
     rule remove_host_sr:
         """
         Remove host contamination from short reads.
-        Maps R1/R2 to the host reference with bwa-mem2;
-        keeps only read pairs where BOTH mates are unmapped (flag -f 12 -F 256).
-        Outputs host-removed FASTQs + flagstat for reporting.
+        PE: maps R1+R2; keeps pairs where BOTH mates are unmapped (-f 12 -F 256).
+        SE: maps R1 only; keeps reads that are unmapped (-f 4).
+        clean_r2 is an empty sentinel file in SE mode.
         """
         input:
             tr1 = f"{OUTDIR}/{{sample}}/trimmed/{{sample}}_R1_fastp.fq.gz",
-            tr2 = f"{OUTDIR}/{{sample}}/trimmed/{{sample}}_R2_fastp.fq.gz",
+            tr2 = (f"{OUTDIR}/{{sample}}/trimmed/{{sample}}_R2_fastp.fq.gz"
+                   if not SINGLE_END else []),
             idx = (f"{HOST_INDEX}.bwt.2bit.64"
                    if HOST_INDEX
                    else f"{OUTDIR}/host_index/host.bwt.2bit.64"),
@@ -64,21 +65,33 @@ if USE_HOST_REMOVAL:
         params:
             idx_prefix = (HOST_INDEX if HOST_INDEX
                           else f"{OUTDIR}/host_index/host"),
-            tmpbam = f"{OUTDIR}/{{sample}}/host_removed/tmp_namesort.bam",
+            tmpbam     = f"{OUTDIR}/{{sample}}/host_removed/tmp_namesort.bam",
+            single_end = SINGLE_END,
         shell:
             """
             mkdir -p $(dirname {output.clean_r1})
-            bwa-mem2 mem -t {threads} {params.idx_prefix} \
-                {input.tr1} {input.tr2} 2>> {log} \
-            | samtools sort -@ {threads} -n \
-                -o {params.tmpbam} - 2>> {log}
-            samtools flagstat {params.tmpbam} > {output.stats} 2>> {log}
-            samtools view -@ {threads} -f 12 -F 256 -b {params.tmpbam} \
-            | samtools fastq \
-                -1 {output.clean_r1} \
-                -2 {output.clean_r2} \
-                -0 /dev/null -s /dev/null \
-                2>> {log}
+            if [ "{params.single_end}" = "True" ]; then
+                bwa-mem2 mem -t {threads} {params.idx_prefix} \
+                    {input.tr1} 2>> {log} \
+                | samtools sort -@ {threads} -o {params.tmpbam} - 2>> {log}
+                samtools flagstat {params.tmpbam} > {output.stats} 2>> {log}
+                samtools view -@ {threads} -f 4 -b {params.tmpbam} \
+                | samtools fastq - 2>> {log} \
+                | gzip > {output.clean_r1}
+                touch {output.clean_r2}
+            else
+                bwa-mem2 mem -t {threads} {params.idx_prefix} \
+                    {input.tr1} {input.tr2} 2>> {log} \
+                | samtools sort -@ {threads} -n \
+                    -o {params.tmpbam} - 2>> {log}
+                samtools flagstat {params.tmpbam} > {output.stats} 2>> {log}
+                samtools view -@ {threads} -f 12 -F 256 -b {params.tmpbam} \
+                | samtools fastq \
+                    -1 {output.clean_r1} \
+                    -2 {output.clean_r2} \
+                    -0 /dev/null -s /dev/null \
+                    2>> {log}
+            fi
             rm -f {params.tmpbam}
             """
 

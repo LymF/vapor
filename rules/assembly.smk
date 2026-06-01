@@ -16,6 +16,7 @@ rule megahit:
       "meta-sensitive" — --presets meta-sensitive (same k-list, more sensitive)
       "meta-large"     — --presets meta-large (larger step, big/complex metagenomes)
       "custom"         — pass MEGAHIT_CUSTOM_PARAMS verbatim (e.g. --k-list 21,55,99)
+    PE: -1/-2; SE: -r (single reads).
     NOTE: fails if output dir already exists — removed before run.
     NOTE: -m is in bytes (MEGAHIT_MEM is defined in bytes in the config).
     """
@@ -32,28 +33,42 @@ rule megahit:
     container:  CONTAINERS.get("megahit")
     threads: THREADS
     params:
-        outdir = f"{OUTDIR}/{{sample}}/assembly/megahit",
-        preset = (
+        outdir     = f"{OUTDIR}/{{sample}}/assembly/megahit",
+        preset     = (
             f"--presets {MEGAHIT_PRESET}" if MEGAHIT_PRESET in ("meta-sensitive", "meta-large")
             else (MEGAHIT_CUSTOM_PARAMS   if MEGAHIT_PRESET == "custom" else "")
         ),
+        single_end = SINGLE_END,
     shell:
         """
         rm -rf {params.outdir}
-        megahit \
-            -1 {input.tr1} -2 {input.tr2} \
-            -t {threads} \
-            -m {MEGAHIT_MEM} \
-            --min-contig-len {MIN_CONTIG} \
-            {params.preset} \
-            -o {params.outdir} \
-            > {log} 2>&1
+        if [ "{params.single_end}" = "True" ]; then
+            megahit \
+                -r {input.tr1} \
+                -t {threads} \
+                -m {MEGAHIT_MEM} \
+                --min-contig-len {MIN_CONTIG} \
+                {params.preset} \
+                -o {params.outdir} \
+                > {log} 2>&1
+        else
+            megahit \
+                -1 {input.tr1} -2 {input.tr2} \
+                -t {threads} \
+                -m {MEGAHIT_MEM} \
+                --min-contig-len {MIN_CONTIG} \
+                {params.preset} \
+                -o {params.outdir} \
+                > {log} 2>&1
+        fi
         """
 
 rule metaspades:
     """
-    metaSPAdes assembly. Better for low-abundance organisms; more memory.
-    Also outputs assembly graph (.gfa) — required by GraphMB.
+    SPAdes assembly.
+    PE  mode: spades.py --meta (metaSPAdes) — paired-end only.
+    SE  mode: spades.py -s (standard SPAdes, no --meta) — metaSPAdes requires PE.
+    GFA graph is produced by both modes and reused by metaviral_spades.
     SPADES_KMERS controls k-mer selection:
       "default" — SPAdes auto-selects based on read length
       "custom"  — uses SPADES_KMER_LIST (e.g. "21,33,55,77,99,127")
@@ -72,25 +87,35 @@ rule metaspades:
     container:  CONTAINERS.get("spades")
     threads: THREADS
     params:
-        kmers = f"-k {SPADES_KMER_LIST}" if SPADES_KMERS == "custom" else "",
+        outdir     = f"{OUTDIR}/{{sample}}/assembly/metaspades",
+        kmers      = f"-k {SPADES_KMER_LIST}" if SPADES_KMERS == "custom" else "",
+        single_end = SINGLE_END,
     shell:
         """
-        spades.py --meta \
-            -1 {input.tr1} -2 {input.tr2} \
-            -t {threads} -m {SPADES_MEM} \
-            {params.kmers} \
-            -o {OUTDIR}/{wildcards.sample}/assembly/metaspades \
-            > {log} 2>&1
+        if [ "{params.single_end}" = "True" ]; then
+            spades.py \
+                -s {input.tr1} \
+                -t {threads} -m {SPADES_MEM} \
+                {params.kmers} \
+                -o {params.outdir} \
+                > {log} 2>&1
+        else
+            spades.py --meta \
+                -1 {input.tr1} -2 {input.tr2} \
+                -t {threads} -m {SPADES_MEM} \
+                {params.kmers} \
+                -o {params.outdir} \
+                > {log} 2>&1
+        fi
+        touch {output.graph}
         """
 
 
 rule metaviral_spades:
     """
-    metaviralSPAdes: viral-optimised assembly that reuses the metaSPAdes GFA graph
-    (--assembly-graph), skipping expensive k-mer/graph construction (~70% less CPU).
-    Extracts circular genomes and linear paths with terminal repeats (viral signatures).
-    Output is merged alongside MEGAHIT + metaSPAdes in merge_contigs → MMseqs2.
-    Falls back to an empty FASTA if no viral contigs are produced.
+    metaviralSPAdes: viral-optimised assembly that reuses the metaSPAdes GFA graph.
+    Skipped for SE mode (--metaviral requires PE; graph from SE SPAdes is not
+    compatible) — output is an empty FASTA sentinel so merge_contigs still works.
     """
     input:
         tr1   = _clean_r1,
@@ -106,10 +131,16 @@ rule metaviral_spades:
     container:  CONTAINERS.get("spades")
     threads: THREADS
     params:
-        outdir = f"{OUTDIR}/{{sample}}/assembly/metaviral",
+        outdir     = f"{OUTDIR}/{{sample}}/assembly/metaviral",
+        single_end = SINGLE_END,
     shell:
         """
         mkdir -p {params.outdir}
+        if [ "{params.single_end}" = "True" ]; then
+            echo "[metaviral_spades] Skipped — SE mode (--metaviral requires PE)" | tee {log}
+            touch {output.contigs}
+            exit 0
+        fi
         spades.py --metaviral \
             --assembly-graph {input.graph} \
             -1 {input.tr1} -2 {input.tr2} \

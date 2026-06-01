@@ -14,15 +14,12 @@
 rule fastp:
     """
     Adapter trimming + quality filtering + QC report with fastp.
-    Replaces FastQC + Trim Galore with a single multi-threaded step.
-    Outputs:
-      - trimmed paired FASTQs used by all assemblers
-      - JSON report consumed by MultiQC and generate_report.py
-      - HTML report for manual inspection
+    PE mode: paired -i/-I -o/-O with --detect_adapter_for_pe.
+    SE mode: single -i -o only; tr2 is an empty sentinel file.
     """
     input:
         r1 = lambda wc: SAMPLES[wc.sample]["R1"],
-        r2 = lambda wc: SAMPLES[wc.sample]["R2"],
+        r2 = lambda wc: SAMPLES[wc.sample].get("R2", []),
     output:
         tr1  = f"{OUTDIR}/{{sample}}/trimmed/{{sample}}_R1_fastp.fq.gz",
         tr2  = f"{OUTDIR}/{{sample}}/trimmed/{{sample}}_R2_fastp.fq.gz",
@@ -36,22 +33,39 @@ rule fastp:
     conda:      "../envs/env_qc.yaml"
     container:  CONTAINERS.get("fastp")
     threads: min(THREADS, 16)
+    params:
+        single_end = SINGLE_END,
     shell:
         """
         mkdir -p {OUTDIR}/{wildcards.sample}/trimmed \
                  {OUTDIR}/{wildcards.sample}/qc_raw
-        fastp \
-            -i {input.r1} -I {input.r2} \
-            -o {output.tr1} -O {output.tr2} \
-            --json {output.json} \
-            --html {output.html} \
-            --thread {threads} \
-            --detect_adapter_for_pe \
-            --qualified_quality_phred 20 \
-            --length_required 50 \
-            --low_complexity_filter \
-            --complexity_threshold 30 \
-            2> {log}
+        if [ "{params.single_end}" = "True" ]; then
+            fastp \
+                -i {input.r1} \
+                -o {output.tr1} \
+                --json {output.json} \
+                --html {output.html} \
+                --thread {threads} \
+                --qualified_quality_phred 20 \
+                --length_required 50 \
+                --low_complexity_filter \
+                --complexity_threshold 30 \
+                2> {log}
+            touch {output.tr2}
+        else
+            fastp \
+                -i {input.r1} -I {input.r2} \
+                -o {output.tr1} -O {output.tr2} \
+                --json {output.json} \
+                --html {output.html} \
+                --thread {threads} \
+                --detect_adapter_for_pe \
+                --qualified_quality_phred 20 \
+                --length_required 50 \
+                --low_complexity_filter \
+                --complexity_threshold 30 \
+                2> {log}
+        fi
         touch {output.done}
         """
 

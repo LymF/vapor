@@ -32,9 +32,9 @@ rule bwa_index:
 
 rule bwa_mem:
     """
-    Short read mapping with BWA-MEM2. Skipped when LONG_READS=True
-    (minimap2_lr takes precedence via ruleorder in Snakefile).
-    Outputs done.txt sentinel to decouple from minimap2_lr BAM output.
+    Short read mapping with BWA-MEM2. Skipped when LONG_READS=True.
+    PE mode: maps R1 + R2.
+    SE mode: maps R1 only (single read, no -2 argument).
     """
     input:
         tr1 = _clean_r1,
@@ -53,7 +53,8 @@ rule bwa_mem:
     container:  CONTAINERS.get("bwa_mem2")
     threads: THREADS
     params:
-        prefix = f"{OUTDIR}/{{sample}}/mapping/contigs_index",
+        prefix     = f"{OUTDIR}/{{sample}}/mapping/contigs_index",
+        single_end = SINGLE_END,
     shell:
         """
         if [ "{LONG_READS}" = "True" ]; then
@@ -61,12 +62,21 @@ rule bwa_mem:
             touch {output.bam} {output.bai} {output.stats} {output.done}; exit 0
         fi
         mkdir -p $(dirname {output.bam})
-        bwa-mem2 mem \
-            -t {threads} \
-            {params.prefix} \
-            {input.tr1} {input.tr2} \
-            2> {log} \
-        | samtools sort -@ {threads} -o {output.bam}
+        if [ "{params.single_end}" = "True" ]; then
+            bwa-mem2 mem \
+                -t {threads} \
+                {params.prefix} \
+                {input.tr1} \
+                2> {log} \
+            | samtools sort -@ {threads} -o {output.bam}
+        else
+            bwa-mem2 mem \
+                -t {threads} \
+                {params.prefix} \
+                {input.tr1} {input.tr2} \
+                2> {log} \
+            | samtools sort -@ {threads} -o {output.bam}
+        fi
         samtools index {output.bam}
         samtools flagstat {output.bam} > {output.stats} 2>> {log}
         touch {output.done}
