@@ -50,7 +50,7 @@ rule bwa_mem:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/bwa_mem.tsv"
     conda:      "../envs/env_mapping.yaml"
-    container:  CONTAINERS.get("bwa_mem2")
+    container:  CONTAINERS.get("bwa_mem2_samtools")
     threads: THREADS
     params:
         prefix     = f"{OUTDIR}/{{sample}}/mapping/contigs_index",
@@ -102,7 +102,7 @@ if LONG_READS:
         log:   f"{OUTDIR}/{{sample}}/logs/minimap2_lr.log"
         benchmark: f"{OUTDIR}/{{sample}}/benchmarks/minimap2_lr.tsv"
         conda:      "../envs/env_mapping.yaml"
-        container:  CONTAINERS.get("minimap2")
+        container:  CONTAINERS.get("minimap2_samtools")
         threads: THREADS
         shell:
             """

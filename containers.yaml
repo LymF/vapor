@@ -71,6 +71,7 @@ medaka:
   # GPU variant: docker/Dockerfile.medaka-gpu → ghcr.io/LymF/vapor-medaka-gpu:2.2.0
 
 # ── Mapping ─────────────────────────────────────────────────────────────
+# Single-tool containers (used only where one tool is needed per rule)
 bwa_mem2:
   image: bwa-mem2
   version: "2.3"
@@ -82,6 +83,19 @@ minimap2:
 samtools:
   image: samtools
   version: "1.23"
+
+# Combined containers: rules that call bwa-mem2 + samtools (or minimap2 + samtools)
+# in the same shell block need a container that ships both.
+# StaPH-B containers bundle related alignment tools + samtools together.
+bwa_mem2_samtools:
+  image: "staphb/bwa-mem2"
+  version: "2.2.1"
+  custom: true
+
+minimap2_samtools:
+  image: "staphb/minimap2"
+  version: "2.28"
+  custom: true
 
 # ── Viral detection ─────────────────────────────────────────────────────
 virsorter:
