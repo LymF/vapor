@@ -9,18 +9,18 @@
 # ══════════════════════════════════════════════════════════════════════
 
 # ── I/O ────────────────────────────────────────────────────────────────
-fastq_dir: "~/analyses/fastq-teste/"
-outdir:    "~/analyses/fastq-teste/results"
-threads:   32
+fastq_dir: "~/testevapor/"
+outdir:    "~/testevapor/results"
+threads:   55
 
 # ── Assembly — SPAdes ──────────────────────────────────────────────────
-spades_mem:       250          # RAM limit in GB
+spades_mem:       120          # RAM limit in GB
 spades_kmers:     "default"   # "default" | "custom"
 spades_kmer_list: "21,33,55,77,99,127"  # used only when spades_kmers = "custom"
 
 # ── Assembly — MEGAHIT ────────────────────────────────────────────────
-megahit_mem_gb:       32       # RAM limit in GB (converted to bytes internally)
-megahit_preset:       "default"  # "default" | "meta-sensitive" | "meta-large" | "custom"
+megahit_mem_gb:       120      # RAM limit in GB (converted to bytes internally)
+megahit_preset:       "meta-sensitive"  # "default" | "meta-sensitive" | "meta-large" | "custom"
 megahit_custom_params: ""      # used only when megahit_preset = "custom"
                                # e.g. "--k-list 21,29,39,59,79,99,119,141 --k-step 10"
 
@@ -47,7 +47,7 @@ custom_prok_dmnd:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916.
 custom_prok_meta:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916_meta.tsv"
 
 # ── Binning ─────────────────────────────────────────────────────────────
-semibin_env: "global"   # soil | ocean | gut | wastewater | global
+semibin_env: "ocean"    # soil | ocean | gut | wastewater | global
 
 # Filter viral contigs out of the input to prokaryotic binners.
 # Greatly reduces viral contamination in MAGs while keeping provirus regions
@@ -86,7 +86,7 @@ score_genomad_min:    0.5
 # Set single_end: true for SE Illumina or Ion Torrent data.
 # Assembly: SPAdes runs without --meta (standard mode); MEGAHIT uses -r.
 # metaviralSPAdes is skipped (requires PE). All downstream steps unchanged.
-single_end: false
+single_end: true
 
 # ── Long read mode ──────────────────────────────────────────────────────
 # Set long_reads: true to use NanoPlot/Filtlong/Flye/hifiasm/minimap2.
@@ -122,7 +122,7 @@ host_index:  ""    # path to pre-built bwa-mem2 index prefix (optional)
 #   GeNomad    — auto (PyTorch NN classifier re-enabled; moderate speedup)
 # Requires: NVIDIA GPU + CUDA drivers + PyTorch with CUDA in each conda env.
 # Leave false if no GPU is available — all tools fall back to CPU gracefully.
-use_gpu: false
+use_gpu: true
 
 # ── Prokaryotic binning — extra binner ─────────────────────────────────
 comebin_enabled: true        # add COMEBin as 4th binner (rank 1 in 2025 benchmark)
