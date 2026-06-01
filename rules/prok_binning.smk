@@ -329,15 +329,13 @@ with open('{input.contigs}') as fh:
             {input.bam} -o "$FILT_DIR/reads.bam" 2>> {log}
         # Step 2: strip viral @SQ lines from the header
         python3 -c "
-import subprocess, sys
+import subprocess
 names = set(open('$FILT_DIR/names.txt').read().split())
-hdr = subprocess.check_output(
-    ['samtools', 'view', '-H', '$FILT_DIR/reads.bam']).decode()
-keep = [l for l in hdr.splitlines()
-        if not l.startswith('@SQ')
-        or any(f.startswith('SN:') and f[3:] in names
-               for f in l.split('\t'))]
-print('\n'.join(keep))
+hdr = subprocess.check_output(['samtools','view','-H','$FILT_DIR/reads.bam']).decode()
+for l in hdr.splitlines():
+    if l.startswith('@SQ') and not any(f.startswith('SN:') and f[3:] in names for f in l.split('\t')):
+        continue
+    print(l)
 " > "$FILT_DIR/new_header.sam" 2>> {log}
         samtools reheader "$FILT_DIR/new_header.sam" "$FILT_DIR/reads.bam" \
             > "$FILT_DIR/nonviral.bam" 2>> {log}
