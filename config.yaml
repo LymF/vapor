@@ -82,12 +82,12 @@ score_vs2_min:        0.5
 score_genomad_min:    0.5
 # VIBRANT: binary lytic/lysogenic call = high confidence (no numeric score)
 
-# ── COBRA — viral contig extension (short-read PE only) ─────────────────
+# ── COBRA — viral contig extension (Illumina PE only) ───────────────────
 # COBRA joins fragmented viral contigs using k-mer overlap from the assembly
 # graph. Runs twice (MEGAHIT params + SPAdes params) on rep_seq.fasta;
 # the longest extension wins. Safe to leave false for diverse communities
 # where most contigs are genuine ORPhANs.
-# Not applicable for long-read samples (set false when long_reads: true).
+# Requires paired-end reads — set false for single_end: true or long_reads: true.
 cobra_enabled:      false
 cobra_megahit_mink: 21
 cobra_megahit_maxk: 141

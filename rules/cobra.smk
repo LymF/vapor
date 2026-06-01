@@ -10,8 +10,10 @@
 # When disabled, viral_binning rules consume viral_consensus.fasta directly
 # via the _viral_qc_input() hook (defined in viral_binning.smk).
 #
-# NOTE: COBRA requires paired-end short reads and a PE assembly graph.
-#       Set cobra_enabled: false for long-read-only samples.
+# COMPATIBILITY:
+#   COBRA extends contigs using k-mer overlap AND paired-end read linkage.
+#   Only useful for paired-end Illumina (PE) short reads.
+#   Set cobra_enabled: false for long-read or single-end samples.
 # ══════════════════════════════════════════════════════════════════════
 
 
