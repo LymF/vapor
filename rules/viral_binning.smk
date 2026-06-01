@@ -340,12 +340,22 @@ rule make_votu_table:
         phist_csv   = f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv",
     # run: executes in the Snakemake Python process — bypasses container/conda
     # issues with script: calling `python` (not `python3`) inside containers.
-    # The script uses only stdlib so no special environment is needed.
+    # Note: run: blocks expose input/output/params/wildcards directly (no
+    # `snakemake` wrapper), so we build a SimpleNamespace to satisfy the script.
     run:
-        import importlib.util, os as _os
+        import importlib.util, os as _os, types, traceback
         _path = _os.path.join(workflow.basedir, "scripts", "make_votu_table.py")
         _spec = importlib.util.spec_from_file_location("make_votu_table", _path)
         _mod  = importlib.util.module_from_spec(_spec)
         _spec.loader.exec_module(_mod)
-        _mod.snakemake = snakemake
-        _mod.main()
+        _mod.snakemake = types.SimpleNamespace(
+            input=input, output=output, params=params,
+            wildcards=wildcards, log=log, threads=threads,
+        )
+        try:
+            _mod.main()
+        except Exception:
+            _os.makedirs(_os.path.dirname(str(log[0])), exist_ok=True)
+            with open(str(log[0]), "a") as _lf:
+                traceback.print_exc(file=_lf)
+            raise
