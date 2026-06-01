@@ -85,7 +85,7 @@ rule coverm_prok:
     shell:
         """
         mkdir -p {params.outdir}
-        N_BINS=$(ls {params.bin_dir}/*.fa 2>/dev/null | wc -l)
+        N_BINS=$(find {params.bin_dir} -maxdepth 1 -name "*.fa" 2>/dev/null | wc -l)
         if [ "$N_BINS" -eq 0 ]; then
             echo "[coverm_prok] No MAGs — writing empty table" | tee {log}
             printf "Genome\\t{wildcards.sample}_{params.method}\n" > {output.tsv}

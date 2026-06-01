@@ -533,7 +533,7 @@ rule checkm2:
         rm -rf {params.outdir}
         mkdir -p {params.outdir}
 
-        N_BINS=$(ls {params.bins_dir}/*.fa 2>/dev/null | wc -l)
+        N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fa" 2>/dev/null | wc -l)
         if [ "$N_BINS" -eq 0 ]; then
             echo "[checkm2] No bins found — skipping" | tee {log}
             printf "Name\tCompleteness\tContamination\tGenome_Size\n" > {output.report}
@@ -593,7 +593,7 @@ rule gunc:
             printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
             exit 0
         fi
-        N_BINS=$(ls {params.bins_dir}/*.fa 2>/dev/null | wc -l)
+        N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fa" 2>/dev/null | wc -l)
         if [ "$N_BINS" -eq 0 ]; then
             echo "[gunc] No bins to evaluate" | tee {log}
             printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
@@ -718,7 +718,7 @@ rule gtdbtk:
         mkdir -p {params.outdir}
 
         # If no bins, create empty outputs
-        N_BINS=$(ls {params.bins_dir}/*.fa 2>/dev/null | wc -l)
+        N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fa" 2>/dev/null | wc -l)
         if [ "$N_BINS" -eq 0 ]; then
             echo "[gtdbtk] No bins found — skipping" | tee {log}
             mkdir -p {params.outdir}/classify

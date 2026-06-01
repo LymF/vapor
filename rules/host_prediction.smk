@@ -39,7 +39,7 @@ rule phist:
         set -euo pipefail
         mkdir -p {params.outdir}
 
-        N_BINS=$(ls {params.bins_dir}/*.fa 2>/dev/null | wc -l)
+        N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fa" 2>/dev/null | wc -l)
         if [ "$N_BINS" -eq 0 ] || [ ! -s {input.viral} ]; then
             echo "[phist] No MAGs or no viral sequences — skipping" | tee {log}
             printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
@@ -53,7 +53,7 @@ rule phist:
         python3 {params.scripts_dir}/split_viral_fastas.py \
             {input.viral} {params.vrhyme_dir} "$VFASTA_DIR" \
             >> {log} 2>&1
-        echo "[phist] Total viral genomes: $(ls $VFASTA_DIR/*.fasta 2>/dev/null | wc -l)" \
+        echo "[phist] Total viral genomes: $(find $VFASTA_DIR -maxdepth 1 -name "*.fasta" 2>/dev/null | wc -l)" \
             | tee -a {log}
 
         # Build k-mer DB — file list mode (one file per genome = one row in output)
