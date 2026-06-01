@@ -1,7 +1,7 @@
 # VAPOR — Viral And Prokaryotic mOdular pipelineR
 
 A modular Snakemake pipeline for metagenomics and viromics.
-Supports **short reads (Illumina PE)** and **long reads (ONT / PacBio HiFi)**.
+Supports **short reads (Illumina PE and SE)** and **long reads (ONT / PacBio HiFi)**.
 
 ---
 
@@ -21,7 +21,7 @@ vapor/
 │   ├── quast.smk                # BLOCK 4  — QUAST
 │   ├── viral_detection.smk      # BLOCK 5  — VirSorter2, GeNomad, VIBRANT, consensus
 │   ├── mapping.smk              # BLOCK 6  — BWA-MEM2 / minimap2, calc_depth
-│   ├── viral_binning.smk        # BLOCK 7  — COBRA, CheckV, vRhyme, CheckV(vRhyme),
+│   ├── viral_binning.smk        # BLOCK 7  — CheckV, vRhyme, CheckV(vRhyme),
 │   │                            #            skani vOTU clustering (95% ANI + 85% AF)
 │   ├── prok_binning.smk         # BLOCK 8  — viral→prok filter, MetaBAT2, VAMB,
 │   │                            #            SemiBin2, COMEBin, Binette, GUNC,
@@ -44,9 +44,6 @@ vapor/
 │   ├── skani_cluster_votus.py   # greedy single-linkage vOTU BFS clustering (ICTV)
 │   ├── generate_report.py       # standalone Plotly HTML report
 │   ├── pin_containers.py        # resolve quay.io tags → containers.lock.yaml
-│   └── test/                    # standalone test scripts (run tools outside Snakemake)
-│       ├── run_cobra_standalone.sh
-│       └── run_phables_standalone.sh
 │
 ├── containers.yaml              ← container version definitions (edit to update)
 ├── containers.lock.yaml         ← resolved quay.io URIs (generated, commit this)
@@ -76,7 +73,6 @@ vapor/
     ├── env_annotation.yaml      # includes circular genome maps (pycirclize)
     ├── env_vcontact3.yaml
     ├── env_coverm.yaml          # includes diversity (numpy + scipy)
-    ├── env_cobra.yaml           # COBRA-meta (viral contig extension)
     ├── env_gunc.yaml            # GUNC (MAG chimera detection)
     └── env_derep.yaml           # skani + galah (vOTU clustering + MAG dereplication)
 ```
@@ -85,59 +81,63 @@ vapor/
 
 ## Running the pipeline
 
-VAPOR supports two execution modes. Both require the `snakemake` conda environment to be active.
+Activate the Snakemake environment first:
 
 ```bash
 conda activate snakemake
 ```
 
-### Container mode (default — recommended for production)
-
-Uses Apptainer/Singularity to pull tool images from quay.io/biocontainers.
-Requires `containers.lock.yaml` (generated once with `pin_containers.py`).
+`vapor` auto-detects the available runtime: **apptainer → singularity → conda**.
 
 ```bash
-# One-time setup: resolve exact container tags
-python3 scripts/pin_containers.py
-
-# Dry-run
+# Dry-run (validate without executing)
 vapor --dry-run
 
-# Full execution with 32 cores
+# Full execution (auto-detects runtime)
 vapor --threads 32
 
-# Enable GPU pass-through (medaka, COMEBin)
-vapor --threads 32 --apptainer-args '--nv'
+# Force a specific executor
+vapor --executor apptainer --threads 32
+vapor --executor singularity --threads 32
+vapor --executor conda --threads 32
+
+# GPU pass-through for Apptainer (medaka, COMEBin, VAMB, SemiBin2)
+vapor --executor apptainer --singularity-args '--nv' --threads 32
+
+# Extra bind mounts (NAS paths, scratch)
+vapor --executor apptainer --singularity-args '--bind /mnt/nas /scratch' --threads 32
 ```
 
-### Conda mode (development / offline)
-
-Uses conda environments from `envs/*.yaml`. No internet required after env creation.
+### Container mode setup (one-time)
 
 ```bash
-# One-time setup: create all environments
-vapor --create-envs
+# Resolve exact image tags → containers.lock.yaml
+python3 scripts/pin_containers.py
+```
 
-# Run in conda mode
-vapor --threads 32 --use-conda
+### Conda mode setup (one-time, offline-capable)
+
+```bash
+# Create all environments
+snakemake --snakefile Snakefile --use-conda --cores 1 --create-envs-only
 ```
 
 ### Other commands
 
 ```bash
-# Use a custom config file
+# Custom config file
 vapor --threads 32 --config /path/to/config.yaml
 
-# Visualize the DAG (requires graphviz)
+# Visualize DAG (requires graphviz)
 vapor --dag
 
 # Force re-run specific rules
 vapor --threads 32 --forcerun viral_consensus
 
-# Resume an interrupted run
+# Resume interrupted run
 vapor --threads 32 --rerun-incomplete
 
-# Unlock directory after a crash
+# Unlock directory after crash
 vapor --unlock
 
 # Run up to a specific output file
@@ -163,10 +163,9 @@ All parameters are defined in **`config.yaml`** — no `.smk` files need to be e
 | `viral_consensus_mode` | `"count"` / `"score"` / `"hybrid"` |
 | `min_viral_tools` | Minimum tools agreeing for viral consensus |
 | `use_gpu` | `true` to enable GPU in VAMB, SemiBin2, COMEBin, GeNomad |
+| `single_end` | `true` for SE short reads (Illumina SE or Ion Torrent) |
 | `prok_filter_viral` | `true` to remove free-living viral contigs from prok binners |
 | `prok_filter_keep_provirus` | `true` to preserve provirus-containing contigs (default) |
-| `cobra_enabled` | `true` to extend viral contigs via metaSPAdes assembly graph |
-| `cobra_assembler` | Assembler type for COBRA: `"metaspades"` |
 | `gunc_enabled` | `true` to run GUNC chimera detection on Binette final bins |
 | `gunc_db` | Path to `gunc_db_progenomes2.1.dmnd` |
 | `votu_clustering_enabled` | `true` to cluster vOTUs with skani (ICTV: 95% ANI + 85% AF) |
@@ -228,7 +227,6 @@ snakemake --snakefile Snakefile --use-conda --cores 1 --create-envs-only
 | `env_annotation` | pharokka, phold, bakta, eggnog-mapper, pycirclize |
 | `env_vcontact3` | vcontact3 |
 | `env_coverm` | coverm, numpy, scipy |
-| `env_cobra` | cobra-meta (viral extension via assembly graph) |
 | `env_gunc` | gunc, diamond, prodigal (MAG chimera detection) |
 | `env_derep` | skani, galah (vOTU clustering + MAG dereplication) |
 
@@ -247,25 +245,9 @@ VAPOR includes four optional quality-enhancement steps, all enabled by default a
 | Feature | Rule | Benefit |
 |---|---|---|
 | **Viral → prok filter** | `filter_viral_for_prok` | Removes free-living viral contigs from prokaryotic binner input; provirus-containing contigs are preserved (detected via CheckV + GeNomad metadata) |
-| **COBRA-meta** | `cobra` | Extends fragmented viral contigs by traversing the metaSPAdes assembly graph (short reads only); typically reduces contig count and increases mean length |
 | **GUNC** | `gunc` | Detects chimeric MAGs by checking taxon consistency across Diamond-annotated genes; report appears in final summary |
 | **skani vOTU** | `skani_votu` | Clusters viral genomes at ICTV standard (95% ANI + 85% AF) using skani pairwise ANI; replaces the simpler MMseqs2 identity grouping |
 | **galah MAG derep** | `galah_derep` | Dereplicates prokaryotic bins using CheckM2 quality scores; selects highest-quality representative per cluster before GTDB-Tk |
-
-### Standalone test scripts
-
-Before running COBRA or Phables inside the pipeline, test them directly on existing results:
-
-```bash
-# COBRA-meta (requires metaSPAdes GFA + viral consensus + coverage)
-bash scripts/test/run_cobra_standalone.sh --sample SAMPLE_NAME --results-dir results/
-
-# Phables (requires metaSPAdes GFA + read pairs)
-bash scripts/test/run_phables_standalone.sh --sample SAMPLE_NAME --results-dir results/
-
-# Use conda instead of Docker
-bash scripts/test/run_cobra_standalone.sh --sample SAMPLE_NAME --use-conda
-```
 
 ---
 
