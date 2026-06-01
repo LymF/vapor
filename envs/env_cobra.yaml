@@ -1,0 +1,9 @@
+name: env_cobra
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - cobra-meta=1.3.0
+  - blast>=2.12
+  - python>=3.8

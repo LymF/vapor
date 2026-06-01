@@ -33,6 +33,7 @@
 #   quast.smk           — BLOCK 4  : QUAST
 #   viral_detection.smk — BLOCK 5  : VS2, GeNomad, VIBRANT, viral_consensus
 #   mapping.smk         — BLOCK 6  : BWA-MEM2, minimap2, calc_depth
+#   cobra.smk           — BLOCK 5.5: COBRA contig extension (optional, SR PE only)
 #   viral_binning.smk   — BLOCK 7  : vRhyme, CheckV (×2)
 #   prok_binning.smk    — BLOCK 8  : MetaBAT2, VAMB, SemiBin2, Binette, CheckM2, GTDB-Tk
 #   taxonomy.smk        — BLOCK 9  : Prodigal, Diamond, vConTACT3, viral_taxonomy
@@ -199,6 +200,13 @@ VOTU_AF                 = config.get("votu_af", 85.0)
 MAG_DEREP_ENABLED = config.get("mag_derep_enabled", True)
 MAG_DEREP_ANI     = config.get("mag_derep_ani", 95.0)
 
+# ── COBRA viral contig extension ───────────────────────────────────────
+COBRA_ENABLED      = config.get("cobra_enabled", False)
+COBRA_MEGAHIT_MINK = config.get("cobra_megahit_mink", 21)
+COBRA_MEGAHIT_MAXK = config.get("cobra_megahit_maxk", 141)
+COBRA_SPADES_MINK  = config.get("cobra_spades_mink", 21)
+COBRA_SPADES_MAXK  = config.get("cobra_spades_maxk", 127)
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  SAMPLE DISCOVERY
@@ -281,6 +289,7 @@ include: "rules/merge_dedup.smk"
 include: "rules/quast.smk"
 include: "rules/viral_detection.smk"
 include: "rules/mapping.smk"
+include: "rules/cobra.smk"
 include: "rules/viral_binning.smk"
 include: "rules/prok_binning.smk"
 include: "rules/taxonomy.smk"

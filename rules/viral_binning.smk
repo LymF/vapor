@@ -10,6 +10,8 @@
 
 
 def _viral_qc_input(wc):
+    if COBRA_ENABLED:
+        return f"{OUTDIR}/{wc.sample}/cobra/{wc.sample}_cobra_viral.fasta"
     return f"{OUTDIR}/{wc.sample}/viral/consensus/{wc.sample}_viral_consensus.fasta"
 
 
