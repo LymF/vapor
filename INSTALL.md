@@ -110,6 +110,10 @@ mamba create -n phage_vibrant -c conda-forge -c bioconda \
 mamba create -n env_vrhyme -c conda-forge -c bioconda \
     vrhyme -y
 
+# COBRA (viral contig extension — optional, short-read PE only)
+mamba create -n env_cobra -c conda-forge -c bioconda \
+    "cobra-meta=1.3.0" blast -y
+
 # Prokaryotic binning
 mamba create -n env_binning -c conda-forge -c bioconda \
     metabat2 vamb semibin2 -y
@@ -612,8 +616,8 @@ rm fastqs/TEST_R1.fastq.gz fastqs/TEST_R2.fastq.gz
 ```bash
 for env in env_qc env_assembly env_flye env_medaka env_lr_utils \
            env_mapping env_viral env_genomad phage_vibrant env_vrhyme \
-           env_binning env_comebin env_binette env_checkm2 env_gtdbtk \
-           env_phist env_annotation env_vcontact3 env_coverm \
+           env_cobra env_binning env_comebin env_binette env_checkm2 \
+           env_gtdbtk env_phist env_annotation env_vcontact3 env_coverm \
            env_gunc env_derep; do
     echo -n "$env: "
     conda run -n "$env" python --version 2>/dev/null || echo "MISSING"
@@ -664,3 +668,9 @@ Set the full path to `gunc_db_progenomes2.1.dmnd` in `config.yaml` (key `gunc_db
 
 **galah: no bins to dereplicute**
 galah requires CheckM2 quality scores. If CheckM2 failed or produced no output, galah will exit with an error. Set `mag_derep_enabled: false` to skip dereplication and feed all Binette bins directly to GTDB-Tk.
+
+**COBRA: nearly all contigs report `orphan_end`**
+This is expected for highly diverse environmental communities (seawater, soil, wastewater) where the assembly graph is fragmented. COBRA extends contigs using paired-end k-mer overlap; if the paired reads do not cover both ends of a contig, extension is not possible. Leave `cobra_enabled: false` (default) for such samples. Enable it primarily for low-diversity viromes where circular genomes are likely.
+
+**COBRA: not applicable for long reads**
+COBRA was designed for paired-end short-read assemblies. Set `cobra_enabled: false` whenever `long_reads: true`.

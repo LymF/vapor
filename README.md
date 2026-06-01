@@ -21,6 +21,7 @@ vapor/
 │   ├── quast.smk                # BLOCK 4  — QUAST
 │   ├── viral_detection.smk      # BLOCK 5  — VirSorter2, GeNomad, VIBRANT, consensus
 │   ├── mapping.smk              # BLOCK 6  — BWA-MEM2 / minimap2, calc_depth
+│   ├── cobra.smk                # BLOCK 5.5— COBRA contig extension (optional, SR PE)
 │   ├── viral_binning.smk        # BLOCK 7  — CheckV, vRhyme, CheckV(vRhyme),
 │   │                            #            skani vOTU clustering (95% ANI + 85% AF)
 │   ├── prok_binning.smk         # BLOCK 8  — viral→prok filter, MetaBAT2, VAMB,
@@ -64,6 +65,7 @@ vapor/
     ├── env_genomad.yaml
     ├── phage_vibrant.yaml
     ├── env_vrhyme.yaml
+    ├── env_cobra.yaml           # COBRA contig extension (optional)
     ├── env_binning.yaml
     ├── env_comebin.yaml
     ├── env_binette.yaml
@@ -174,6 +176,9 @@ All parameters are defined in **`config.yaml`** — no `.smk` files need to be e
 | `votu_clustering_enabled` | `true` to cluster vOTUs with skani (ICTV: 95% ANI + 85% AF) |
 | `mag_derep_enabled` | `true` to dereplicte MAGs with galah before GTDB-Tk |
 | `mag_derep_ani` | ANI threshold for MAG dereplication (default `95.0`) |
+| `cobra_enabled` | `true` to extend viral contigs with COBRA (SR PE only, default `false`) |
+| `cobra_megahit_maxk` | COBRA k-mer max for MEGAHIT contigs (default `141`) |
+| `cobra_spades_maxk` | COBRA k-mer max for SPAdes contigs (default `127`) |
 
 ### Database paths
 
@@ -221,6 +226,7 @@ snakemake --snakefile Snakefile --use-conda --cores 1 --create-envs-only
 | `env_genomad` | genomad |
 | `phage_vibrant` | vibrant |
 | `env_vrhyme` | vrhyme |
+| `env_cobra` | cobra-meta, blast (optional) |
 | `env_binning` | metabat2, vamb, semibin2 |
 | `env_comebin` | comebin |
 | `env_binette` | binette |
@@ -251,6 +257,7 @@ VAPOR includes four optional quality-enhancement steps, all enabled by default a
 | **GUNC** | `gunc` | Detects chimeric MAGs by checking taxon consistency across Diamond-annotated genes; report appears in final summary |
 | **skani vOTU** | `skani_votu` | Clusters viral genomes at ICTV standard (95% ANI + 85% AF) using skani pairwise ANI; replaces the simpler MMseqs2 identity grouping |
 | **galah MAG derep** | `galah_derep` | Dereplicates prokaryotic bins using CheckM2 quality scores; selects highest-quality representative per cluster before GTDB-Tk |
+| **COBRA** | `cobra_megahit`, `cobra_spades`, `cobra_merge` | Extends fragmented viral contigs by traversing the assembly graph k-mer overlap; runs twice (MEGAHIT + SPAdes params), longest extension wins; disabled by default — beneficial for low-diversity viromes |
 
 ---
 
