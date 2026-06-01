@@ -10,11 +10,12 @@ Run 'vapor -h' for full help.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 DESCRIPTION = """\
 VAPOR — Viral And Prokaryotic genOme Recovery
@@ -36,6 +37,17 @@ Examples:
 Config file (config.yaml) must be edited before running.
 See INSTALL.md for database setup instructions.
 """
+
+# Config keys that hold filesystem paths needing apptainer bind mounts.
+_PATH_KEYS = [
+    "fastq_dir", "outdir",
+    "checkv_db", "vs2_db", "vibrant_base", "genomad_db",
+    "checkm2_db", "inphared_db", "vcontact3_db", "gtdbtk_db",
+    "gunc_db", "pharokka_db", "phold_db", "bakta_db", "eggnog_db",
+    "custom_viral_dmnd", "custom_viral_meta",
+    "custom_prok_dmnd",  "custom_prok_meta",
+    "host_genome", "host_index",
+]
 
 
 def find_snakefile(cli_path):
@@ -88,6 +100,30 @@ def _detect_executor():
     return "conda"
 
 
+def _collect_bind_paths(config_path):
+    """Return sorted list of existing paths to bind into the container."""
+    try:
+        import yaml
+        with open(config_path) as fh:
+            cfg = yaml.safe_load(fh) or {}
+    except Exception:
+        return []
+
+    seen = set()
+    for key in _PATH_KEYS:
+        val = cfg.get(key, "")
+        if not val or not isinstance(val, str):
+            continue
+        p = Path(os.path.expanduser(val)).resolve()
+        # Walk up to the first existing ancestor (outdir may not exist yet).
+        while not p.exists() and p != p.parent:
+            p = p.parent
+        if p.exists():
+            seen.add(str(p))
+
+    return sorted(seen)
+
+
 def build_command(args, snakefile, config_path):
     cmd = [
         "snakemake",
@@ -101,14 +137,18 @@ def build_command(args, snakefile, config_path):
 
     if executor == "conda":
         cmd.append("--use-conda")
-    elif executor == "singularity":
-        cmd.append("--use-singularity")
-        if args.singularity_args:
-            cmd += ["--singularity-args", args.singularity_args]
-    elif executor == "apptainer":
-        cmd.append("--use-apptainer")
-        if args.singularity_args:
-            cmd += ["--apptainer-args", args.singularity_args]
+    elif executor in ("singularity", "apptainer"):
+        cmd.append("--use-apptainer" if executor == "apptainer" else "--use-singularity")
+
+        # Auto-derive bind mounts from config paths and merge with user-supplied args.
+        auto_binds = _collect_bind_paths(config_path)
+        bind_flag  = "--bind " + ",".join(auto_binds) if auto_binds else ""
+        extra      = args.singularity_args.strip()
+        combined   = " ".join(filter(None, [extra, bind_flag]))
+
+        if combined:
+            flag = "--apptainer-args" if executor == "apptainer" else "--singularity-args"
+            cmd += [flag, combined]
 
     if args.dry_run:
         cmd.append("--dry-run")
@@ -167,7 +207,7 @@ def main():
         metavar="ARGS",
         default="",
         dest="singularity_args",
-        help='Extra args for Singularity/Apptainer, e.g. "--bind /mnt/nas /scratch"',
+        help='Extra args for Singularity/Apptainer, e.g. "--nv" for GPU pass-through',
     )
 
     # ── Execution control ─────────────────────────────────────────────
