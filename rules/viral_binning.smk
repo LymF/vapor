@@ -179,21 +179,14 @@ rule viral_nonredundant:
 
 rule skani_votu:
     """
-    skani — pairwise ANI for viral genomes, then ICTV/Roux 2019 vOTU clustering.
-
-    Strategy:
-      1. skani triangle over viral_nonredundant.fasta (per-genome alignment + ANI)
-      2. greedy single-linkage clustering at VOTU_ANI / VOTU_AF (defaults: 95/85)
-      3. emit cluster TSV (representative<TAB>member) and per-vOTU representative FASTA
-
-    Output replaces the MMseqs2 95% identity grouping for vOTU definition only.
-    The MMseqs2 deduplication (rep_seq.fasta) remains the assembly hub.
+    skani triangle — pairwise ANI matrix for viral genomes.
+    Clustering is done by the downstream skani_cluster rule (pure Python,
+    runs in Snakemake's own interpreter — no container needed).
     """
     input:
         fasta = rules.viral_nonredundant.output.fasta,
     output:
-        ani      = f"{OUTDIR}/{{sample}}/viral/votu/skani_ani.tsv",
-        clusters = f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv",
+        ani = f"{OUTDIR}/{{sample}}/viral/votu/skani_ani.tsv",
     log:
         f"{OUTDIR}/{{sample}}/logs/skani_votu.log"
     benchmark:
@@ -202,39 +195,115 @@ rule skani_votu:
     container: CONTAINERS.get("skani")
     threads: THREADS
     params:
-        outdir      = f"{OUTDIR}/{{sample}}/viral/votu",
-        ani_min     = VOTU_ANI,
-        af_min      = VOTU_AF,
-        enabled     = VOTU_CLUSTERING_ENABLED,
-        scripts_dir = SCRIPTS_DIR,
+        outdir  = f"{OUTDIR}/{{sample}}/viral/votu",
+        enabled = VOTU_CLUSTERING_ENABLED,
     shell:
         """
         mkdir -p {params.outdir}
         if [ "{params.enabled}" != "True" ]; then
             echo "[skani_votu] Disabled via config" | tee {log}
             printf "qname\trname\tani\taf_q\taf_r\n" > {output.ani}
-            printf "representative\tmember\n" > {output.clusters}
             exit 0
         fi
         N_SEQ=$(grep -c '^>' {input.fasta} 2>/dev/null || echo 0)
         if [ "$N_SEQ" -eq 0 ]; then
             echo "[skani_votu] Empty viral set" | tee {log}
             printf "qname\trname\tani\taf_q\taf_r\n" > {output.ani}
-            printf "representative\tmember\n" > {output.clusters}
             exit 0
         fi
-        # skani triangle: per-pair ANI for all sequences in the FASTA
         skani triangle \
             -i {input.fasta} \
             -o {output.ani} \
             -t {threads} \
             --slow \
-            > {log} 2>&1 || echo "[skani_votu] WARNING: triangle failed" | tee -a {log}
-        # Greedy single-linkage clustering at VOTU_ANI / VOTU_AF (helper script)
-        python3 {params.scripts_dir}/skani_cluster_votus.py \
-            {output.ani} {input.fasta} {params.ani_min} {params.af_min} {output.clusters} \
-            >> {log} 2>&1
+            >> {log} 2>&1 || echo "[skani_votu] WARNING: triangle failed" | tee -a {log}
         """
+
+
+rule skani_cluster:
+    """
+    Greedy single-linkage vOTU clustering from the skani ANI matrix.
+    Pure Python (stdlib only) — runs in Snakemake's interpreter, no container needed.
+    ICTV / Roux 2019 definition: ANI >= VOTU_ANI AND max(af_q, af_r) >= VOTU_AF.
+    """
+    input:
+        ani   = rules.skani_votu.output.ani,
+        fasta = rules.viral_nonredundant.output.fasta,
+    output:
+        clusters = f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/skani_cluster.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/skani_cluster.tsv"
+    params:
+        ani_min = VOTU_ANI,
+        af_min  = VOTU_AF,
+        enabled = VOTU_CLUSTERING_ENABLED,
+    run:
+        import sys
+        with open(log[0], "w") as _lf:
+            if not params.enabled:
+                _lf.write("[skani_cluster] Disabled via config\n")
+                with open(output.clusters, "w") as f:
+                    f.write("representative\tmember\n")
+            else:
+                ids = []
+                with open(input.fasta) as f:
+                    for line in f:
+                        if line.startswith(">"):
+                            ids.append(line[1:].strip().split()[0])
+
+                neigh = {i: set() for i in ids}
+                try:
+                    with open(input.ani) as f:
+                        f.readline()
+                        for line in f:
+                            parts = line.rstrip("\n").split("\t")
+                            if len(parts) < 5:
+                                continue
+                            q, r = parts[0], parts[1]
+                            try:
+                                ani = float(parts[2])
+                                afq = float(parts[3])
+                                afr = float(parts[4])
+                            except ValueError:
+                                continue
+                            if ani >= params.ani_min and max(afq, afr) >= params.af_min:
+                                if q in neigh and r in neigh:
+                                    neigh[q].add(r)
+                                    neigh[r].add(q)
+                except FileNotFoundError:
+                    pass
+
+                seen = set()
+                clusters = []
+                for n in ids:
+                    if n in seen:
+                        continue
+                    comp = []
+                    stack = [n]
+                    while stack:
+                        x = stack.pop()
+                        if x in seen:
+                            continue
+                        seen.add(x)
+                        comp.append(x)
+                        for y in neigh.get(x, ()):
+                            if y not in seen:
+                                stack.append(y)
+                    clusters.append(comp)
+
+                with open(output.clusters, "w") as f:
+                    f.write("representative\tmember\n")
+                    for comp in clusters:
+                        rep = comp[0]
+                        for m in comp:
+                            f.write(f"{rep}\t{m}\n")
+
+                msg = (f"[skani_cluster] genomes={len(ids)} clusters={len(clusters)} "
+                       f"ani>={params.ani_min} af>={params.af_min}\n")
+                _lf.write(msg)
+                print(msg, end="")
 
 
 rule make_votu_table:
