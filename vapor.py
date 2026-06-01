@@ -14,7 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 DESCRIPTION = """\
 VAPOR — Viral And Prokaryotic genOme Recovery
@@ -23,29 +23,18 @@ from metagenomic short-read (Illumina) and long-read (ONT/HiFi) data.
 """
 
 EPILOG = """\
-Execution modes:
-  vapor --threads 32             containers (default) — uses Apptainer/Singularity
-  vapor --threads 32 --use-conda conda environments   — dev/local mode
-  vapor --create-envs            create all conda environments without running
-
 Examples:
   vapor --dry-run                        validate workflow without executing
-  vapor --threads 32                     run with 32 cores (container mode)
-  vapor --threads 32 --use-conda         run with conda environments
+  vapor --threads 32                     run with 32 CPU cores
   vapor --config /path/to/config.yaml    use a custom config file
   vapor --rerun-incomplete               resume an interrupted run
   vapor --force                          re-run everything from scratch
   vapor --forcerun quast viral_detection force specific rules to re-run
   vapor --dag                            generate workflow DAG (dag.svg)
   vapor --unlock                         unlock directory after crash
-  vapor --create-envs                    create all conda environments
-
-Container setup (one-time, run from the VAPOR directory):
-  python3 scripts/pin_containers.py      resolve exact quay.io tags → containers.lock.yaml
-  apptainer --version                    verify Apptainer ≥ 1.1 is installed
 
 Config file (config.yaml) must be edited before running.
-See INSTALL.md for database and container setup instructions.
+See INSTALL.md for database setup instructions.
 """
 
 
@@ -89,28 +78,38 @@ def find_config(cli_path):
     )
 
 
-def _has_lock(snakefile: Path) -> bool:
-    """True if containers.lock.yaml exists next to the Snakefile."""
-    return (snakefile.parent / "containers.lock.yaml").exists()
+def _detect_executor():
+    """Auto-detect available container runtime: apptainer > singularity > conda."""
+    import shutil
+    if shutil.which("apptainer"):
+        return "apptainer"
+    if shutil.which("singularity"):
+        return "singularity"
+    return "conda"
 
 
 def build_command(args, snakefile, config_path):
-    use_conda = args.use_conda or not _has_lock(snakefile)
-
-    if use_conda:
-        mode_flags = ["--use-conda"]
-    else:
-        mode_flags = ["--use-apptainer", "--use-conda"]
-
     cmd = [
         "snakemake",
         "--snakefile", str(snakefile),
         "--configfile", str(config_path),
         "--cores", str(args.threads) if args.threads else "all",
-    ] + mode_flags
+    ]
 
-    if args.apptainer_args:
-        cmd += ["--apptainer-args", args.apptainer_args]
+    executor = args.executor if args.executor != "auto" else _detect_executor()
+    args._resolved_executor = executor
+
+    if executor == "conda":
+        cmd.append("--use-conda")
+    elif executor == "singularity":
+        cmd.append("--use-singularity")
+        if args.singularity_args:
+            cmd += ["--singularity-args", args.singularity_args]
+    elif executor == "apptainer":
+        cmd.append("--use-apptainer")
+        if args.singularity_args:
+            cmd += ["--apptainer-args", args.singularity_args]
+
     if args.dry_run:
         cmd.append("--dry-run")
     if args.rerun_incomplete:
@@ -124,7 +123,7 @@ def build_command(args, snakefile, config_path):
     if args.target:
         cmd += args.target
 
-    return cmd, "conda" if use_conda else "containers"
+    return cmd
 
 
 def main():
@@ -157,22 +156,18 @@ def main():
 
     # ── Execution mode ────────────────────────────────────────────────
     parser.add_argument(
-        "--use-conda",
-        action="store_true",
-        help=(
-            "Use conda environments instead of containers. "
-            "Default when containers.lock.yaml is absent."
-        ),
+        "--executor", "-e",
+        choices=["auto", "conda", "singularity", "apptainer"],
+        default="auto",
+        metavar="MODE",
+        help="Software deployment: auto (default, detects apptainer > singularity > conda) | conda | singularity | apptainer",
     )
     parser.add_argument(
-        "--apptainer-args",
+        "--singularity-args",
         metavar="ARGS",
-        default=None,
-        help=(
-            "Extra arguments forwarded to apptainer exec, e.g. "
-            "'--nv' to enable GPU pass-through inside containers. "
-            "Quote the whole string: --apptainer-args '--nv --bind /data'."
-        ),
+        default="",
+        dest="singularity_args",
+        help='Extra args for Singularity/Apptainer, e.g. "--bind /mnt/nas /scratch"',
     )
 
     # ── Execution control ─────────────────────────────────────────────
@@ -215,11 +210,6 @@ def main():
         nargs="+",
         help="Run pipeline only up to specific output file(s)",
     )
-    parser.add_argument(
-        "--create-envs",
-        action="store_true",
-        help="Create all conda environments without running the pipeline",
-    )
 
     # ── Utilities ─────────────────────────────────────────────────────
     parser.add_argument(
@@ -236,21 +226,6 @@ def main():
     print(f"[VAPOR {__version__}] Snakefile : {snakefile}")
     print(f"[VAPOR {__version__}] Config    : {config_path}")
 
-    # ── --create-envs ─────────────────────────────────────────────────
-    if args.create_envs:
-        cmd = [
-            "snakemake",
-            "--snakefile", str(snakefile),
-            "--configfile", str(config_path),
-            "--use-conda",
-            "--cores", "1",
-            "--conda-create-envs-only",
-        ]
-        print(f"[VAPOR] Creating conda environments: {' '.join(cmd)}\n")
-        result = subprocess.run(cmd)
-        sys.exit(result.returncode)
-
-    # ── --dag ─────────────────────────────────────────────────────────
     if args.dag:
         dag_cmd = [
             "snakemake",
@@ -277,9 +252,8 @@ def main():
         print(f"[VAPOR] DAG saved to {out_svg}")
         return
 
-    # ── normal run ────────────────────────────────────────────────────
-    cmd, mode = build_command(args, snakefile, config_path)
-    print(f"[VAPOR] Mode      : {mode}")
+    cmd = build_command(args, snakefile, config_path)
+    print(f"[VAPOR] Mode      : {args._resolved_executor}")
     print(f"[VAPOR] Running   : {' '.join(cmd)}\n")
     result = subprocess.run(cmd)
     sys.exit(result.returncode)
