@@ -55,10 +55,6 @@ semibin_env: "global"   # soil | ocean | gut | wastewater | global
 prok_filter_viral:         true   # remove free-living viral contigs from prok binning
 prok_filter_keep_provirus: true   # keep contigs flagged as provirus by CheckV/GeNomad
 
-# ── COBRA-meta (viral contig extension via assembly graph) ──────────────
-# Uses the metaSPAdes GFA to join viral contigs that share graph edges.
-# Short reads only — skipped when long_reads: true.
-
 # ── GUNC (chimera detection on MAGs) ────────────────────────────────────
 # Runs in parallel with CheckM2 on Binette final_bins.
 # Database (~13 GB) must be downloaded once — see INSTALL.md.
