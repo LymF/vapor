@@ -306,21 +306,41 @@ rule comebin:
             echo "[COMEBin] Disabled via config (comebin_enabled: false)" | tee {log}
             touch {output.done}; exit 0
         fi
-        # COMEBin's gen_cov.py builds aug_seq_info_dict from the input FASTA (-a)
-        # and then processes depth from every contig in the BAM. If the BAM contains
-        # viral contigs absent from the non-viral FASTA, it raises KeyError.
-        # Fix: filter the BAM to only reads mapped to non-viral contigs first.
+        # COMEBin internally runs 'samtools depth -aa' on the BAM.
+        # -aa outputs ALL reference sequences listed in the BAM @SQ header,
+        # even those with zero coverage. If the BAM was mapped to all contigs
+        # (viral + non-viral) the depth file will contain viral contig names
+        # that are absent from aug_seq_info_dict → KeyError in gen_cov.py.
+        # Fix: build a BAM that has (1) only reads on non-viral contigs and
+        # (2) @SQ header lines stripped of viral references.
         FILT_DIR="{params.outdir}/bam_nonviral"
         mkdir -p "$FILT_DIR"
+        # Non-viral contig name list + BED for read filtering
         python3 -c "
-import sys
-with open('{input.contigs}') as f:
-    for line in f:
+with open('{input.contigs}') as fh:
+    for line in fh:
         if line.startswith('>'):
-            print(line[1:].split()[0] + '\t0\t999999999')
-" > "$FILT_DIR/nonviral.bed"
+            print(line[1:].split()[0])
+" > "$FILT_DIR/names.txt"
+        awk '{{print $1"\t0\t999999999"}}' "$FILT_DIR/names.txt" \
+            > "$FILT_DIR/nonviral.bed"
+        # Step 1: filter reads
         samtools view -b -L "$FILT_DIR/nonviral.bed" \
-            {input.bam} -o "$FILT_DIR/nonviral.bam" 2>> {log}
+            {input.bam} -o "$FILT_DIR/reads.bam" 2>> {log}
+        # Step 2: strip viral @SQ lines from the header
+        python3 -c "
+import subprocess, sys
+names = set(open('$FILT_DIR/names.txt').read().split())
+hdr = subprocess.check_output(
+    ['samtools', 'view', '-H', '$FILT_DIR/reads.bam']).decode()
+keep = [l for l in hdr.splitlines()
+        if not l.startswith('@SQ')
+        or any(f.startswith('SN:') and f[3:] in names
+               for f in l.split('\t'))]
+print('\n'.join(keep))
+" > "$FILT_DIR/new_header.sam" 2>> {log}
+        samtools reheader "$FILT_DIR/new_header.sam" "$FILT_DIR/reads.bam" \
+            > "$FILT_DIR/nonviral.bam" 2>> {log}
         samtools index "$FILT_DIR/nonviral.bam" 2>> {log}
         if [ "{USE_GPU}" = "True" ]; then
             export CUDA_VISIBLE_DEVICES=0
