@@ -101,7 +101,13 @@ def _detect_executor():
 
 
 def _collect_bind_paths(config_path):
-    """Return sorted list of existing paths to bind into the container."""
+    """Return sorted list of existing directories to bind into the container.
+
+    Resolves each config path to an existing directory (walks up if needed,
+    converts file paths to their parent dir), then removes any path that is
+    already covered by a higher-level entry to avoid redundant / conflicting
+    apptainer bind mounts.
+    """
     try:
         import yaml
         with open(config_path) as fh:
@@ -109,7 +115,7 @@ def _collect_bind_paths(config_path):
     except Exception:
         return []
 
-    seen = set()
+    raw: set[Path] = set()
     for key in _PATH_KEYS:
         val = cfg.get(key, "")
         if not val or not isinstance(val, str):
@@ -118,10 +124,25 @@ def _collect_bind_paths(config_path):
         # Walk up to the first existing ancestor (outdir may not exist yet).
         while not p.exists() and p != p.parent:
             p = p.parent
-        if p.exists():
-            seen.add(str(p))
+        if not p.exists():
+            continue
+        # Always bind directories, not individual files.
+        if p.is_file():
+            p = p.parent
+        raw.add(p)
 
-    return sorted(seen)
+    # Drop any path that is a sub-directory of another path already in the set
+    # to prevent redundant / conflicting bind mounts (e.g. fastq_dir + outdir
+    # both under the same parent).
+    ordered = sorted(raw)
+    deduped = [
+        p for p in ordered
+        if not any(
+            p != other and str(p).startswith(str(other) + os.sep)
+            for other in ordered
+        )
+    ]
+    return [str(p) for p in deduped]
 
 
 def build_command(args, snakefile, config_path):
