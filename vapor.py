@@ -141,10 +141,12 @@ def build_command(args, snakefile, config_path):
         cmd.append("--use-apptainer" if executor == "apptainer" else "--use-singularity")
 
         # Auto-derive bind mounts from config paths and merge with user-supplied args.
+        # --writable-tmpfs lets tools like VirSorter2 write to their install dir on
+        # first run without modifying the read-only container image.
         auto_binds = _collect_bind_paths(config_path)
         bind_flag  = "--bind " + ",".join(auto_binds) if auto_binds else ""
         extra      = args.singularity_args.strip()
-        combined   = " ".join(filter(None, [extra, bind_flag]))
+        combined   = " ".join(filter(None, ["--writable-tmpfs", extra, bind_flag]))
 
         if combined:
             flag = "--apptainer-args" if executor == "apptainer" else "--singularity-args"
