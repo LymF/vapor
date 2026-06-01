@@ -215,9 +215,17 @@ rule vamb:
     shell:
         """
         rm -rf {params.outdir}
+        mkdir -p $(dirname {params.outdir}_abundance.tsv)
+        # Build abundance TSV filtered to only contigs present in the (viral-filtered) FASTA.
+        # The depth file covers all contigs (viral + non-viral); VAMB requires an exact match
+        # with the FASTA sequence set — any surplus rows cause a ValueError.
+        grep "^>" {input.contigs} | sed 's/^>//' | awk '{{print $1}}' \
+            > {params.outdir}_contig_names.txt
         echo -e "contigname\\t{wildcards.sample}" > {params.outdir}_abundance.tsv
-        awk 'NR>1 {{print $1"\\t"$3}}' {input.depth} \
+        awk 'NR==FNR{{keep[$1]=1; next}} FNR>1 && ($1 in keep){{print $1"\\t"$3}}' \
+            {params.outdir}_contig_names.txt {input.depth} \
             >> {params.outdir}_abundance.tsv
+        rm -f {params.outdir}_contig_names.txt
         CUDA_FLAG=""
         if [ "{USE_GPU}" = "True" ]; then CUDA_FLAG="--cuda"; fi
         vamb bin default \
