@@ -89,6 +89,9 @@ conda activate snakemake
 
 `vapor` auto-detects the available runtime: **apptainer → singularity → conda**.
 
+Bind mounts for Apptainer/Singularity are derived **automatically** from `config.yaml`
+(`fastq_dir`, `outdir`, all database paths). No manual `--bind` needed.
+
 ```bash
 # Dry-run (validate without executing)
 vapor --dry-run
@@ -104,8 +107,8 @@ vapor --executor conda --threads 32
 # GPU pass-through for Apptainer (medaka, COMEBin, VAMB, SemiBin2)
 vapor --executor apptainer --singularity-args '--nv' --threads 32
 
-# Extra bind mounts (NAS paths, scratch)
-vapor --executor apptainer --singularity-args '--bind /mnt/nas /scratch' --threads 32
+# Extra bind mounts beyond config paths (e.g. scratch on NAS)
+vapor --executor apptainer --singularity-args '--bind /mnt/nas' --threads 32
 ```
 
 ### Container mode setup (one-time)
