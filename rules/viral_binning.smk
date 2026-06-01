@@ -338,7 +338,14 @@ rule make_votu_table:
     params:
         vibrant_dir = f"{OUTDIR}/{{sample}}/viral/vibrant",
         phist_csv   = f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv",
-    conda: "../envs/env_viral.yaml"
-    container:  CONTAINERS.get("prodigal")
-    script:
-        "../scripts/make_votu_table.py"
+    # run: executes in the Snakemake Python process — bypasses container/conda
+    # issues with script: calling `python` (not `python3`) inside containers.
+    # The script uses only stdlib so no special environment is needed.
+    run:
+        import importlib.util, os as _os
+        _path = _os.path.join(workflow.basedir, "scripts", "make_votu_table.py")
+        _spec = importlib.util.spec_from_file_location("make_votu_table", _path)
+        _mod  = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        _mod.snakemake = snakemake
+        _mod.main()
