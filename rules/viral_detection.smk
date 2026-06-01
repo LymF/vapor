@@ -116,8 +116,6 @@ rule vibrant:
         """
         mkdir -p {params.outdir}
         cp {input.contigs} {params.outdir}/input.fasta
-        ABS_LOG=$(realpath -m {log})
-        ABS_DONE=$(realpath -m {output.done})
         cd {params.outdir}
         VIBRANT_run.py \
             -i input.fasta \
@@ -135,8 +133,8 @@ rule vibrant:
             -s {params.f_kegg} \
             -m {params.f_model} \
             -g {params.f_amgs} \
-            > "$ABS_LOG" 2>&1 || true
-        touch "$ABS_DONE"
+            > {log} 2>&1 || true
+        touch {output.done}
         """
 
 
