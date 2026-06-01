@@ -169,12 +169,10 @@ try:
         return {"reads": reads, "trim": trim}
 
     def parse_mapping_rate(outdir, sample):
-        log_path = os.path.join(outdir, sample, "logs", "bwa_mem.log")
-        if not os.path.exists(log_path): return 0.0
-        with open(log_path) as f: content = f.read()
-        m = re.search(r"([\d.]+)%.*:.*N/A.*mapped|mapped.*\(([\d.]+)%", content)
-        if m: return safe_float(m.group(1) or m.group(2))
-        m = re.search(r"([\d.]+)%.*mapped", content)
+        flagstat_path = os.path.join(outdir, sample, "mapping", "flagstat.txt")
+        if not os.path.exists(flagstat_path): return 0.0
+        with open(flagstat_path) as f: content = f.read()
+        m = re.search(r"mapped \(([\d.]+)%", content)
         if m: return safe_float(m.group(1))
         return 0.0
     
