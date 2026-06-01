@@ -298,6 +298,7 @@ include: "rules/report.smk"
 
 if LONG_READS:
     ruleorder: minimap2_lr > bwa_mem
+    ruleorder: samtools_sort_lr > samtools_sort
 
 
 # ══════════════════════════════════════════════════════════════════════
