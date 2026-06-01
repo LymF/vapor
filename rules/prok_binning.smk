@@ -324,21 +324,22 @@ with open('{input.contigs}') as fh:
 " > "$FILT_DIR/names.txt"
         awk '{{print $1"\t0\t999999999"}}' "$FILT_DIR/names.txt" \
             > "$FILT_DIR/nonviral.bed"
-        # Step 1: filter reads
-        samtools view -b -L "$FILT_DIR/nonviral.bed" \
-            {input.bam} -o "$FILT_DIR/reads.bam" 2>> {log}
-        # Step 2: strip viral @SQ lines from the header
+        # Build filtered header (SAM text, non-viral @SQ only)
         python3 -c "
 import subprocess
 names = set(open('$FILT_DIR/names.txt').read().split())
-hdr = subprocess.check_output(['samtools','view','-H','$FILT_DIR/reads.bam']).decode()
+hdr = subprocess.check_output(['samtools','view','-H','{input.bam}']).decode()
 for l in hdr.splitlines():
     if l.startswith('@SQ') and not any(f.startswith('SN:') and f[3:] in names for f in l.split('\t')):
         continue
     print(l)
 " > "$FILT_DIR/new_header.sam" 2>> {log}
-        samtools reheader "$FILT_DIR/new_header.sam" "$FILT_DIR/reads.bam" \
-            > "$FILT_DIR/nonviral.bam" 2>> {log}
+        # Stream: new header (SAM text) + reads on non-viral contigs (SAM text)
+        # → samtools view -bS maps contig NAMES → correct new indices → valid BAM
+        # (samtools reheader only replaces text but not binary indices → corrupt BAM)
+        {{ cat "$FILT_DIR/new_header.sam"; \
+           samtools view -L "$FILT_DIR/nonviral.bed" {input.bam}; }} \
+        | samtools view -bS -o "$FILT_DIR/nonviral.bam" 2>> {log}
         samtools index "$FILT_DIR/nonviral.bam" 2>> {log}
         if [ "{USE_GPU}" = "True" ]; then
             export CUDA_VISIBLE_DEVICES=0
