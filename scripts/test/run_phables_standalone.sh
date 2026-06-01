@@ -39,6 +39,7 @@ if [ -z "$SAMPLE" ]; then
     echo "ERROR: --sample required" >&2; exit 2
 fi
 
+RESULTS_DIR="$(realpath "$RESULTS_DIR")"
 SAMPLE_DIR="$RESULTS_DIR/$SAMPLE"
 ASM_DIR="$SAMPLE_DIR/assembly/metaspades"
 OUT="$SAMPLE_DIR/viral/phables_standalone"
@@ -50,8 +51,8 @@ fi
 # Phables wants a directory with read pairs ({sample}_R1/_R2 or _1/_2 .fastq.gz)
 if [ -z "$FASTQ_DIR" ]; then
     # default: look in $SAMPLE_DIR/trimmed first, then a sibling `fastq/` next to results
-    if [ -d "$SAMPLE_DIR/trimmed" ]; then FASTQ_DIR="$SAMPLE_DIR/trimmed"
-    elif [ -d "$RESULTS_DIR/../fastq" ]; then FASTQ_DIR="$RESULTS_DIR/../fastq"
+    if [ -d "$SAMPLE_DIR/trimmed" ]; then FASTQ_DIR="$(realpath "$SAMPLE_DIR/trimmed")"
+    elif [ -d "$RESULTS_DIR/../fastq" ]; then FASTQ_DIR="$(realpath "$RESULTS_DIR/../fastq")"
     else
         echo "ERROR: cannot find reads — use --fastq-dir <path>" >&2; exit 1
     fi
@@ -74,14 +75,19 @@ if [ "$USE_CONDA" -eq 1 ]; then
         --output "$OUT" \
         --threads "$THREADS"
 else
+    FASTQ_DIR="$(realpath "$FASTQ_DIR")"
     docker run --rm \
-        -v "$PWD:/data" \
-        -v "$PHABLES_DB_CACHE:/root/.phables" \
-        -w /data \
+        -v "$RESULTS_DIR:$RESULTS_DIR" \
+        -v "$FASTQ_DIR:$FASTQ_DIR" \
+        -v "$PHABLES_DB_CACHE:$PHABLES_DB_CACHE" \
+        -e "HOME=$PHABLES_DB_CACHE" \
         quay.io/biocontainers/phables:1.5.0--pyhdfd78af_0 \
-        bash -c "phables install || true; \
-                 phables run --input '$ASM_DIR' --reads '$FASTQ_DIR' \
-                              --output '$OUT' --threads $THREADS"
+        bash -c "phables install || true && \
+                 phables run \
+                     --input  '$ASM_DIR' \
+                     --reads  '$FASTQ_DIR' \
+                     --output '$OUT' \
+                     --threads $THREADS"
 fi
 
 echo "──────────────────────────────────────────"

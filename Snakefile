@@ -183,12 +183,6 @@ GENOME_MAP_MAX_CONTIGS_PROK = config.get("genome_map_max_contigs_prok", 5)
 PROK_FILTER_VIRAL          = config.get("prok_filter_viral", True)
 PROK_FILTER_KEEP_PROVIRUS  = config.get("prok_filter_keep_provirus", True)
 
-# ── COBRA-meta (viral contig extension) ────────────────────────────────
-COBRA_ENABLED   = config.get("cobra_enabled", True) and not LONG_READS
-COBRA_ASSEMBLER = config.get("cobra_assembler", "metaspades")
-COBRA_MINK      = config.get("cobra_mink", 21)
-COBRA_MAXK      = config.get("cobra_maxk", 127)
-
 # ── GUNC chimera detection ─────────────────────────────────────────────
 GUNC_ENABLED = config.get("gunc_enabled", True)
 GUNC_DB      = _expand(config.get("gunc_db", "")) if config.get("gunc_db", "") else ""
@@ -340,10 +334,6 @@ rule all:
                  sample=SAMPLES) if GUNC_ENABLED else []),
         *(expand(f"{OUTDIR}/{{sample}}/bins/derep/done.txt",
                  sample=SAMPLES) if MAG_DEREP_ENABLED else []),
-
-        # ── COBRA-meta extended viral contigs (SR only) ──────────────
-        *(expand(f"{OUTDIR}/{{sample}}/viral/cobra/cobra_extended.fasta",
-                 sample=SAMPLES) if COBRA_ENABLED else []),
 
         # ── vOTU clustering (skani) ──────────────────────────────────
         *(expand(f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv",

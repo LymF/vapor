@@ -150,10 +150,6 @@ mamba create -n env_vcontact3 -c conda-forge -c bioconda \
 mamba create -n env_coverm -c conda-forge -c bioconda \
     coverm numpy scipy -y
 
-# COBRA-meta (viral contig extension via assembly graph)
-mamba create -n env_cobra -c conda-forge -c bioconda \
-    "cobra-meta=1.2.3" blast pysam mash -y
-
 # GUNC (MAG chimera detection)
 mamba create -n env_gunc -c conda-forge -c bioconda \
     "gunc=1.1.1" diamond prodigal -y
@@ -436,16 +432,18 @@ The progenomes_2.1 DIAMOND database is ~13 GB.
 ```bash
 mkdir -p "$DB_BASE/gunc"
 conda activate env_gunc
-gunc download_db -db progenomes "$DB_BASE/gunc"
+gunc download_db -db progenomes_2.1 "$DB_BASE/gunc"
 # Output: $DB_BASE/gunc/gunc_db_progenomes2.1.dmnd
 conda deactivate
 ```
 
 **Docker:**
 ```bash
-docker run --rm -v "$DB_BASE:/dbs" \
+mkdir -p "$DB_BASE/gunc"
+docker run --rm -v "$DB_BASE/gunc:/dbs" \
     quay.io/biocontainers/gunc:1.1.1--pyhdfd78af_0 \
-    gunc download_db -db progenomes /dbs/gunc
+    gunc download_db -db progenomes_2.1 /dbs
+# Output: $DB_BASE/gunc/gunc_db_progenomes2.1.dmnd
 ```
 
 Then set in `config.yaml`:
@@ -615,7 +613,7 @@ for env in env_qc env_assembly env_flye env_medaka env_lr_utils \
            env_mapping env_viral env_genomad phage_vibrant env_vrhyme \
            env_binning env_comebin env_binette env_checkm2 env_gtdbtk \
            env_phist env_annotation env_vcontact3 env_coverm \
-           env_cobra env_gunc env_derep; do
+           env_gunc env_derep; do
     echo -n "$env: "
     conda run -n "$env" python --version 2>/dev/null || echo "MISSING"
 done
@@ -659,9 +657,6 @@ vConTACT3 can take several hours for large viral datasets. Run with `--cores 32`
 
 **GTDB-Tk: pplacer error**
 Confirm that `gtdbtk_db` points to the correct directory and that the database version is compatible with your installed GTDB-Tk (`gtdbtk check_install`).
-
-**COBRA: no contigs extended**
-COBRA only processes SPADES_-prefixed contigs (metaSPAdes assembly). If all viral contigs come from MEGAHIT or metaviralSPAdes, COBRA will produce a passthrough FASTA identical to the input. Set `cobra_enabled: false` for long-read-only runs.
 
 **GUNC: `gunc_db` not found**
 Set the full path to `gunc_db_progenomes2.1.dmnd` in `config.yaml` (key `gunc_db`). To disable GUNC entirely set `gunc_enabled: false`.

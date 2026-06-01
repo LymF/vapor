@@ -58,10 +58,6 @@ prok_filter_keep_provirus: true   # keep contigs flagged as provirus by CheckV/G
 # ── COBRA-meta (viral contig extension via assembly graph) ──────────────
 # Uses the metaSPAdes GFA to join viral contigs that share graph edges.
 # Short reads only — skipped when long_reads: true.
-cobra_enabled:   true        # disable to keep viral_consensus.fasta unchanged
-cobra_assembler: "metaspades" # which GFA to use ("metaspades" or "megahit")
-cobra_mink:      21           # min k-mer of the assembler
-cobra_maxk:      127          # max k-mer of the assembler
 
 # ── GUNC (chimera detection on MAGs) ────────────────────────────────────
 # Runs in parallel with CheckM2 on Binette final_bins.
