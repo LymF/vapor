@@ -8,15 +8,15 @@
 #
 # Versions must match envs/env_annotation.yaml.
 
-FROM quay.io/biocontainers/pycirclize:1.10.1--pyh7e72e81_0
+FROM python:3.12-slim
 
 LABEL org.opencontainers.image.source="https://github.com/LymF/vapor"
 LABEL org.opencontainers.image.description="VAPOR genome map tools: pycirclize + matplotlib + biopython"
 LABEL org.opencontainers.image.version="1.0"
 
-RUN conda install -n base -c conda-forge -c bioconda --no-deps -y \
-        "matplotlib-base>=3.9" \
-        "biopython=1.87" \
-    && conda clean -afy
+RUN pip install --no-cache-dir \
+        pycirclize==1.10.1 \
+        matplotlib==3.10.0 \
+        biopython==1.85
 
 CMD ["/bin/bash"]
