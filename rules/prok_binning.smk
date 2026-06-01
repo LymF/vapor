@@ -306,9 +306,22 @@ rule comebin:
             echo "[COMEBin] Disabled via config (comebin_enabled: false)" | tee {log}
             touch {output.done}; exit 0
         fi
-        # COMEBin: -p is the directory containing BAM files, not the BAM file itself
-        #          -t is threads; -n is number of views (contrastive learning, keep default 6)
-        #          GPU: set CUDA_VISIBLE_DEVICES=0 before run_comebin.sh
+        # COMEBin's gen_cov.py builds aug_seq_info_dict from the input FASTA (-a)
+        # and then processes depth from every contig in the BAM. If the BAM contains
+        # viral contigs absent from the non-viral FASTA, it raises KeyError.
+        # Fix: filter the BAM to only reads mapped to non-viral contigs first.
+        FILT_DIR="{params.outdir}/bam_nonviral"
+        mkdir -p "$FILT_DIR"
+        python3 -c "
+import sys
+with open('{input.contigs}') as f:
+    for line in f:
+        if line.startswith('>'):
+            print(line[1:].split()[0] + '\t0\t999999999')
+" > "$FILT_DIR/nonviral.bed"
+        samtools view -b -L "$FILT_DIR/nonviral.bed" \
+            {input.bam} -o "$FILT_DIR/nonviral.bam" 2>> {log}
+        samtools index "$FILT_DIR/nonviral.bam" 2>> {log}
         if [ "{USE_GPU}" = "True" ]; then
             export CUDA_VISIBLE_DEVICES=0
         else
@@ -317,7 +330,7 @@ rule comebin:
         run_comebin.sh \
             -a {input.contigs} \
             -o {params.outdir} \
-            -p {params.bam_dir} \
+            -p "$FILT_DIR" \
             -t {threads} \
             >> {log} 2>&1
         touch {output.done}
