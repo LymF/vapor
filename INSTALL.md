@@ -102,13 +102,9 @@ mamba create -n env_viral -c conda-forge -c bioconda \
 mamba create -n env_genomad -c conda-forge -c bioconda \
     genomad -y
 
-# VIBRANT
+# VIBRANT 1.2.1
 mamba create -n phage_vibrant -c conda-forge -c bioconda \
-    "python=3.9" "scikit-learn=0.23" numpy pandas matplotlib \
-    hmmer prodigal biopython -y
-conda activate phage_vibrant
-pip install vibrant
-conda deactivate
+    "vibrant=1.2.1" hmmer prodigal -y
 
 # vRhyme
 mamba create -n env_vrhyme -c conda-forge -c bioconda \
@@ -281,43 +277,48 @@ docker run --rm -v "$DB_BASE:/dbs" \
 
 ### VIBRANT
 
+The databases are version-agnostic (same files for 1.0.1 and 1.2.1).
+Set `vibrant_base` in `config.yaml` to whichever directory you create.
+
 **Conda:**
 ```bash
-mkdir -p "$DB_BASE/vibrant-1.0.1/databases"
-mkdir -p "$DB_BASE/vibrant-1.0.1/files"
+mkdir -p "$DB_BASE/vibrant/databases"
+mkdir -p "$DB_BASE/vibrant/files"
 conda activate phage_vibrant
 
-cd "$DB_BASE/vibrant-1.0.1/databases"
+cd "$DB_BASE/vibrant/databases"
 wget https://zenodo.org/record/4543735/files/VIBRANT_v1.0.1.tar.gz
 tar -xzf VIBRANT_v1.0.1.tar.gz --strip-components=2 "VIBRANT_v1.0.1/databases/"
 
-cd "$DB_BASE/vibrant-1.0.1/files"
+cd "$DB_BASE/vibrant/files"
 git clone --depth 1 https://github.com/AnantharamanLab/VIBRANT /tmp/vibrant_src
-cp /tmp/vibrant_src/files/* "$DB_BASE/vibrant-1.0.1/files/"
+cp /tmp/vibrant_src/files/* "$DB_BASE/vibrant/files/"
 rm -rf /tmp/vibrant_src
 
 # Press-index HMM databases
-for hmm in "$DB_BASE/vibrant-1.0.1/databases/"*.HMM; do
+for hmm in "$DB_BASE/vibrant/databases/"*.HMM; do
     hmmpress "$hmm"
 done
 conda deactivate
 ```
 
-**Docker:** (wget needs no container; hmmpress via hmmer image)
+**Container:** (wget outside container; hmmpress via hmmer image)
 ```bash
-mkdir -p "$DB_BASE/vibrant-1.0.1/databases" "$DB_BASE/vibrant-1.0.1/files"
-cd "$DB_BASE/vibrant-1.0.1/databases"
+mkdir -p "$DB_BASE/vibrant/databases" "$DB_BASE/vibrant/files"
+cd "$DB_BASE/vibrant/databases"
 wget https://zenodo.org/record/4543735/files/VIBRANT_v1.0.1.tar.gz
 tar -xzf VIBRANT_v1.0.1.tar.gz --strip-components=2 "VIBRANT_v1.0.1/databases/"
-cd "$DB_BASE/vibrant-1.0.1/files"
+cd "$DB_BASE/vibrant/files"
 git clone --depth 1 https://github.com/AnantharamanLab/VIBRANT /tmp/vibrant_src
 cp /tmp/vibrant_src/files/* ./ && rm -rf /tmp/vibrant_src
 
-# hmmpress via Docker
-docker run --rm -v "$DB_BASE:/dbs" \
-    quay.io/biocontainers/hmmer:3.4--hdbdd923_1 \
-    bash -c 'for hmm in /dbs/vibrant-1.0.1/databases/*.HMM; do hmmpress "$hmm"; done'
+# hmmpress via apptainer/singularity
+apptainer exec docker://quay.io/biocontainers/hmmer:3.4--hdbdd923_1 \
+    bash -c 'for hmm in '"$DB_BASE"'/vibrant/databases/*.HMM; do hmmpress "$hmm"; done'
 ```
+
+> **Existing installs:** if your databases are already at `vibrant-1.0.1/`, you can keep
+> that path and just point `vibrant_base` there — no need to move files.
 
 ---
 

@@ -134,7 +134,7 @@ dependencies:
   - tornado=6.5.2
   - tzdata=2025c
   - unicodedata2=16.0.0
-  - vibrant=1.0.1
+  - vibrant=1.2.1
   - wayland=1.24.0
   - wget=1.25.0
   - wheel=0.45.1
