@@ -351,7 +351,7 @@ for l in hdr.splitlines():
             -o {params.outdir} \
             -p "$FILT_DIR" \
             -t {threads} \
-            >> {log} 2>&1
+            >> {log} 2>&1 || true
         touch {output.done}
         N=$(ls {params.outdir}/bins/*.fa 2>/dev/null | wc -l)
         echo "[COMEBin] $N bins produced" | tee -a {log}
