@@ -78,6 +78,16 @@ def find_config(cli_path):
     )
 
 
+def _detect_executor():
+    """Auto-detect available container runtime: apptainer > singularity > conda."""
+    import shutil
+    if shutil.which("apptainer"):
+        return "apptainer"
+    if shutil.which("singularity"):
+        return "singularity"
+    return "conda"
+
+
 def build_command(args, snakefile, config_path):
     cmd = [
         "snakemake",
@@ -86,7 +96,9 @@ def build_command(args, snakefile, config_path):
         "--cores", str(args.threads) if args.threads else "all",
     ]
 
-    executor = getattr(args, "executor", "conda")
+    executor = args.executor if args.executor != "auto" else _detect_executor()
+    args._resolved_executor = executor
+
     if executor == "conda":
         cmd.append("--use-conda")
     elif executor == "singularity":
@@ -145,10 +157,10 @@ def main():
     # ── Execution mode ────────────────────────────────────────────────
     parser.add_argument(
         "--executor", "-e",
-        choices=["conda", "singularity", "apptainer"],
-        default="conda",
+        choices=["auto", "conda", "singularity", "apptainer"],
+        default="auto",
         metavar="MODE",
-        help="Software deployment: conda (default) | singularity | apptainer",
+        help="Software deployment: auto (default, detects apptainer > singularity > conda) | conda | singularity | apptainer",
     )
     parser.add_argument(
         "--singularity-args",
@@ -213,7 +225,6 @@ def main():
 
     print(f"[VAPOR {__version__}] Snakefile : {snakefile}")
     print(f"[VAPOR {__version__}] Config    : {config_path}")
-    print(f"[VAPOR] Mode      : {args.executor}")
 
     if args.dag:
         dag_cmd = [
@@ -242,6 +253,7 @@ def main():
         return
 
     cmd = build_command(args, snakefile, config_path)
+    print(f"[VAPOR] Mode      : {args._resolved_executor}")
     print(f"[VAPOR] Running   : {' '.join(cmd)}\n")
     result = subprocess.run(cmd)
     sys.exit(result.returncode)
