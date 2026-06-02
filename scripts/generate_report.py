@@ -2502,7 +2502,7 @@ renderMimagSection('__all__');
 
 // ── Task 2: Unified Viral Taxonomy functions ──────────────────────────────────
 function renderTaxSourcePie(sample){{
-  if(!TAX_DATA.length)return;
+  // Do NOT early-return when TAX_DATA is empty — we always show unclassified from OVERVIEW
   const rows=sample==='__all__'?TAX_DATA:TAX_DATA.filter(r=>r.sample===sample);
   const sc={{}};
   rows.forEach(r=>{{const s=(r.Source||r.source||'unclassified').toLowerCase();sc[s]=(sc[s]||0)+1;}});
@@ -2521,8 +2521,13 @@ function renderTaxSourcePie(sample){{
 }}
 
 function renderTaxFamilyBar(sample){{
-  if(!TAX_DATA.length)return;
   const rows=sample==='__all__'?TAX_DATA:TAX_DATA.filter(r=>r.sample===sample);
+  if(!rows.length){{
+    Plotly.newPlot('p-tax-family',[],{{annotations:[{{xref:'paper',yref:'paper',x:0.5,y:0.5,
+      text:'No classified sequences — re-run <b>merge_viral_taxonomy</b>',showarrow:false,
+      font:{{size:13,color:'#9ca3af'}}}}],margin:{{t:20,b:20,l:20,r:20}},paper_bgcolor:'rgba(0,0,0,0)'}},cfg);
+    return;
+  }}
   const fc={{}};
   rows.forEach(r=>{{
     // Use best available taxonomic rank: family > genus (labelled) > order (labelled) > Unclassified
@@ -2547,8 +2552,13 @@ function renderTaxFamilyBar(sample){{
 
 function renderTaxSunburst(sample){{
   try{{
-  if(!TAX_DATA||!TAX_DATA.length)return;
   const rows=sample==='__all__'?TAX_DATA:TAX_DATA.filter(r=>r.sample===sample);
+  if(!rows.length){{
+    Plotly.newPlot('p-tax-sunburst',[],{{annotations:[{{xref:'paper',yref:'paper',x:0.5,y:0.5,
+      text:'No classified sequences — re-run <b>merge_viral_taxonomy</b>',showarrow:false,
+      font:{{size:13,color:'#9ca3af'}}}}],margin:{{t:10,b:10,l:10,r:10}},paper_bgcolor:'rgba(0,0,0,0)'}},cfg);
+    return;
+  }}
   const ROOT='Viruses';const nodeP={{}};const leafC={{}};nodeP[ROOT]='';
   rows.forEach(r=>{{
     const fam=r.final_family||(r.final_genus?r.final_genus+' (genus)':'')
