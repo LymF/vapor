@@ -1001,6 +1001,8 @@ try:
 
     def load_vcontact3(paths_d, samples):
         """Load vConTACT3 final_assignments.csv (v3 output format)."""
+        # Values that vConTACT3 v3 uses for unresolved / singleton genomes
+        _VC3_NULL = {"singleton", "unclassified", "nd", "none", ""}
         records = []
         for s in samples:
             p = paths_d.get(s,'')
@@ -1009,22 +1011,31 @@ try:
             for row in rows:
                 genome = row.get('Genome', row.get('genome',''))
                 if not genome: continue
-                # Skip reference genomes (Reference == True)
-                if row.get('Reference','').lower() in ('true','1','yes'): continue
-                fam = row.get('family_prediction', row.get('Family',''))
-                gen = row.get('genus_prediction',  row.get('Genus',''))
+                # Skip reference genomes (Reference == True / 1 / yes)
+                ref_val = row.get('Reference', row.get('reference', ''))
+                if str(ref_val).lower() in ('true','1','yes'): continue
+                fam_raw = row.get('family_prediction', row.get('Family',''))
+                gen_raw = row.get('genus_prediction',  row.get('Genus',''))
                 rlm = row.get('realm_prediction',  row.get('realm_reference',''))
                 cls = row.get('class_prediction',  '')
-                ord_ = row.get('order_prediction', '')
-                # Best taxonomy = deepest assigned level
+                ord_raw = row.get('order_prediction', '')
+                # Sanitize: treat sentinel strings as empty
+                fam  = fam_raw  if fam_raw  and fam_raw.lower()  not in _VC3_NULL else ''
+                gen  = gen_raw  if gen_raw  and gen_raw.lower()  not in _VC3_NULL else ''
+                ord_ = ord_raw  if ord_raw  and ord_raw.lower()  not in _VC3_NULL else ''
+                # Detect novel (prediction values contain "novel_" prefix)
+                is_novel  = any(str(v).lower().startswith('novel_')
+                                for v in [fam_raw, gen_raw, ord_raw] if v)
+                is_singleton = not fam and not gen and not ord_
+                # Best taxonomy = deepest sanitized assigned level
                 best = gen or fam or ord_ or cls or rlm or ''
-                # Novel flag
-                is_novel = any('novel' in str(v).lower()
-                               for v in [fam, gen, ord_] if v)
+                vc_status = ('novel' if is_novel
+                             else 'singleton' if is_singleton
+                             else 'classified')
                 records.append({'sample':   s,
                     'Genome':       genome,
                     'VC':           row.get('VC', ''),
-                    'VC_status':    'novel' if is_novel else ('classified' if best else 'singleton'),
+                    'VC_status':    vc_status,
                     'Family':       fam,
                     'Genus':        gen,
                     'Order':        ord_,
@@ -1049,6 +1060,8 @@ try:
             # If family/genus empty, return deepest available level as "best_level"
             return family, genus, order
 
+        # Sentinel strings that vConTACT3 v3 writes for Singleton genomes
+        _VC3_NULL = {"singleton", "unclassified", "nd", "none"}
         records = []
         for p, s in zip(paths, samples):
             for row in load_tsv(p):
@@ -1060,6 +1073,18 @@ try:
                 final_order  = row.get('final_order','')
                 lineage      = row.get('lineage','')
                 source       = row.get('source','')
+                # Guard: vConTACT3 singleton/novel entries that leaked through a
+                # previous taxonomy bug get demoted to unclassified so they don't
+                # appear as source=vcontact3 with family="singleton" in the table.
+                if source == 'vcontact3':
+                    if (not final_family or final_family.lower() in _VC3_NULL) and \
+                       (not final_genus  or final_genus.lower()  in _VC3_NULL):
+                        source = 'unclassified'
+                        final_family = final_genus = final_order = ''
+                # Sanitize: remove sentinel strings from family/genus
+                if final_family.lower() in _VC3_NULL: final_family = ''
+                if final_genus.lower()  in _VC3_NULL: final_genus  = ''
+                if final_order.lower()  in _VC3_NULL: final_order  = ''
                 # If family/genus empty, try to extract from lineage
                 if not final_family or not final_genus:
                     lf, lg, lo = deepest_level(lineage)
@@ -1079,7 +1104,7 @@ try:
                     'Family':        final_family,
                     'Genus':         final_genus,
                     'Order':         final_order,
-                    'Best_taxonomy': row.get('best_taxonomy', best_tax),
+                    'Best_taxonomy': (bt if (bt := row.get('best_taxonomy', best_tax)) and bt.lower() not in _VC3_NULL else best_tax),
                     'GeNomad_best':  row.get('genomad_best', ''),
                     'GeNomad_class': row.get('genomad_class', ''),
                     'Source':        source,
