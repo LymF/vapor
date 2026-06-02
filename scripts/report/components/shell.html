@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VAPOR Report</title>
+  <style>{{CSS}}</style>
+</head>
+<body>
+
+  <!-- ── Top header ──────────────────────────────────────────────────────── -->
+  <header id="top-header">
+    <div class="brand">
+      <span class="brand-name">VAPOR</span>
+      <span class="brand-sub">Virome & metagenome Analysis Pipeline for Omics Research</span>
+    </div>
+    <nav id="main-nav" role="tablist" aria-label="Main sections">
+      <button role="tab" class="nav-tab" data-tab="overview"     aria-selected="true"  tabindex="0">Overview</button>
+      <button role="tab" class="nav-tab" data-tab="sequencing"   aria-selected="false" tabindex="-1">Sequencing</button>
+      <button role="tab" class="nav-tab" data-tab="viral"        aria-selected="false" tabindex="-1">Viral</button>
+      <button role="tab" class="nav-tab" data-tab="prokaryotic"  aria-selected="false" tabindex="-1">Prokaryotic</button>
+      <button role="tab" class="nav-tab" data-tab="diversity"    aria-selected="false" tabindex="-1">Diversity</button>
+      <button role="tab" class="nav-tab" data-tab="annotation"   aria-selected="false" tabindex="-1">Annotation</button>
+      <button role="tab" class="nav-tab" data-tab="about"        aria-selected="false" tabindex="-1">About</button>
+    </nav>
+    <button id="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle theme">☀</button>
+  </header>
+
+  <!-- ── Main content ────────────────────────────────────────────────────── -->
+  <main id="main-content">
+
+    <!-- Overview -->
+    <section id="tab-overview" class="tab-panel active" role="tabpanel" aria-labelledby="nav-overview">
+      <div class="sub-nav" role="tablist" aria-label="Overview sub-sections">
+        <button class="sub-tab active" data-sub="general-stats">General Statistics</button>
+        <button class="sub-tab" data-sub="per-sample">Per Sample</button>
+      </div>
+      <div id="sub-general-stats" class="sub-panel active">
+        <div id="kpi-grid" class="kpi-grid"></div>
+        <div class="grid-3" id="overview-charts">
+          <div class="chart-card"><div id="ov-reads-chart"  class="echarts-box"></div></div>
+          <div class="chart-card"><div id="ov-votus-chart"  class="echarts-box"></div></div>
+          <div class="chart-card"><div id="ov-mags-chart"   class="echarts-box"></div></div>
+        </div>
+        <div class="chart-card mt-lg"><div id="ov-funnel-chart" class="echarts-box" style="height:320px"></div></div>
+      </div>
+      <div id="sub-per-sample" class="sub-panel" style="display:none">
+        <div class="toolbar">
+          <label>Sample: <select id="sample-sel-overview"></select></label>
+        </div>
+        <div id="ov-sample-cards" class="kpi-grid"></div>
+        <div class="grid-2">
+          <div class="chart-card"><div id="ov-sample-reads"  class="echarts-box"></div></div>
+          <div class="chart-card"><div id="ov-sample-viral"  class="echarts-box"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sequencing -->
+    <section id="tab-sequencing" class="tab-panel" role="tabpanel" aria-labelledby="nav-sequencing" hidden>
+      <div class="sub-nav" role="tablist">
+        <button class="sub-tab active" data-sub="seq-qc">Raw QC</button>
+        <button class="sub-tab" data-sub="seq-trim">Trimming</button>
+        <button class="sub-tab" data-sub="seq-mapping">Mapping</button>
+        <button class="sub-tab" data-sub="seq-assembly">Assembly</button>
+      </div>
+      <div id="sub-seq-qc" class="sub-panel active">
+        <div class="grid-2">
+          <div class="chart-card"><div id="seq-reads-chart"  class="echarts-box"></div></div>
+          <div class="chart-card"><div id="seq-qual-chart"   class="echarts-box"></div></div>
+        </div>
+        <div class="grid-2 mt-md">
+          <div class="chart-card"><div id="seq-gc-chart"     class="echarts-box"></div></div>
+          <div class="chart-card"><div id="seq-trim-chart"   class="echarts-box"></div></div>
+        </div>
+      </div>
+      <div id="sub-seq-trim" class="sub-panel" style="display:none">
+        <div class="grid-2">
+          <div class="chart-card"><div id="seq-adapter-chart" class="echarts-box"></div></div>
+          <div class="chart-card"><div id="seq-bp-chart"      class="echarts-box"></div></div>
+        </div>
+      </div>
+      <div id="sub-seq-mapping" class="sub-panel" style="display:none">
+        <div class="chart-card"><div id="seq-mapping-chart" class="echarts-box"></div></div>
+        <div class="chart-card mt-md"><div id="seq-depth-chart" class="echarts-box"></div></div>
+      </div>
+      <div id="sub-seq-assembly" class="sub-panel" style="display:none">
+        <div class="chart-card"><div id="seq-asm-prog-chart" class="echarts-box"></div></div>
+        <div class="chart-card mt-md"><div id="seq-asm-final-chart" class="echarts-box"></div></div>
+        <div class="chart-card mt-md"><div id="seq-asm-len-chart"   class="echarts-box"></div></div>
+      </div>
+    </section>
+
+    <!-- Viral -->
+    <section id="tab-viral" class="tab-panel" role="tabpanel" aria-labelledby="nav-viral" hidden>
+      <div class="sub-nav" role="tablist">
+        <button class="sub-tab active" data-sub="vir-detection">Detection</button>
+        <button class="sub-tab" data-sub="vir-binning">Binning &amp; Quality</button>
+        <button class="sub-tab" data-sub="vir-taxonomy">Taxonomy</button>
+        <button class="sub-tab" data-sub="vir-network">Network</button>
+        <button class="sub-tab" data-sub="vir-lifestyle">Lifestyle</button>
+      </div>
+      <div id="sub-vir-detection" class="sub-panel active">
+        <div class="grid-2">
+          <div class="chart-card"><div id="vir-tools-chart"     class="echarts-box"></div></div>
+          <div class="chart-card"><div id="vir-consensus-chart" class="echarts-box"></div></div>
+        </div>
+        <div class="chart-card mt-md"><div id="vir-heatmap-chart" class="echarts-box" style="height:360px"></div></div>
+      </div>
+      <div id="sub-vir-binning" class="sub-panel" style="display:none">
+        <div class="grid-2">
+          <div class="chart-card"><div id="vir-checkv-pie-chart"     class="echarts-box"></div></div>
+          <div class="chart-card"><div id="vir-checkv-pie-vrh-chart" class="echarts-box"></div></div>
+        </div>
+        <div class="chart-card mt-md"><div id="vir-checkv-scatter-chart" class="echarts-box" style="height:480px"></div></div>
+        <div class="grid-2 mt-md">
+          <div class="chart-card"><div id="vir-vrhyme-chart"   class="echarts-box"></div></div>
+          <div class="chart-card"><div id="vir-len-chart"      class="echarts-box"></div></div>
+        </div>
+        <div class="chart-card mt-md"><div id="vir-depth-chart" class="echarts-box"></div></div>
+      </div>
+      <div id="sub-vir-taxonomy" class="sub-panel" style="display:none">
+        <div class="toolbar">
+          <label>Sample: <select id="sample-sel-viral-tax"></select></label>
+        </div>
+        <div class="grid-2">
+          <div class="chart-card"><div id="vir-tax-source-chart"  class="echarts-box"></div></div>
+          <div class="chart-card"><div id="vir-tax-family-chart"  class="echarts-box"></div></div>
+        </div>
+        <div class="chart-card mt-md"><div id="vir-tax-icicle" style="height:500px;overflow:hidden"></div></div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">Classified Viruses</h3>
+          <div class="toolbar"><input id="vir-tax-search" type="search" placeholder="Filter…" class="search-input"></div>
+          <div id="vir-tax-table" class="table-wrap"></div>
+        </div>
+      </div>
+      <div id="sub-vir-network" class="sub-panel" style="display:none">
+        <div class="toolbar">
+          <label>Sample: <select id="sample-sel-vc3"></select></label>
+        </div>
+        <div class="chart-card">
+          <div id="vc3-network-svg" style="height:580px;overflow:hidden"></div>
+        </div>
+      </div>
+      <div id="sub-vir-lifestyle" class="sub-panel" style="display:none">
+        <div class="chart-card"><div id="vir-lifestyle-chart" class="echarts-box"></div></div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">Auxiliary Metabolic Genes (VIBRANT AMG)</h3>
+          <div class="toolbar"><input id="amg-search" type="search" placeholder="Filter…" class="search-input"></div>
+          <div id="amg-table" class="table-wrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Prokaryotic -->
+    <section id="tab-prokaryotic" class="tab-panel" role="tabpanel" aria-labelledby="nav-prokaryotic" hidden>
+      <div class="sub-nav" role="tablist">
+        <button class="sub-tab active" data-sub="prok-binning">Binning</button>
+        <button class="sub-tab" data-sub="prok-quality">Quality</button>
+        <button class="sub-tab" data-sub="prok-taxonomy">Taxonomy</button>
+      </div>
+      <div id="sub-prok-binning" class="sub-panel active">
+        <div class="grid-2">
+          <div class="chart-card"><div id="prok-binner-chart" class="echarts-box"></div></div>
+          <div class="chart-card"><div id="prok-domain-chart" class="echarts-box"></div></div>
+        </div>
+        <div class="chart-card mt-md"><div id="prok-size-chart" class="echarts-box"></div></div>
+      </div>
+      <div id="sub-prok-quality" class="sub-panel" style="display:none">
+        <div class="chart-card"><div id="prok-checkm2-chart" class="echarts-box" style="height:500px"></div></div>
+        <div class="grid-2 mt-md">
+          <div class="chart-card"><div id="prok-cm2-comp-chart" class="echarts-box"></div></div>
+          <div class="chart-card"><div id="prok-cm2-cont-chart" class="echarts-box"></div></div>
+        </div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">MIMAG Quality Summary</h3>
+          <div id="mimag-table" class="table-wrap"></div>
+        </div>
+      </div>
+      <div id="sub-prok-taxonomy" class="sub-panel" style="display:none">
+        <div class="toolbar">
+          <label>Sample: <select id="sample-sel-prok-tax"></select></label>
+        </div>
+        <div class="grid-2">
+          <div class="chart-card"><div id="prok-domain-bar-chart" class="echarts-box"></div></div>
+          <div class="chart-card"><div id="prok-phyla-chart"      class="echarts-box"></div></div>
+        </div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">MAG Taxonomy Table</h3>
+          <div class="toolbar"><input id="prok-tax-search" type="search" placeholder="Filter…" class="search-input"></div>
+          <div id="prok-tax-table" class="table-wrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Diversity -->
+    <section id="tab-diversity" class="tab-panel" role="tabpanel" aria-labelledby="nav-diversity" hidden>
+      <div class="sub-nav" role="tablist">
+        <button class="sub-tab active" data-sub="div-alpha">Alpha Diversity</button>
+        <button class="sub-tab" data-sub="div-beta">Beta Diversity (PCoA)</button>
+      </div>
+      <div id="sub-div-alpha" class="sub-panel active">
+        <div class="grid-2">
+          <div class="chart-card"><div id="div-alpha-viral-chart" class="echarts-box"></div></div>
+          <div class="chart-card"><div id="div-alpha-prok-chart"  class="echarts-box"></div></div>
+        </div>
+        <div class="chart-card mt-md"><div id="div-alpha-combined-chart" class="echarts-box"></div></div>
+      </div>
+      <div id="sub-div-beta" class="sub-panel" style="display:none">
+        <div class="toolbar">
+          <label>Dataset:
+            <select id="pcoa-dataset-sel">
+              <option value="viral">Viral</option>
+              <option value="prok">Prokaryotic</option>
+              <option value="combined">Combined</option>
+            </select>
+          </label>
+        </div>
+        <div class="chart-card">
+          <div id="pcoa-svg" style="height:520px;overflow:hidden"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Annotation -->
+    <section id="tab-annotation" class="tab-panel" role="tabpanel" aria-labelledby="nav-annotation" hidden>
+      <div class="sub-nav" role="tablist">
+        <button class="sub-tab active" data-sub="ann-functional">Functional (COG/KEGG)</button>
+        <button class="sub-tab" data-sub="ann-phage">Phage Annotation</button>
+        <button class="sub-tab" data-sub="ann-maps">Genome Maps</button>
+      </div>
+      <div id="sub-ann-functional" class="sub-panel active">
+        <div class="chart-card"><div id="ann-cog-chart"  class="echarts-box"></div></div>
+        <div class="chart-card mt-md"><div id="ann-phrogs-chart" class="echarts-box"></div></div>
+      </div>
+      <div id="sub-ann-phage" class="sub-panel" style="display:none">
+        <div class="toolbar">
+          <label>Sample: <select id="sample-sel-ann"></select></label>
+        </div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">VIBRANT Scaffolds</h3>
+          <div id="vibrant-table" class="table-wrap"></div>
+        </div>
+      </div>
+      <div id="sub-ann-maps" class="sub-panel" style="display:none">
+        <div class="toolbar">
+          <label>Sample: <select id="sample-sel-maps"></select></label>
+          <label style="margin-left:1rem">Mode:
+            <select id="genome-map-mode">
+              <option value="phage">Phage</option>
+              <option value="virus">Virus</option>
+              <option value="prok">Prokaryote</option>
+            </select>
+          </label>
+        </div>
+        <div id="genome-maps-container" class="genome-maps-grid"></div>
+      </div>
+    </section>
+
+    <!-- About -->
+    <section id="tab-about" class="tab-panel" role="tabpanel" aria-labelledby="nav-about" hidden>
+      <div id="about-content"></div>
+    </section>
+
+  </main><!-- /main-content -->
+
+  <!-- ── Libraries ─────────────────────────────────────────────────────────── -->
+  <script>{{ECHARTS_JS}}</script>
+  <script>{{D3_JS}}</script>
+
+  <!-- ── Data ──────────────────────────────────────────────────────────────── -->
+  {{DATA_JSON}}
+
+  <!-- ── Application JS ────────────────────────────────────────────────────── -->
+  <script>
+  {{APP_JS}}
+  </script>
+
+</body>
+</html>

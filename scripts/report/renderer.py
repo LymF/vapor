@@ -1,0 +1,380 @@
+"""renderer.py — Assembles the VAPOR HTML report from template + data.
+
+Reads shell.html, inlines CSS/JS/assets via {{PLACEHOLDER}} replacement.
+No f-strings in this file — all substitution is explicit string.replace().
+"""
+import os
+import glob
+import json
+import traceback
+
+from .data_loaders import (
+    safe_float, safe_int, parse_tsv, load_tsv, load_csv,
+    parse_quast_all, parse_support, parse_fastp_json, parse_mapping_rate,
+    collect_depth_data, parse_fasta_lengths,
+    collect_viral_tool_counts, collect_vrhyme_stats, collect_binner_counts,
+    parse_checkm2_phyla,
+    load_vibrant, load_vcontact3, load_viral_taxonomy, load_gtdbtk,
+    load_custom_prok, load_phist,
+    enrich_taxonomy_with_checkv, merge_prok_taxonomy,
+    load_alpha_diversity, load_pcoord, load_eggnog, load_phrogs,
+    load_genome_maps,
+    path_dict, collect_tool_versions,
+)
+
+_HERE = os.path.dirname(__file__)
+_COMP = os.path.join(_HERE, "components")
+_ASSETS = os.path.join(_HERE, "assets")
+
+
+def _read(path):
+    with open(path, encoding='utf-8') as f:
+        return f.read()
+
+
+def _jsstr(obj):
+    """JSON-encode and escape closing script tags."""
+    return json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
+
+
+def build_report(snakemake):
+    """Entry point called from generate_report.py."""
+    try:
+        _build(snakemake)
+    except Exception:
+        out = snakemake.output.html
+        os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
+        tb = traceback.format_exc()
+        with open(out, 'w', encoding='utf-8') as f:
+            f.write(f"<pre>VAPOR report generation failed:\n\n{tb}</pre>")
+        raise
+
+
+def _build(snakemake):
+    samples  = snakemake.params.samples
+    outdir   = snakemake.params.outdir
+    out_html = snakemake.output.html
+
+    def _inp(name):
+        return list(getattr(snakemake.input, name, []) or [])
+
+    # ── Path dicts ────────────────────────────────────────────────────────────
+    quast_paths      = path_dict(_inp('quast'),         samples)
+    checkv_paths     = path_dict(_inp('checkv'),        samples)
+    checkv_vrh_paths = path_dict(_inp('checkv_vrhyme'), samples)
+    checkm2_paths    = path_dict(_inp('checkm2'),       samples)
+    support_paths    = path_dict(_inp('support'),       samples)
+    depth_paths      = path_dict(_inp('depth'),         samples)
+    taxonomy_paths   = path_dict(_inp('taxonomy'),      samples)
+    custom_prok_paths= path_dict(_inp('custom_prok'),   samples)
+    gtdbtk_bac_l     = _inp('gtdbtk_bac')
+    gtdbtk_arc_l     = _inp('gtdbtk_arc')
+    phist_paths_l    = [path_dict(_inp('phist'), samples).get(s, '') for s in samples]
+
+    # vConTACT3: prefer exports/final_assignments.csv
+    vc3_raw = path_dict(_inp('vcontact3'), samples)
+    vcontact3_paths = {}
+    for s in samples:
+        raw = vc3_raw.get(s, '')
+        if raw:
+            exports_csv = os.path.join(os.path.dirname(raw),
+                                       'vConTACT3_results', 'exports', 'final_assignments.csv')
+            vcontact3_paths[s] = exports_csv if os.path.exists(exports_csv) else raw
+        else:
+            vcontact3_paths[s] = raw
+
+    # ── Load per-sample data ──────────────────────────────────────────────────
+    checkm2_data   = {s: parse_tsv(checkm2_paths[s])     for s in samples}
+    quast_data     = {s: parse_quast_all(quast_paths[s]) for s in samples}
+    checkv_data    = {s: parse_tsv(checkv_paths[s])      for s in samples}
+    checkv_vrh_data= {s: parse_tsv(checkv_vrh_paths[s])  for s in samples}
+    support_data   = {s: parse_support(support_paths[s]) for s in samples}
+    fastp_data     = {s: parse_fastp_json(outdir, s)     for s in samples}
+    mapping_data   = {s: parse_mapping_rate(outdir, s)   for s in samples}
+    viral_tool_counts = {s: collect_viral_tool_counts(outdir, s) for s in samples}
+    checkm2_tax_data  = {s: parse_checkm2_phyla(checkm2_data[s]) for s in samples}
+    binner_counts  = {s: collect_binner_counts(outdir, s, checkm2_data[s]) for s in samples}
+    vrhyme_data    = {s: collect_vrhyme_stats(outdir, s) for s in samples}
+    viral_contig_lengths = {}
+    for s in samples:
+        vcfa = glob.glob(os.path.join(outdir, s, "viral", "consensus", "*_viral_consensus.fasta"))
+        viral_contig_lengths[s] = parse_fasta_lengths(vcfa[0]) if vcfa else []
+
+    # ── Load taxonomy + host prediction ───────────────────────────────────────
+    tax_data     = load_viral_taxonomy([taxonomy_paths.get(s, '') for s in samples], samples)
+    vc3_data     = load_vcontact3(vcontact3_paths, samples)
+    gtdb_data    = load_gtdbtk(gtdbtk_bac_l, gtdbtk_arc_l, samples)
+    phist_data   = load_phist(phist_paths_l, samples)
+    vibrant_data, vibrant_amg = load_vibrant(outdir, samples)
+    custom_prok_data = load_custom_prok(
+        custom_prok_paths, samples,
+        getattr(snakemake.params, 'custom_prok_meta', ''))
+
+    # ── vConTACT3 network layouts ─────────────────────────────────────────────
+    vc3_network_data = {}
+    net_paths = path_dict(list(getattr(snakemake.input, 'network_json', []) or []), samples)
+    for s in samples:
+        np_ = net_paths.get(s, '')
+        if np_ and os.path.exists(np_):
+            try:
+                with open(np_, encoding='utf-8') as f:
+                    vc3_network_data[s] = json.load(f)
+            except Exception:
+                vc3_network_data[s] = {'nodes': [], 'edges': []}
+        else:
+            vc3_network_data[s] = {'nodes': [], 'edges': []}
+
+    # ── Merge vConTACT3 into tax_data ─────────────────────────────────────────
+    tax_genome_keys = {(r.get('sample', ''), r.get('Genome', '')) for r in tax_data}
+    for vc_row in vc3_data:
+        if not vc_row.get('Family') and not vc_row.get('Genus'): continue
+        key = (vc_row.get('sample', ''), vc_row.get('Genome', ''))
+        if key not in tax_genome_keys:
+            tax_data.append({
+                'sample':        vc_row['sample'],
+                'Genome':        vc_row['Genome'],
+                'final_family':  vc_row.get('Family', ''),
+                'final_genus':   vc_row.get('Genus', ''),
+                'final_order':   vc_row.get('Order', ''),
+                'Family':        vc_row.get('Family', ''),
+                'Genus':         vc_row.get('Genus', ''),
+                'Order':         vc_row.get('Order', ''),
+                'Best_taxonomy': vc_row.get('Best_taxonomy', ''),
+                'Source':        'vcontact3',
+                'Confidence':    '', 'Lineage':        '',
+                'Completeness':  '', 'Genome_length':  '',
+                'CheckV_quality':'',
+            })
+            tax_genome_keys.add(key)
+
+    tax_data = enrich_taxonomy_with_checkv(tax_data, checkv_data)
+
+    # ── vOTU table + lifestyle ────────────────────────────────────────────────
+    votu_data = {}
+    for s in samples:
+        p = os.path.join(outdir, s, "viral", "votu", f"{s}_vOTU_table.tsv")
+        votu_data[s] = load_tsv(p)
+
+    lifestyle_data = {}
+    for s in samples:
+        lytic = lysogenic = 0
+        for row in votu_data[s]:
+            ls = (row.get('lifestyle', '') or '').lower()
+            if 'lytic' in ls or 'virulent' in ls: lytic += 1
+            elif 'lysogenic' in ls or 'temperate' in ls: lysogenic += 1
+        total = len(votu_data[s])
+        lifestyle_data[s] = {
+            'lytic': lytic, 'lysogenic': lysogenic,
+            'unknown': total - lytic - lysogenic, 'total': total,
+        }
+
+    # ── Abundance ─────────────────────────────────────────────────────────────
+    viral_abund = {s: load_tsv(os.path.join(outdir, s, "abundance", "viral_abundance.tsv")) for s in samples}
+    prok_abund  = {s: load_tsv(os.path.join(outdir, s, "abundance", "prok_abundance.tsv"))  for s in samples}
+
+    # ── Diversity ─────────────────────────────────────────────────────────────
+    div_base = os.path.join(outdir, "diversity")
+    alpha_rows      = load_alpha_diversity(os.path.join(div_base, "alpha_diversity.tsv"))
+    pcoa_viral      = load_pcoord(os.path.join(div_base, "beta_pcoord_viral.tsv"))
+    pcoa_prok       = load_pcoord(os.path.join(div_base, "beta_pcoord_prok.tsv"))
+    pcoa_combined   = load_pcoord(os.path.join(div_base, "beta_pcoord_combined.tsv"))
+    procrustes_rows = load_tsv(os.path.join(div_base, "procrustes_coords.tsv"))
+
+    # ── Annotation ───────────────────────────────────────────────────────────
+    eggnog_data  = load_eggnog(outdir, samples)
+    phrogs_data  = load_phrogs(outdir, samples)
+    genome_maps  = load_genome_maps(outdir, samples)
+
+    # ── Prokaryotic merged taxonomy ───────────────────────────────────────────
+    merged_prok = merge_prok_taxonomy(gtdb_data, custom_prok_data, checkm2_data)
+
+    # ── Build overview dict ───────────────────────────────────────────────────
+    overview = {}
+    for s in samples:
+        qd  = quast_data[s].get("deduplicated", {})
+        cm  = checkm2_data[s]
+        cv  = checkv_data[s]
+        sp  = support_data[s]
+        fq  = fastp_data[s]["reads"]
+        raw_r1 = next((r for r in fq if r["stage"] == "raw"     and r["read"] == "R1"), None)
+        tr_r1  = next((r for r in fq if r["stage"] == "trimmed" and r["read"] == "R1"), None)
+        das = binner_counts[s].get("Binette (final)", {})
+        # viral consensus count
+        vcfa = os.path.join(outdir, s, "viral", "consensus", f"{s}_viral_consensus.fasta")
+        vc_count = sum(1 for l in open(vcfa) if l.startswith('>')) if os.path.exists(vcfa) else \
+                   sum(cnt for n, cnt in sp.items() if n >= 2)
+        overview[s] = {
+            "total_raw_reads":    raw_r1["total_sequences"] if raw_r1 else fastp_data[s]["trim"].get("reads_in", 0),
+            "total_trimmed_reads":tr_r1["total_sequences"]  if tr_r1  else 0,
+            "mean_qual":          f"{tr_r1['mean_quality']:.1f}" if tr_r1 else "N/A",
+            "gc_pct":             f"{tr_r1['gc_percent']:.1f}%"  if tr_r1 else "N/A",
+            "mapping_rate":       f"{mapping_data[s]:.1f}%"      if mapping_data[s] > 0 else "N/A",
+            "n_contigs":          qd.get("# contigs", "N/A"),
+            "n50":                qd.get("N50", "N/A"),
+            "viral_consensus":    vc_count,
+            "complete_viral":     sum(1 for r in votu_data[s] if r.get("checkv_quality", "") == "High-quality"),
+            "vmags":              vrhyme_data[s]["n_bins"],
+            "total_bins":         das.get("total", 0),
+            "hq_bins":            sum(1 for r in cm if safe_float(r.get("Completeness", 0)) >= 90
+                                      and safe_float(r.get("Contamination", 100)) <= 5),
+            "bacteria_bins":      das.get("bacteria", 0),
+            "archaea_bins":       das.get("archaea", 0),
+            "taxonomy_classified":sum(1 for r in tax_data if r.get("sample") == s),
+            "host_pred_total":    len({r["Virus"] for r in phist_data if r.get("sample") == s and r.get("Virus")}),
+        }
+
+    # Back-fill Binette domain from GTDB-Tk
+    for s in samples:
+        gb = {r["Bin"] for r in gtdb_data if r.get("sample") == s and r.get("Domain") == "Bacteria"}
+        ga = {r["Bin"] for r in gtdb_data if r.get("sample") == s and r.get("Domain") == "Archaea"}
+        bd = os.path.join(outdir, s, "bins", "binette", "final_bins")
+        das = {"total": 0, "bacteria": 0, "archaea": 0, "unknown": 0}
+        for bf in glob.glob(os.path.join(bd, "*.fa")):
+            name = os.path.basename(bf).replace(".fa", "")
+            das["total"] += 1
+            if name in ga:   das["archaea"]  += 1
+            elif name in gb: das["bacteria"] += 1
+            else:            das["unknown"]  += 1
+        binner_counts[s]["Binette (final)"] = das
+        overview[s].update({"bacteria_bins": das["bacteria"],
+                             "archaea_bins":  das["archaea"],
+                             "total_bins":    das["total"]})
+
+    # ── Novelty + MIMAG ───────────────────────────────────────────────────────
+    novelty_data = {}
+    for s in samples:
+        total_viral  = overview[s].get("viral_consensus", 0)
+        classified   = overview[s].get("taxonomy_classified", 0)
+        unclassified = max(0, total_viral - classified)
+        novelty_data[s] = {
+            'total': total_viral, 'classified': classified,
+            'unclassified': unclassified,
+            'pct_novel': round(100.0 * unclassified / total_viral, 1) if total_viral > 0 else 0.0,
+        }
+
+    mimag_data = {}
+    for s in samples:
+        hq = mq = lq = 0
+        for row in checkm2_data[s]:
+            comp = safe_float(row.get('Completeness', 0))
+            cont = safe_float(row.get('Contamination', 100))
+            if comp >= 90 and cont <= 5:    hq += 1
+            elif comp >= 50 and cont <= 10: mq += 1
+            else:                           lq += 1
+        mimag_data[s] = {'HQ': hq, 'MQ': mq, 'LQ': lq, 'total': hq + mq + lq}
+
+    # ── Pipeline config (for About tab) ──────────────────────────────────────
+    _p = snakemake.params
+    cfg_params = {
+        "Threads":                     str(getattr(_p, "threads",         "?")),
+        "Min contig length":           f"{getattr(_p, 'min_contig',       '?')} bp",
+        "SPAdes memory":               f"{getattr(_p, 'spades_mem',       '?')} GB",
+        "MEGAHIT memory":              f"{getattr(_p, 'megahit_mem',      '?')} GB",
+        "MMseqs2 min identity":        str(getattr(_p, "min_seq_id",      "?")),
+        "SemiBin2 environment":        str(getattr(_p, "semibin_env",     "?")),
+        "Viral consensus (min tools)": f"{getattr(_p, 'min_viral_tools', '?')} / 3",
+    }
+
+    # ── Benchmark data ────────────────────────────────────────────────────────
+    bench_path = getattr(snakemake.input, 'benchmark_summary', None)
+    bench_data = load_tsv(bench_path) if bench_path and os.path.exists(bench_path) else []
+
+    # ── Tool versions ─────────────────────────────────────────────────────────
+    tool_versions = collect_tool_versions()
+
+    # ── Viral depth per-contig ────────────────────────────────────────────────
+    viral_depth_data = {}
+    for s in samples:
+        viral_names = {r.get('contig_id', r.get('contig', '')) for r in checkv_data[s]}
+        depth_path  = os.path.join(outdir, s, "mapping", f"{s}_depth.txt")
+        vd = []
+        if os.path.exists(depth_path):
+            for row in parse_tsv(depth_path):
+                name = row.get('contigName', row.get('Contig', ''))
+                if name in viral_names:
+                    d = safe_float(row.get('totalAvgDepth', row.get('avgDepth', 0)))
+                    if 0 < d < 2000: vd.append(round(d, 2))
+        viral_depth_data[s] = vd
+
+    # ── Serialize all data to JSON ────────────────────────────────────────────
+    data_script = _build_data_script({
+        "SAMPLES":      samples,
+        "OVERVIEW":     overview,
+        "CHECKV":       {s: [dict(r) for r in checkv_data[s]] for s in samples},
+        "CHECKV_VRH":   {s: [dict(r) for r in checkv_vrh_data[s]] for s in samples},
+        "CHECKM2":      {s: [dict(r) for r in checkm2_data[s]] for s in samples},
+        "SUPPORT":      support_data,
+        "FASTP":        {s: {
+            "reads": fastp_data[s]["reads"],
+            "trim":  fastp_data[s]["trim"],
+        } for s in samples},
+        "MAPPING":      mapping_data,
+        "QUAST":        {s: quast_data[s] for s in samples},
+        "BINNER":       binner_counts,
+        "VRHYME":       {s: {
+            "n_bins": vrhyme_data[s]["n_bins"],
+            "total_members": vrhyme_data[s]["total_members"],
+            "rows": vrhyme_data[s]["rows"],
+        } for s in samples},
+        "VIRAL_TOOLS":  viral_tool_counts,
+        "VIRAL_LENGTHS":{s: viral_contig_lengths[s] for s in samples},
+        "VIRAL_DEPTH":  viral_depth_data,
+        "VIRAL_ABUND":  viral_abund,
+        "PROK_ABUND":   prok_abund,
+        "TAX_DATA":     tax_data,
+        "VC3_DATA":     vc3_data,
+        "VC3_NETWORK":  vc3_network_data,
+        "GTDB_DATA":    gtdb_data,
+        "MERGED_PROK":  merged_prok,
+        "PHIST_DATA":   phist_data,
+        "VIBRANT_DATA": vibrant_data,
+        "VIBRANT_AMG":  vibrant_amg,
+        "VOTU_DATA":    votu_data,
+        "LIFESTYLE":    lifestyle_data,
+        "NOVELTY":      novelty_data,
+        "MIMAG":        mimag_data,
+        "EGGNOG_DATA":  eggnog_data,
+        "PHROGS_DATA":  phrogs_data,
+        "GENOME_MAPS":  genome_maps,
+        "ALPHA_DATA":   alpha_rows,
+        "PCOA_VIRAL":   pcoa_viral,
+        "PCOA_PROK":    pcoa_prok,
+        "PCOA_COMBINED":pcoa_combined,
+        "PROCRUSTES":   procrustes_rows,
+        "CFG_PARAMS":   cfg_params,
+        "TOOL_VERSIONS":tool_versions,
+        "BENCH_DATA":   bench_data,
+    })
+
+    # ── Assemble HTML ─────────────────────────────────────────────────────────
+    css       = _read(os.path.join(_COMP, "base.css"))
+    shell     = _read(os.path.join(_COMP, "shell.html"))
+    echarts   = _read(os.path.join(_ASSETS, "echarts.min.js"))
+    d3_js     = _read(os.path.join(_ASSETS, "d3.min.js"))
+
+    js_parts  = []
+    for js_file in ["app.js", "overview.js", "sequencing.js", "viral.js",
+                    "prokaryotic.js", "diversity.js", "annotation.js", "about.js"]:
+        js_parts.append(_read(os.path.join(_COMP, js_file)))
+    app_js = "\n".join(js_parts)
+
+    html = (shell
+            .replace("{{CSS}}", css)
+            .replace("{{ECHARTS_JS}}", echarts)
+            .replace("{{D3_JS}}", d3_js)
+            .replace("{{DATA_JSON}}", data_script)
+            .replace("{{APP_JS}}", app_js))
+
+    os.makedirs(os.path.dirname(out_html) or '.', exist_ok=True)
+    with open(out_html, 'w', encoding='utf-8') as f:
+        f.write(html)
+    print(f"[VAPOR] Report written to {out_html}")
+
+
+def _build_data_script(data_dict):
+    """Build a <script> block defining all JS constants."""
+    lines = ["<script>"]
+    for name, obj in data_dict.items():
+        lines.append(f"const {name} = {_jsstr(obj)};")
+    lines.append("</script>")
+    return "\n".join(lines)
