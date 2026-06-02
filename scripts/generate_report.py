@@ -872,12 +872,27 @@ try:
                 fam  = fam_raw  if fam_raw  and fam_raw.lower()  not in _VC3_NULL else ''
                 gen  = gen_raw  if gen_raw  and gen_raw.lower()  not in _VC3_NULL else ''
                 ord_ = ord_raw  if ord_raw  and ord_raw.lower()  not in _VC3_NULL else ''
-                # Detect novel (prediction values contain "novel_" prefix)
-                is_novel  = any(str(v).lower().startswith('novel_')
-                                for v in [fam_raw, gen_raw, ord_raw] if v)
+                # Detect novel (prediction values start with "novel_")
+                is_novel = any(str(v).lower().startswith('novel_')
+                               for v in [fam_raw, gen_raw, ord_raw] if v)
+                # For Novel entries: "novel_family_X_of_Y_of_Caudoviricetes" is NOT an
+                # ICTV family — clear Family/Genus so the merge step skips them.
+                # Extract the rightmost non-novel token as a display anchor (e.g. class).
+                novel_anchor = ''
+                if is_novel:
+                    for v in [fam_raw, gen_raw, ord_raw]:
+                        if v and 'of_' in v:
+                            cand = v.rsplit('of_', 1)[-1].strip()
+                            if not cand.lower().startswith('novel_'):
+                                novel_anchor = cand
+                                break
+                    fam = ''
+                    gen = ''
+                    ord_ = ''
                 is_singleton = not fam and not gen and not ord_
-                # Best taxonomy = deepest sanitized assigned level
-                best = gen or fam or ord_ or cls or rlm or ''
+                # Best_taxonomy: for Assigned/Shared show deepest ICTV rank;
+                # for Novel show anchor class/order; for Singleton empty.
+                best = (novel_anchor or cls or rlm) if is_novel else (gen or fam or ord_ or cls or rlm or '')
                 vc_status = ('novel' if is_novel
                              else 'singleton' if is_singleton
                              else 'classified')
@@ -890,6 +905,7 @@ try:
                     'Order':        ord_,
                     'Realm':        rlm,
                     'Best_taxonomy': best,
+                    'Novel_anchor': novel_anchor,
                     'Is_novel':     str(is_novel),
                 })
         return records

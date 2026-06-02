@@ -503,36 +503,27 @@ rule viral_taxonomy:
                 lin    = ";".join(filter(None, [fo, ff, fg]))
                 best   = fg or ff or fo
 
-            elif iph and iph.get("confidence") not in ("unclassified", ""):
+            elif (iph and iph.get("confidence") not in ("unclassified", "") and
+                  (iph.get("family") or iph.get("genus"))):
+                # Diamond/INPHARED wins only when INPHARED metadata has family or genus.
+                # Hits where INPHARED has no family/genus fall through to GeNomad (tier 4).
                 source = "diamond_inphared"
-                _name = iph.get("name","")  # INPHARED phage name as fallback
-                # order_putative (30-50% pident): show family as putative, no genus
-                if iph.get("confidence") == "order_putative":
-                    ff = iph.get("family",""); fg = ""
-                    fo   = iph.get("order","")
-                    best = ff or fo or _name
-                    lin  = ";".join(filter(None, [fo, ff]))
-                else:
-                    ff, fg = iph.get("family",""), iph.get("genus","")
-                    fo     = iph.get("order","")
-                    best   = fg or ff or fo or _name
-                    lin    = ";".join(filter(None, [fo, ff, fg]))
-                conf = f"{iph['avg_pident']:.1f}% ({iph['confidence']})"
+                ff, fg = iph.get("family",""), iph.get("genus","")
+                fo     = iph.get("order","")
+                best   = fg or ff or fo
+                lin    = ";".join(filter(None, [fo, ff, fg]))
+                conf   = f"{iph['avg_pident']:.1f}% ({iph['confidence']})"
 
             elif (contig in custom_tax and
-                  custom_tax[contig].get("confidence") not in ("unclassified", "")):
+                  custom_tax[contig].get("confidence") not in ("unclassified", "") and
+                  (custom_tax[contig].get("family") or custom_tax[contig].get("genus"))):
                 _c     = custom_tax[contig]
                 source = "diamond_custom"
-                if _c.get("confidence") == "order_putative":
-                    ff = _c.get("family",""); fg = ""
-                    fo   = _c.get("order","")
-                    best = ff or fo; lin = ";".join(filter(None, [fo, ff]))
-                else:
-                    ff, fg = _c.get("family",""), _c.get("genus","")
-                    fo     = _c.get("order","")
-                    best   = fg or ff or fo
-                    lin    = ";".join(filter(None, [fo, ff, fg]))
-                conf = f"{float(_c.get('avg_pident',0) or 0):.1f}% ({_c.get('confidence','')})"
+                ff, fg = _c.get("family",""), _c.get("genus","")
+                fo     = _c.get("order","")
+                best   = fg or ff or fo
+                lin    = ";".join(filter(None, [fo, ff, fg]))
+                conf   = f"{float(_c.get('avg_pident',0) or 0):.1f}% ({_c.get('confidence','')})"
 
             elif gmd:
                 source = "genomad"
