@@ -887,7 +887,10 @@ try:
             "mapping_rate": f"{mapping_data[sample]:.1f}%" if mapping_data[sample]>0 else "N/A",
             "n_contigs":  qd.get("# contigs","N/A"),
             "n50":        qd.get("N50","N/A"),
-            "viral_consensus": sp.get(3,0)+sp.get(4,0),
+            "viral_consensus": (lambda p: sum(1 for l in open(p) if l.startswith('>')) if os.path.exists(p) else
+                                sum(cnt for n, cnt in sp.items() if n >= 2))(
+                                os.path.join(outdir, sample, "viral", "consensus",
+                                             f"{sample}_viral_consensus.fasta")),
             "complete_viral":  sum(1 for r in cv if r.get("checkv_quality","")=="Complete"),
             "vmags":      vrhyme_data[sample]["n_bins"],
             "unbinned_viral": (lambda p: sum(1 for l in open(p) if l.startswith('>')) - vrhyme_data[sample]["total_members"]
