@@ -345,7 +345,8 @@ def draw_phage(gbk_record, seq, genome_id, name, outdir):
         mpatches.Patch(fc="#009E73",    ec="none", label="GC skew G>C"),
         mpatches.Patch(fc="#CC79A7",    ec="none", label="GC skew C>G"),
     ]
-    fig.legend(handles=legend_items, loc="lower center", bbox_to_anchor=(0.46, 0.0),
+    fig.legend(handles=legend_items, loc="lower center", bbox_to_anchor=(0.5, -0.12),
+               bbox_transform=fig.transFigure,
                frameon=True, framealpha=0.9, edgecolor="#CCC", fontsize=5.5,
                title="PHROGS category", title_fontsize=6, ncol=3,
                handlelength=1.0, handleheight=0.8)
@@ -518,7 +519,8 @@ def draw_virus(genome_id, seq, genes, name, outdir):
         mpatches.Patch(fc="#009E73", ec="none", label="GC skew G>C"),
         mpatches.Patch(fc="#CC79A7", ec="none", label="GC skew C>G"),
     ]
-    fig.legend(handles=legend_items, loc="lower center", bbox_to_anchor=(0.46, 0.0),
+    fig.legend(handles=legend_items, loc="lower center", bbox_to_anchor=(0.5, -0.12),
+               bbox_transform=fig.transFigure,
                frameon=True, framealpha=0.9, edgecolor="#CCC", fontsize=5.5,
                title="VOGDB category", title_fontsize=6, ncol=2,
                handlelength=1.0, handleheight=0.8)
@@ -602,7 +604,7 @@ def batch_virus(args):
     for gid, comp, seq in ranked:
         genes = _parse_genomad_for_genome(genomad_genes, gid)
         tax_label = tax_map.get(gid, "")
-        name = f"{gid} — {tax_label} ({comp:.1f}%)" if tax_label else f"{gid} ({comp:.1f}%)"
+        name = f"{gid} — {tax_label} ({comp:.1f}%)" if tax_label else f"{gid} — Unclassified ({comp:.1f}%)"
         try:
             draw_virus(gid, seq, genes, name, outdir)
         except Exception as exc:
@@ -719,7 +721,8 @@ def draw_prok(records, genome_id, name, outdir):
 
     legend_items = [mpatches.Patch(fc=c, ec="#AAA", lw=0.3, label=f"{k} - {_COG_LABELS.get(k, k)}")
                     for k, c in COG_COLORS.items() if k not in ("other",)]
-    fig.legend(handles=legend_items, loc="lower center", bbox_to_anchor=(0.46, 0.0),
+    fig.legend(handles=legend_items, loc="lower center", bbox_to_anchor=(0.5, -0.12),
+               bbox_transform=fig.transFigure,
                frameon=True, framealpha=0.9, edgecolor="#CCC", fontsize=5,
                title="COG category", title_fontsize=6, ncol=4,
                handlelength=1.0, handleheight=0.8)
