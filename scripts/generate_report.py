@@ -1107,8 +1107,7 @@ try:
                     'Source':        source,
                     'Confidence':    row.get('confidence',''),
                     'Lineage':       lineage,
-                    'INPHARED_sci':  row.get('inphared_sscinames',''),
-                    'Custom_sci':    row.get('custom_sscinames',''),
+                    'INPHARED_name': row.get('inphared_name',''),
                 })
         return records
 

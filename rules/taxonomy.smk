@@ -68,11 +68,11 @@ rule diamond_inphared:
         if [ ! -f {params.db} ]; then
             diamond makedb --in "$INPHARED_PROT" --db {params.db} --threads {threads} >> {log} 2>&1
         fi
-        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\tsscinames\tsskingdoms\n" \
+        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" \
             > {output.hits}
         diamond blastp \
             --query {input.faa} --db {params.db} --out /dev/stdout \
-            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore sscinames sskingdoms \
+            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
             --max-target-seqs 1 --evalue 1e-5 --id 30 --query-cover 50 \
             --threads {threads} --sensitive --tmpdir /tmp \
             >> {output.hits} 2>> {log}
@@ -111,11 +111,11 @@ rule diamond_custom_viral:
             printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" > {output.hits}
             touch {output.done}; exit 0
         fi
-        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\tsscinames\tsskingdoms\n" \
+        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" \
             > {output.hits}
         diamond blastp \
             --query {input.faa} --db {params.db} --out /dev/stdout \
-            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore sscinames sskingdoms \
+            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
             --max-target-seqs 1 --evalue 1e-5 --id 30 --query-cover 50 \
             --threads {threads} --sensitive --tmpdir /tmp \
             >> {output.hits} 2>> {log}
@@ -334,10 +334,14 @@ rule viral_taxonomy:
                 for row in csv.DictReader(f, delimiter="\t"):
                     acc = row.get("Accession","").strip()
                     if acc:
+                        # Phage name: try common column names across INPHARED versions
+                        pname = (row.get("Phage_name","") or row.get("Name","")
+                                 or row.get("phage_name","") or "").strip()
                         inphared_meta[acc] = {
                             "family": row.get("Family",""),
                             "genus":  row.get("Genus",""),
                             "order":  row.get("Order",""),
+                            "name":   pname,
                         }
         lf.write(f"INPHARED entries: {len(inphared_meta)}\n")
 
@@ -356,11 +360,6 @@ rule viral_taxonomy:
                     acc    = "_".join(cols[1].split("_")[:-1]) or cols[1]
                     votes[contig][acc] += 1
                     pident[contig].append(float(cols[2]))
-                    # outfmt: 12 standard cols + sscinames(12) + sskingdoms(13)
-                    if len(cols) >= 13 and cols[12] not in ("N/A", "", "0"):
-                        ssci_map[contig].append(cols[12])
-                    if len(cols) >= 14 and cols[13] not in ("N/A", "", "0"):
-                        skingd_map[contig] = cols[13]
 
         inphared_tax = {}
         for contig, v in votes.items():
@@ -373,10 +372,9 @@ rule viral_taxonomy:
             else:           conf = "unclassified"
             inphared_tax[contig] = {
                 "family": meta.get("family",""), "genus": meta.get("genus",""),
-                "order":  meta.get("order",""),  "avg_pident": round(avg, 2),
-                "votes": top_votes, "top_acc": top_acc, "confidence": conf,
-                "sscinames":  ";".join(dict.fromkeys(ssci_map.get(contig, []))),
-                "sskingdoms": skingd_map.get(contig, ""),
+                "order":  meta.get("order",""),  "name": meta.get("name",""),
+                "avg_pident": round(avg, 2), "votes": top_votes,
+                "top_acc": top_acc, "confidence": conf,
             }
         lf.write(f"Diamond/INPHARED: {len(inphared_tax)} contigs\n")
 
@@ -409,8 +407,7 @@ rule viral_taxonomy:
                     acc    = "_".join(cols[1].split("_")[:-1]) or cols[1]
                     custom_votes[contig][acc] += 1
                     custom_pident[contig].append(float(cols[2]))
-                    if len(cols) >= 13 and cols[12] not in ("N/A", "", "0"):
-                        custom_ssci[contig].append(cols[12])
+                    pass  # no sscinames in outfmt (DB lacks taxonomy info)
 
         custom_tax = {}
         for contig, v in custom_votes.items():
@@ -474,18 +471,17 @@ rule viral_taxonomy:
 
             elif iph and iph.get("confidence") not in ("unclassified", ""):
                 source = "diamond_inphared"
-                _sci = iph.get("sscinames","").split(";")[0].strip() if iph.get("sscinames") else ""
+                _name = iph.get("name","")  # INPHARED phage name as fallback
                 # order_putative (30-50% pident): show family as putative, no genus
                 if iph.get("confidence") == "order_putative":
                     ff = iph.get("family",""); fg = ""
                     fo   = iph.get("order","")
-                    # Use sscinames (INPHARED phage name) as fallback when ICTV ranks empty
-                    best = ff or fo or _sci
+                    best = ff or fo or _name
                     lin  = ";".join(filter(None, [fo, ff]))
                 else:
                     ff, fg = iph.get("family",""), iph.get("genus","")
                     fo     = iph.get("order","")
-                    best   = fg or ff or fo or _sci
+                    best   = fg or ff or fo or _name
                     lin    = ";".join(filter(None, [fo, ff, fg]))
                 conf = f"{iph['avg_pident']:.1f}% ({iph['confidence']})"
 
@@ -493,15 +489,14 @@ rule viral_taxonomy:
                   custom_tax[contig].get("confidence") not in ("unclassified", "")):
                 _c     = custom_tax[contig]
                 source = "diamond_custom"
-                _csci = _c.get("sscinames","").split(";")[0].strip() if _c.get("sscinames") else ""
                 if _c.get("confidence") == "order_putative":
                     ff = _c.get("family",""); fg = ""
                     fo   = _c.get("order","")
-                    best = ff or fo or _csci; lin = ";".join(filter(None, [fo, ff]))
+                    best = ff or fo; lin = ";".join(filter(None, [fo, ff]))
                 else:
                     ff, fg = _c.get("family",""), _c.get("genus","")
                     fo     = _c.get("order","")
-                    best   = fg or ff or fo or _csci
+                    best   = fg or ff or fo
                     lin    = ";".join(filter(None, [fo, ff, fg]))
                 conf = f"{float(_c.get('avg_pident',0) or 0):.1f}% ({_c.get('confidence','')})"
 
@@ -533,12 +528,11 @@ rule viral_taxonomy:
                 "genomad_best":  gmd.get("best",""),
                 "genomad_class": gmd.get("class",""),
                 "genomad_score": gmd.get("score",""),
-                "inphared_pident":    iph.get("avg_pident",""),
-                "inphared_votes":     iph.get("votes",""),
-                "inphared_sscinames": iph.get("sscinames",""),
-                "custom_acc":         custom_tax.get(contig,{}).get("top_acc",""),
-                "custom_pident":      custom_tax.get(contig,{}).get("avg_pident",""),
-                "custom_sscinames":   custom_tax.get(contig,{}).get("sscinames",""),
+                "inphared_pident": iph.get("avg_pident",""),
+                "inphared_votes":  iph.get("votes",""),
+                "inphared_name":   iph.get("name",""),
+                "custom_acc":      custom_tax.get(contig,{}).get("top_acc",""),
+                "custom_pident":   custom_tax.get(contig,{}).get("avg_pident",""),
             })
 
         lf.write("\nSummary:\n")
@@ -553,8 +547,8 @@ rule viral_taxonomy:
                   "source","confidence","lineage",
                   "vc3_vc","vc3_status",
                   "genomad_best","genomad_class","genomad_score",
-                  "inphared_pident","inphared_votes","inphared_sscinames",
-                  "custom_acc","custom_pident","custom_sscinames"]
+                  "inphared_pident","inphared_votes","inphared_name",
+                  "custom_acc","custom_pident"]
         with open(str(output.tsv), "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
             w.writeheader(); w.writerows(rows)
