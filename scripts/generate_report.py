@@ -960,10 +960,15 @@ try:
                     if not final_family: final_family = lf
                     if not final_genus:  final_genus  = lg
                     if not final_order:  final_order  = lo
-                # Require at least family OR genus — order/class-only is too ambiguous
-                # to count as "taxonomy applied" (e.g. Diamond order_putative with no
-                # family, or GeNomad with only Caudoviricetes class in the lineage).
-                if not final_family and not final_genus:
+                # For GeNomad source: class-level classification is valid information.
+                # Use genomad_class or genomad_best as final_order when no better rank.
+                # Diamond sources still require family/genus (order_putative is unreliable).
+                if source == 'genomad' and not final_family and not final_genus and not final_order:
+                    gc = row.get('genomad_class', '') or row.get('genomad_best', '')
+                    if gc and gc.lower() not in _VC3_NULL:
+                        final_order = gc  # class stored in final_order for display
+                # Require family, genus, OR (for GeNomad) order/class
+                if not final_family and not final_genus and not final_order:
                     continue
                 # Build best_taxonomy: deepest assigned level for display
                 best_tax = final_genus or final_family or final_order
@@ -2529,24 +2534,25 @@ function renderTaxFamilyBar(sample){{
     return;
   }}
   const fc={{}};
-  rows.forEach(r=>{{
-    // Use best available taxonomic rank: family > genus (labelled) > order (labelled) > Unclassified
-    const f = r.final_family
-      || (r.final_genus  ? r.final_genus  + ' (genus)'  : '')
-      || (r.final_order  ? r.final_order  + ' (order)'  : '')
-      || 'Unclassified';
-    fc[f]=(fc[f]||0)+1;
-  }});
+  function _taxLabel(r){{
+    if(r.final_family) return r.final_family;
+    if(r.final_genus)  return r.final_genus  + ' (genus)';
+    if(r.final_order)  return r.final_order.endsWith('viricetes')
+      ? r.final_order + ' (class)' : r.final_order + ' (order)';
+    return 'Unclassified';
+  }}
+  rows.forEach(r=>{{const f=_taxLabel(r);fc[f]=(fc[f]||0)+1;}});
   const top=Object.entries(fc).sort((a,b)=>b[1]-a[1]).slice(0,15);
-  // Colour: teal for family-level, amber for genus/order fallbacks, grey for Unclassified
-  const colours=top.map(x=>x[0]==='Unclassified'?'#9ca3af':x[0].includes('(genus)')||x[0].includes('(order)')?'#f59e0b':'#0d9488');
+  // Colour: teal=family, amber=genus/order/class, grey=Unclassified
+  const colours=top.map(x=>x[0]==='Unclassified'?'#9ca3af':
+    (x[0].includes('(genus)')||x[0].includes('(order)')||x[0].includes('(class)'))?'#f59e0b':'#0d9488');
   Plotly.newPlot('p-tax-family',[{{type:'bar',orientation:'h',
     x:top.map(x=>x[1]).reverse(),y:top.map(x=>x[0]).reverse(),
     marker:{{color:colours.slice().reverse()}}}}],
     {{margin:{{t:10,b:40,l:180,r:20}},xaxis:{{title:'Count'}},
       paper_bgcolor:'rgba(0,0,0,0)',
       annotations:[{{xref:'paper',yref:'paper',x:1,y:1.02,xanchor:'right',yanchor:'bottom',
-        text:'teal=family · amber=genus/order · grey=unclassified',
+        text:'teal=family · amber=genus/order/class · grey=unclassified',
         showarrow:false,font:{{size:10,color:'#6b7280'}}}}]}},cfg);
 }}
 
@@ -2562,7 +2568,7 @@ function renderTaxSunburst(sample){{
   const ROOT='Viruses';const nodeP={{}};const leafC={{}};nodeP[ROOT]='';
   rows.forEach(r=>{{
     const fam=r.final_family||(r.final_genus?r.final_genus+' (genus)':'')
-             ||(r.final_order?r.final_order+' (order)':'')||'Unclassified';
+             ||(r.final_order?(r.final_order.endsWith('viricetes')?r.final_order+' (class)':r.final_order+' (order)'):'')||'Unclassified';
     const gen=r.final_genus||r.Genus||'';
     const famId='f::'+fam;
     if(nodeP[famId]===undefined)nodeP[famId]=ROOT;
