@@ -59,11 +59,15 @@ try:
         with open(path) as f:
             hdr = None
             for line in f:
-                line = line.strip()
+                line = line.rstrip('\n').rstrip('\r')  # preserve trailing tabs (empty last columns)
                 if not line: continue
                 parts = line.split("\t")
                 if hdr is None: hdr = parts; continue
-                if len(parts) == len(hdr): rows.append(dict(zip(hdr, parts)))
+                if not parts: continue
+                # Pad rows shorter than header (empty optional last column loses trailing tab after rstrip)
+                if len(parts) < len(hdr):
+                    parts += [''] * (len(hdr) - len(parts))
+                rows.append(dict(zip(hdr, parts[:len(hdr)])))
         return rows
     
     def parse_quast_all(path):
