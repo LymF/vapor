@@ -321,8 +321,10 @@ rule viral_taxonomy:
                     fam  = row.get("family_prediction", row.get("family", row.get("Family","")))
                     gen  = row.get("genus_prediction",  row.get("genus",  row.get("Genus","")))
                     ord_ = row.get("order_prediction",  row.get("order",  row.get("Order","")))
-                    # Reconstruct VC_status: vConTACT3 v3 encodes novelty in prediction names
-                    if not fam or fam.lower().startswith("novel_"):
+                    # Reconstruct VC_status: vConTACT3 v3 encodes novelty in prediction names.
+                    # "singleton" is output literally for genomes with no network neighbours.
+                    _NOVEL_VALS = {"singleton", "unclassified", "nd", "none", ""}
+                    if not fam or fam.lower().startswith("novel_") or fam.lower() in _NOVEL_VALS:
                         status = "Novel"
                     elif gen and "|" in gen:
                         status = "Shared"
@@ -337,14 +339,17 @@ rule viral_taxonomy:
                         "status":       status,
                         "genus":        gen.split("|")[0].strip() if gen else "",
                         "family":       fam if status != "Novel" else "",
-                        "order":        ord_ if not (ord_ or "").lower().startswith("novel_") else "",
+                        "order":        ord_ if ord_ and not ord_.lower().startswith("novel_") and ord_.lower() not in _NOVEL_VALS else "",
                         "novel_anchor": novel_anchor,
                     }
         lf.write(f"vConTACT3: {len(vc3_tax)} genomes\n")
 
         # ── Tier 2: Diamond/INPHARED ──────────────────────────────────
         inphared_meta = {}
+        # Accept both *_data.tsv (full) and *_data_excluding_refseq.tsv; prefer full
         data_files = sorted(glob.glob(os.path.join(str(params.inphared_db), "*_data.tsv")))
+        if not data_files:
+            data_files = sorted(glob.glob(os.path.join(str(params.inphared_db), "*_data_excluding_refseq.tsv")))
         if data_files:
             with open(data_files[-1]) as f:
                 for row in csv.DictReader(f, delimiter="\t"):
@@ -352,7 +357,7 @@ rule viral_taxonomy:
                     if acc:
                         # Phage name: try common column names across INPHARED versions
                         pname = (row.get("Phage_name","") or row.get("Name","")
-                                 or row.get("phage_name","") or "").strip()
+                                 or row.get("phage_name","") or row.get("Description","") or "").strip()
                         inphared_meta[acc] = {
                             "family": row.get("Family",""),
                             "genus":  row.get("Genus",""),

@@ -1075,6 +1075,7 @@ try:
                     'Genome':        name,
                     'final_family':  final_family,
                     'final_genus':   final_genus,
+                    'final_order':   final_order,
                     'Family':        final_family,
                     'Genus':         final_genus,
                     'Order':         final_order,
@@ -2752,12 +2753,25 @@ function renderTaxFamilyBar(sample){{
   if(!TAX_DATA.length)return;
   const rows=sample==='__all__'?TAX_DATA:TAX_DATA.filter(r=>r.sample===sample);
   const fc={{}};
-  rows.forEach(r=>{{const f=r.final_family||r.Best_taxonomy||'Unclassified';fc[f]=(fc[f]||0)+1;}});
+  rows.forEach(r=>{{
+    // Use best available taxonomic rank: family > genus (labelled) > order (labelled) > Unclassified
+    const f = r.final_family
+      || (r.final_genus  ? r.final_genus  + ' (genus)'  : '')
+      || (r.final_order  ? r.final_order  + ' (order)'  : '')
+      || 'Unclassified';
+    fc[f]=(fc[f]||0)+1;
+  }});
   const top=Object.entries(fc).sort((a,b)=>b[1]-a[1]).slice(0,15);
+  // Colour: teal for family-level, amber for genus/order fallbacks, grey for Unclassified
+  const colours=top.map(x=>x[0]==='Unclassified'?'#9ca3af':x[0].includes('(genus)')||x[0].includes('(order)')?'#f59e0b':'#0d9488');
   Plotly.newPlot('p-tax-family',[{{type:'bar',orientation:'h',
     x:top.map(x=>x[1]).reverse(),y:top.map(x=>x[0]).reverse(),
-    marker:{{color:'#0d9488'}}}}],
-    {{margin:{{t:10,b:40,l:160,r:20}},xaxis:{{title:'Count'}},paper_bgcolor:'rgba(0,0,0,0)'}},cfg);
+    marker:{{color:colours.slice().reverse()}}}}],
+    {{margin:{{t:10,b:40,l:180,r:20}},xaxis:{{title:'Count'}},
+      paper_bgcolor:'rgba(0,0,0,0)',
+      annotations:[{{xref:'paper',yref:'paper',x:1,y:1.02,xanchor:'right',yanchor:'bottom',
+        text:'teal=family · amber=genus/order · grey=unclassified',
+        showarrow:false,font:{{size:10,color:'#6b7280'}}}}]}},cfg);
 }}
 
 function renderTaxSunburst(sample){{
@@ -2766,7 +2780,8 @@ function renderTaxSunburst(sample){{
   const rows=sample==='__all__'?TAX_DATA:TAX_DATA.filter(r=>r.sample===sample);
   const ROOT='Viruses';const nodeP={{}};const leafC={{}};nodeP[ROOT]='';
   rows.forEach(r=>{{
-    const fam=r.final_family||r.Family||'Unclassified';
+    const fam=r.final_family||(r.final_genus?r.final_genus+' (genus)':'')
+             ||(r.final_order?r.final_order+' (order)':'')||'Unclassified';
     const gen=r.final_genus||r.Genus||'';
     const famId='f::'+fam;
     if(nodeP[famId]===undefined)nodeP[famId]=ROOT;
