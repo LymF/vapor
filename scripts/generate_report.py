@@ -2482,8 +2482,14 @@ function renderTaxSourcePie(sample){{
   const rows=sample==='__all__'?TAX_DATA:TAX_DATA.filter(r=>r.sample===sample);
   const sc={{}};
   rows.forEach(r=>{{const s=(r.Source||r.source||'unclassified').toLowerCase();sc[s]=(sc[s]||0)+1;}});
-  const labels=Object.keys(sc).map(k=>SOURCE_STYLE[k]?SOURCE_STYLE[k].label:k);
-  const colors=Object.keys(sc).map(k=>SOURCE_STYLE[k]?SOURCE_STYLE[k].color:'#6b7280');
+  // Add unclassified count from OVERVIEW (total viral - classified in TAX_DATA)
+  // so the pie shows true coverage even though unclassified were excluded from TAX_DATA.
+  const smList=sample==='__all__'?SAMPLES:[sample];
+  const totalViral=smList.reduce((a,s)=>a+(OVERVIEW[s]&&OVERVIEW[s].viral_consensus||0),0);
+  const unclassifiedN=Math.max(0,totalViral-rows.length);
+  if(unclassifiedN>0)sc['unclassified']=(sc['unclassified']||0)+unclassifiedN;
+  const labels=Object.keys(sc).map(k=>SOURCE_STYLE[k]?SOURCE_STYLE[k].label:(k==='unclassified'?'Unclassified':k));
+  const colors=Object.keys(sc).map(k=>SOURCE_STYLE[k]?SOURCE_STYLE[k].color:'#9ca3af');
   Plotly.newPlot('p-tax-source',[{{type:'pie',labels:labels,values:Object.values(sc),
     hole:0.38,marker:{{colors:colors}},
     hovertemplate:'<b>%{{label}}</b><br>%{{value}} contigs (%{{percent}})<extra></extra>'}}],
