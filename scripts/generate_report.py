@@ -1111,8 +1111,23 @@ try:
     gtdb_data  = load_gtdbtk(gtdbtk_bac_l, gtdbtk_arc_l, samples)
     phist_data = load_phist(phist_paths_l, samples)
 
+    # Load pre-computed vConTACT3 network layouts (one JSON per sample)
+    vc3_network_data = {}
+    _net_paths = _path_dict(list(getattr(snakemake.input, 'network_json', []) or []), samples)
+    for s in samples:
+        _np = _net_paths.get(s, '')
+        if _np and os.path.exists(_np):
+            try:
+                with open(_np, encoding='utf-8') as _nf:
+                    vc3_network_data[s] = json.load(_nf)
+            except Exception:
+                vc3_network_data[s] = {'nodes': [], 'edges': []}
+        else:
+            vc3_network_data[s] = {'nodes': [], 'edges': []}
+
     print(f"[generate_report] Viral taxonomy: {len(tax_data)} classified viruses")
     print(f"[generate_report] vConTACT3: {len(vcontact3_data)} genomes clustered")
+    print(f"[generate_report] vConTACT3 network: {sum(len(v.get('nodes',[])) for v in vc3_network_data.values())} nodes total")
     print(f"[generate_report] VIBRANT: {len(vibrant_data)} scaffolds, {len(vibrant_amg)} AMGs")
     print(f"[generate_report] GTDB-Tk: {len(gtdb_data)} MAGs")
     print(f"[generate_report] Custom prok: {len(custom_prok_data)} bins")
@@ -1666,8 +1681,9 @@ try:
     def _js(obj):
         return json.dumps(obj).replace("</", "<\\/")
 
-    tax_json        = _js(tax_data)
-    vcontact3_json  = _js(vcontact3_data)
+    tax_json           = _js(tax_data)
+    vcontact3_json     = _js(vcontact3_data)
+    vc3_network_json   = _js(vc3_network_data)
     vibrant_json    = _js(vibrant_data)
     vibrant_amg_json = _js(vibrant_amg)
     novelty_json    = _js(novelty_data)
@@ -2019,6 +2035,12 @@ table.dtbl tbody tr:hover{background:rgba(13,148,136,.06)}
     <div class="card"><h2>% Novel Viruses per Sample</h2><p class="sub">Fraction without family-level classification.</p><div id="p-novelty" class="pw"></div></div>
     <div class="card"><h2>Classification Depth</h2><p class="sub">Stack: classified vs unclassified.</p><div id="p-tax-depth" class="pw"></div></div>
   </div>
+  <div class="sec">vConTACT3 — Protein-Sharing Network</div>
+  <div class="card">
+    <h2>Genome Similarity Network (Spectral Layout)</h2>
+    <p class="sub">Nodes = viral genomes; edges = shared protein clusters (HMM profiles). Colour = novel cluster group. Hover for genome ID and taxonomy prediction.</p>
+    <div id="p-vc3-network" style="height:560px"></div>
+  </div>
   <div class="sec">Prokaryotic Taxonomy — GTDB-Tk r220 + Diamond Custom (merged)</div>
   <div class="card"><h2>MAG Taxonomy — Master Table</h2><p class="sub">GTDB-Tk has priority; Diamond/Custom fills unclassified MAGs. Source shown as badge.</p>
     <div id="tbl-prok-master" style="max-height:380px;overflow:auto"></div></div>
@@ -2201,7 +2223,7 @@ table.dtbl tbody tr:hover{background:rgba(13,148,136,.06)}
 <script>
 const SAMPLES={samples_json};const OVERVIEW={overview_json};const FIGS={figs_json_str};
 const TAX_DATA={tax_json};const GTDB_DATA={gtdb_json};const CUSTOM_PROK={custom_prok_json};
-const MERGED_PROK={merged_prok_json};const VC3_DATA={vcontact3_json};const NOVELTY={novelty_json};const MIMAG={mimag_json};
+const MERGED_PROK={merged_prok_json};const VC3_DATA={vcontact3_json};const VC3_NETWORK={vc3_network_json};const NOVELTY={novelty_json};const MIMAG={mimag_json};
 const VIBRANT_DATA={vibrant_json};const VIBRANT_AMG={vibrant_amg_json};
 const PHIST_DATA={phist_json};
 const VOTU_DATA={votu_json};
@@ -2363,8 +2385,94 @@ makeSampleDropdown('sample-ctrl-viral', s=>{{
   renderVibrantSection(s);
   renderVotuSection(s);
 }});
+// ── vConTACT3 protein-sharing network (Spectral layout) ──────────────────────
+function renderVC3Network(sample){{
+  const allSamples=sample==='__all__';
+  // Merge all samples or pick one
+  let nodes=[],edges=[];
+  if(allSamples){{
+    let xOffset=0;
+    SAMPLES.forEach(s=>{{
+      const nd=VC3_NETWORK[s]||{{}};
+      const sNodes=(nd.nodes||[]).map(n=>Object.assign({{}},n,{{x:n.x+xOffset,_s:s}}));
+      const sEdges=(nd.edges||[]).map(e=>Object.assign({{}},e,{{_s:s}}));
+      if(sNodes.length){{xOffset+=2.4;}}
+      nodes=nodes.concat(sNodes);
+      edges=edges.concat(sEdges);
+    }});
+  }}else{{
+    const nd=VC3_NETWORK[sample]||{{}};
+    nodes=(nd.nodes||[]).map(n=>Object.assign({{}},n,{{_s:sample}}));
+    edges=(nd.edges||[]).map(e=>Object.assign({{}},e,{{_s:sample}}));
+  }}
+  if(!nodes.length){{
+    Plotly.newPlot('p-vc3-network',[],{{
+      annotations:[{{xref:'paper',yref:'paper',x:0.5,y:0.5,
+        text:'No vConTACT3 network data — run <b>vcontact3_network_json</b>',
+        showarrow:false,font:{{size:13,color:'#9ca3af'}}}}],
+      margin:{{t:20,b:20,l:20,r:20}},height:400,
+      paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)'}},cfg);
+    return;
+  }}
+  // Build index for edge coordinates
+  const nodeMap={{}};
+  nodes.forEach(n=>nodeMap[n._s+':'+n.id]=n);
+  const ex=[],ey=[];
+  edges.forEach(e=>{{
+    const sk=e._s+':';
+    const src=nodeMap[sk+e.source],tgt=nodeMap[sk+e.target];
+    if(!src||!tgt)return;
+    ex.push(src.x,tgt.x,null);
+    ey.push(src.y,tgt.y,null);
+  }});
+  // Unique clusters → colour palette
+  const clusters=[...new Set(nodes.map(n=>n.cluster))].sort();
+  const pal=['#0d9488','#f59e0b','#7c3aed','#ef4444','#3b82f6','#10b981',
+             '#f97316','#ec4899','#06b6d4','#84cc16','#a78bfa','#fb923c',
+             '#e879f9','#38bdf8','#34d399','#fbbf24','#60a5fa','#f87171'];
+  const clrMap={{}};
+  clusters.forEach((c,i)=>{{clrMap[c]=c==='singleton'?'#9ca3af':pal[i%pal.length];}});
+  const traces=[];
+  if(ex.length){{
+    traces.push({{type:'scatter',mode:'lines',x:ex,y:ey,
+      line:{{color:'#6b7280',width:0.4}},hoverinfo:'none',showlegend:false}});
+  }}
+  clusters.forEach(cl=>{{
+    const cn=nodes.filter(n=>n.cluster===cl);
+    const isSingleton=cl==='singleton';
+    traces.push({{
+      type:'scatter',mode:'markers',
+      x:cn.map(n=>n.x),y:cn.map(n=>n.y),
+      text:cn.map(n=>n.id),
+      customdata:cn.map(n=>[n.family||'—',n.genus||'—',n.class||'—',n._s||'']),
+      hovertemplate:'<b>%{{text}}</b><br>Family: %{{customdata[0]}}<br>'+
+        'Genus: %{{customdata[1]}}<br>Class: %{{customdata[2]}}<br>Sample: %{{customdata[3]}}'+
+        '<extra>'+cl+'</extra>',
+      marker:{{color:clrMap[cl],size:isSingleton?5:8,opacity:isSingleton?0.5:0.85,
+               symbol:isSingleton?'circle-open':'circle',
+               line:{{width:0.6,color:'#374151'}}}},
+      name:cl,
+    }});
+  }});
+  Plotly.newPlot('p-vc3-network',traces,{{
+    showlegend:clusters.length<=25,
+    xaxis:{{showgrid:false,zeroline:false,showticklabels:false}},
+    yaxis:{{showgrid:false,zeroline:false,showticklabels:false}},
+    hovermode:'closest',
+    legend:{{itemsizing:'constant',font:{{size:9}},orientation:'v',
+             x:1.01,xanchor:'left',y:1}},
+    margin:{{t:15,b:15,l:15,r:180}},
+    height:560,
+    paper_bgcolor:'rgba(0,0,0,0)',
+    plot_bgcolor:'rgba(0,0,0,0)',
+    template:'mite_light',
+  }},cfg);
+}}
+renderVC3Network('__all__');
+
 makeSampleDropdown('sample-ctrl-taxonomy', s=>{{
   renderTaxFamilyBar(s);renderTaxSunburst(s);renderTaxSourcePie(s);
+  renderVC3Network(s);
   renderProkDomainBar(s);renderProkTopPhyla(s);renderProkMasterTable(s);
   makeTable('tbl-vcontact',
     (s==='__all__'?TAX_DATA:TAX_DATA.filter(r=>r.sample===s)),

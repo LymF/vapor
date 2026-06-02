@@ -26,6 +26,7 @@ rule generate_report:
         binette           = expand(f"{OUTDIR}/{{sample}}/bins/binette/binette_results.tsv",            sample=SAMPLES),
         taxonomy          = expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",    sample=SAMPLES),
         vcontact3         = expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/genome_clusters.tsv",         sample=SAMPLES),
+        network_json      = expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/network_layout.json",       sample=SAMPLES),
         custom_prok       = expand(f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/diamond_vs_custom.tsv", sample=SAMPLES),
         gtdbtk_bac        = expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.bac120.summary.tsv", sample=SAMPLES),
         gtdbtk_arc        = expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.ar53.summary.tsv",   sample=SAMPLES),

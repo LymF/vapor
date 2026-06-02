@@ -266,6 +266,43 @@ rule vcontact3:
         """
 
 
+rule vcontact3_network_json:
+    """
+    Pre-compute 2D spectral layout for the vConTACT3 protein-sharing network.
+    Reads HMMprofile_mLayer_shared_ntw.h5 + final_assignments.csv.
+    Outputs JSON with nodes (x/y + cluster) and edges (source/target/weight).
+    Runs in env_vcontact3 (has h5py + scipy).
+    """
+    input:
+        done = rules.vcontact3.output.done,
+    output:
+        network_json = f"{OUTDIR}/{{sample}}/viral/vcontact3/network_layout.json",
+    log:       f"{OUTDIR}/{{sample}}/logs/vcontact3_network_json.log"
+    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/vcontact3_network_json.tsv"
+    conda: "../envs/env_vcontact3.yaml"
+    container: CONTAINERS.get("vcontact3")
+    threads: 1
+    params:
+        vc3_outdir  = f"{OUTDIR}/{{sample}}/viral/vcontact3",
+        scripts_dir = SCRIPTS_DIR,
+    shell:
+        """
+        set -euo pipefail
+        H5="{params.vc3_outdir}/vConTACT3_results/HMMprofile_mLayer_shared_ntw.h5"
+        CSV="{params.vc3_outdir}/vConTACT3_results/exports/final_assignments.csv"
+
+        if [ ! -f "$H5" ] || [ ! -f "$CSV" ]; then
+            echo "[vc3_layout] No h5 or CSV found — saving empty layout" | tee {log}
+            printf '{{"nodes":[],"edges":[]}}' > {output.network_json}
+            exit 0
+        fi
+
+        python3 {params.scripts_dir}/vcontact3_network_layout.py \
+            "$H5" "$CSV" {output.network_json} \
+            >> {log} 2>&1
+        """
+
+
 rule viral_taxonomy:
     """
     Merge taxonomy from all three tiers into one table per contig.
