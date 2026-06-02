@@ -726,7 +726,7 @@ try:
                                 sum(cnt for n, cnt in sp.items() if n >= 2))(
                                 os.path.join(outdir, sample, "viral", "consensus",
                                              f"{sample}_viral_consensus.fasta")),
-            "complete_viral":  sum(1 for r in cv if r.get("checkv_quality","") == "High-quality"),
+            "complete_viral":  0,  # back-filled from votu_data after load (same source as vOTU Summary tab)
             "vmags":      vrhyme_data[sample]["n_bins"],
             "unbinned_viral": (lambda p: sum(1 for l in open(p) if l.startswith('>')) - vrhyme_data[sample]["total_members"]
                                if os.path.exists(p) else 0)(
@@ -1257,6 +1257,13 @@ try:
     for _s in samples:
         _p = os.path.join(outdir, _s, "viral", "votu", f"{_s}_vOTU_table.tsv")
         votu_data[_s] = load_tsv(_p)
+
+    # Back-fill complete_viral from vOTU table (same source as vOTU Summary tab).
+    # Counts only High-quality representative sequences (no Complete, per MIUViG label).
+    for _s in samples:
+        overview[_s]["complete_viral"] = sum(
+            1 for r in votu_data[_s]
+            if r.get("checkv_quality","") == "High-quality")
 
     # ── Lifestyle from vOTU table ─────────────────────────────────────────
     lifestyle_data = {}
@@ -2383,7 +2390,7 @@ function renderVotuSection(sample){{
   if(sample==='__all__'){{SAMPLES.forEach(s=>{{(VOTU_DATA[s]||[]).forEach(r=>{{r._s=s;allRows.push(r);}});}});}}
   else{{(VOTU_DATA[sample]||[]).forEach(r=>{{r._s=sample;allRows.push(r);}});}}
   const total=allRows.length;
-  const hq=allRows.filter(r=>(r.checkv_quality||'').match(/High|Complete/i)).length;
+  const hq=allRows.filter(r=>r.checkv_quality==='High-quality').length;
   const classified=allRows.filter(r=>r.taxonomy_family&&r.taxonomy_family!=='NA'&&r.taxonomy_family!=='').length;
   const withHost=allRows.filter(r=>r.host&&r.host!=='NA'&&r.host!=='').length;
   const lytic=allRows.filter(r=>(r.lifestyle||'').toLowerCase().includes('lytic')).length;
