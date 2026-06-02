@@ -726,7 +726,7 @@ try:
                                 sum(cnt for n, cnt in sp.items() if n >= 2))(
                                 os.path.join(outdir, sample, "viral", "consensus",
                                              f"{sample}_viral_consensus.fasta")),
-            "complete_viral":  sum(1 for r in cv if r.get("checkv_quality","") in ("Complete","High-quality")),
+            "complete_viral":  sum(1 for r in cv if r.get("checkv_quality","") == "High-quality"),
             "vmags":      vrhyme_data[sample]["n_bins"],
             "unbinned_viral": (lambda p: sum(1 for l in open(p) if l.startswith('>')) - vrhyme_data[sample]["total_members"]
                                if os.path.exists(p) else 0)(
@@ -1161,16 +1161,16 @@ try:
             })
             tax_genome_keys.add(key)
 
-    # Back-fill taxonomy_classified: sequences with at least family- or genus-level assignment.
-    # Uses Best_taxonomy (deepest assigned rank) so sequences with empty classification
-    # (Source set but no actual rank assigned) are not counted.
+    # Back-fill taxonomy_classified: sequences with family- or genus-level assignment.
+    # Excludes source=unclassified and entries with only order/class level (no family/genus).
     for sample in samples:
         overview[sample]["taxonomy_classified"] = len({
             r.get("Genome","")
             for r in tax_data
             if r.get("sample") == sample
             and r.get("Genome","")
-            and (r.get("Best_taxonomy","") or r.get("final_family","") or r.get("final_genus",""))})
+            and r.get("Source", r.get("source","")) not in ("unclassified", "")
+            and (r.get("final_family","") or r.get("final_genus",""))})
 
     # ── Task 2: Enrich viral taxonomy with CheckV data ────────────────────────
     def enrich_taxonomy_with_checkv(tax_records, checkv_dict):
@@ -2745,11 +2745,11 @@ const OV_GROUPS=[
   ]}},
   {{label:'Viral Analysis',color:'var(--pur)',metrics:[
     {{key:'viral_consensus',label:'Viral consensus (≥{min_viral_tools} tools)',fmt:'int',tl:[10,1,true]}},
-    {{key:'complete_viral',label:'HQ+Complete vOTUs (CheckV)',fmt:'int',tl:[1,1,true]}},
+    {{key:'complete_viral',label:'HQ vOTUs (CheckV)',fmt:'int',tl:[1,1,true]}},
     {{key:'vmags',label:'vMAGs (vRhyme)',fmt:'int',tl:null}},
     {{key:'unbinned_viral',label:'Unbinned viral contigs',fmt:'int',tl:null}},
     {{key:'taxonomy_classified',label:'Viral seqs w/ taxonomy',fmt:'int',tl:[1,1,true]}},
-    {{key:'host_pred_total',label:'Host predictions (PHIST)',fmt:'int',tl:null}},
+    {{key:'host_pred_total',label:'Host predictions',fmt:'int',tl:null}},
   ]}},
   {{label:'Prokaryotic MAGs',color:'var(--grn)',metrics:[
     {{key:'total_bins',label:'Final bins (Binette)',fmt:'int',tl:[5,1,true]}},
