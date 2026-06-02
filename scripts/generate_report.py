@@ -877,22 +877,28 @@ try:
                                for v in [fam_raw, gen_raw, ord_raw] if v)
                 # For Novel entries: "novel_family_X_of_Y_of_Caudoviricetes" is NOT an
                 # ICTV family — clear Family/Genus so the merge step skips them.
-                # Extract the rightmost non-novel token as a display anchor (e.g. class).
+                # Anchor: use class_prediction directly (vConTACT3 v3 provides the real
+                # ICTV class even when family/genus are novel); fall back to "of_" parsing.
                 novel_anchor = ''
                 if is_novel:
-                    for v in [fam_raw, gen_raw, ord_raw]:
-                        if v and 'of_' in v:
-                            cand = v.rsplit('of_', 1)[-1].strip()
-                            if not cand.lower().startswith('novel_'):
-                                novel_anchor = cand
-                                break
+                    cls_clean = (cls if cls and not cls.lower().startswith('novel_')
+                                 and cls.lower() not in _VC3_NULL else '')
+                    if cls_clean:
+                        novel_anchor = cls_clean
+                    else:
+                        for v in [fam_raw, gen_raw, ord_raw]:
+                            if v and 'of_' in v:
+                                cand = v.rsplit('of_', 1)[-1].strip()
+                                if not cand.lower().startswith('novel_') and cand.lower() not in _VC3_NULL:
+                                    novel_anchor = cand
+                                    break
                     fam = ''
                     gen = ''
                     ord_ = ''
                 is_singleton = not fam and not gen and not ord_
                 # Best_taxonomy: for Assigned/Shared show deepest ICTV rank;
-                # for Novel show anchor class/order; for Singleton empty.
-                best = (novel_anchor or cls or rlm) if is_novel else (gen or fam or ord_ or cls or rlm or '')
+                # for Novel show anchor class; for Singleton empty.
+                best = novel_anchor if is_novel else (gen or fam or ord_ or cls or rlm or '')
                 vc_status = ('novel' if is_novel
                              else 'singleton' if is_singleton
                              else 'classified')
