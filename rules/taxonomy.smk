@@ -312,21 +312,33 @@ rule viral_taxonomy:
         if os.path.exists(vc3_path) and os.path.getsize(vc3_path) > 100:
             with open(vc3_path) as f:
                 first = f.readline(); f.seek(0)
-                # final_assignments.csv is comma-separated; fallback header is tab-separated
                 delim = ',' if first.count(',') > first.count('\t') else '\t'
             with open(vc3_path) as f:
                 for row in csv.DictReader(f, delimiter=delim):
                     g = row.get("Genome", row.get("genome","")).strip()
                     if not g: continue
-                    # Skip ICTV reference genomes — only keep query genomes
                     if row.get("Reference","").lower() in ("true","1","yes"): continue
+                    fam  = row.get("family_prediction", row.get("family", row.get("Family","")))
+                    gen  = row.get("genus_prediction",  row.get("genus",  row.get("Genus","")))
+                    ord_ = row.get("order_prediction",  row.get("order",  row.get("Order","")))
+                    # Reconstruct VC_status: vConTACT3 v3 encodes novelty in prediction names
+                    if not fam or fam.lower().startswith("novel_"):
+                        status = "Novel"
+                    elif gen and "|" in gen:
+                        status = "Shared"
+                    else:
+                        status = "Assigned"
+                    # Extract best-known parent anchor for Novel genomes
+                    # e.g. "novel_family_13_of_novel_order_64_of_Caudoviricetes" → "Caudoviricetes"
+                    novel_anchor = ""
+                    if status == "Novel" and fam and "of_" in fam:
+                        novel_anchor = fam.rsplit("of_", 1)[-1].strip()
                     vc3_tax[g] = {
-                        "vc":     row.get("VC", row.get("cluster","")),
-                        "status": row.get("VC_status", row.get("status","")),
-                        # v3 final_assignments.csv uses *_prediction columns
-                        "genus":  row.get("genus_prediction",  row.get("genus",  row.get("Genus",""))),
-                        "family": row.get("family_prediction", row.get("family", row.get("Family",""))),
-                        "order":  row.get("order_prediction",  row.get("order",  row.get("Order",""))),
+                        "status":       status,
+                        "genus":        gen.split("|")[0].strip() if gen else "",
+                        "family":       fam if status != "Novel" else "",
+                        "order":        ord_ if not (ord_ or "").lower().startswith("novel_") else "",
+                        "novel_anchor": novel_anchor,
                     }
         lf.write(f"vConTACT3: {len(vc3_tax)} genomes\n")
 
@@ -477,7 +489,7 @@ rule viral_taxonomy:
             gmd = genomad_tax.get(contig, {})
 
             vc3_status = vc3.get("status","").strip()
-            if (vc3 and vc3_status not in ("Singleton", "Outlier") and
+            if (vc3 and vc3_status in ("Assigned", "Shared") and
                     (vc3.get("family") or vc3.get("genus"))):
                 source = "vcontact3"
                 ff, fg = vc3.get("family",""), vc3.get("genus","")
@@ -540,8 +552,8 @@ rule viral_taxonomy:
                 "source":        source,
                 "confidence":    conf,
                 "lineage":       lin,
-                "vc3_vc":        vc3.get("vc",""),
                 "vc3_status":    vc3.get("status",""),
+                "vc3_novel_anchor": vc3.get("novel_anchor",""),
                 "genomad_best":  gmd.get("best",""),
                 "genomad_class": gmd.get("class",""),
                 "genomad_score": gmd.get("score",""),
@@ -562,7 +574,7 @@ rule viral_taxonomy:
 
         fields = ["seq_name","final_family","final_genus","final_order","best_taxonomy",
                   "source","confidence","lineage",
-                  "vc3_vc","vc3_status",
+                  "vc3_status","vc3_novel_anchor",
                   "genomad_best","genomad_class","genomad_score",
                   "inphared_pident","inphared_votes","inphared_name",
                   "custom_acc","custom_pident"]

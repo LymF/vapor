@@ -453,7 +453,7 @@ try:
     abundance_data={}; fastp_data={}; mapping_data={}
     viral_tool_counts={}; viral_scores={}; viral_contig_lengths={}
     final_contig_lengths={}; coverage_data={}
-    genomad_tax_data={}; checkm2_tax_data={}
+    checkm2_tax_data={}
     binner_counts={}; vrhyme_data={}
     
     for sample in samples:
@@ -468,7 +468,6 @@ try:
         mapping_data[sample]      = parse_mapping_rate(outdir, sample)
         viral_tool_counts[sample] = collect_viral_tool_counts(outdir, sample)
         viral_scores[sample]      = collect_viral_scores(outdir, sample)
-        genomad_tax_data[sample]  = parse_genomad_taxonomy(outdir, sample)
         checkm2_tax_data[sample]  = parse_checkm2_phyla(checkm2_data[sample])
         binner_counts[sample]     = collect_binner_counts(outdir, sample, checkm2_data[sample])
         vrhyme_data[sample]       = collect_vrhyme_stats(outdir, sample)
@@ -838,28 +837,7 @@ try:
         fig_abundance.update_layout(height=300,template=T)
     
     # ─ Taxonomy ───────────────────────────────────────────────────────────────────
-    fig_tax_viral=make_subplots(rows=1,cols=ncols,specs=[[{"type":"sunburst"}]*ncols],
-        subplot_titles=[f"{s} (GeNomad)" for s in samples])
-    for i,sample in enumerate(samples,1):
-        records=genomad_tax_data[sample]
-        if not records:
-            fig_tax_viral.add_trace(go.Sunburst(labels=["No data"],parents=[""],values=[1]),row=1,col=i)
-            continue
-        node_parent={}; leaf_count=Counter(); ROOT="Viruses"; node_parent[ROOT]=""
-        for r in records:
-            rid=r["realm"]; kid=f"{rid}||{r['kingdom']}"; pid=f"{kid}||{r['phylum']}"; cid=f"{pid}||{r['cls']}"
-            node_parent.setdefault(rid,ROOT); node_parent.setdefault(kid,rid)
-            node_parent.setdefault(pid,kid); node_parent.setdefault(cid,pid); leaf_count[cid]+=1
-        node_vals=dict(leaf_count)
-        for nd in node_parent:
-            if nd not in node_vals: node_vals[nd]=0
-        ids=list(node_parent); parents=[node_parent[n] for n in ids]
-        values=[node_vals.get(n,0) for n in ids]; labels=[n.split("||")[-1] for n in ids]
-        fig_tax_viral.add_trace(go.Sunburst(ids=ids,labels=labels,parents=parents,values=values,
-            branchvalues="remainder",insidetextorientation="radial",
-            hovertemplate="<b>%{label}</b><br>%{value} contigs<extra></extra>"),row=1,col=i)
-    fig_tax_viral.update_layout(title="⚠️ Preliminary Viral Taxonomy — GeNomad",height=540,template=T)
-    
+
     all_phyla=Counter(); phylum_counts={}
     for s in samples:
         phylum_counts[s]=checkm2_tax_data[s]; all_phyla.update(checkm2_tax_data[s])
@@ -934,7 +912,6 @@ try:
         "binner_total":   fig_binner_total.to_json(),
         "das_tax":        fig_das_tax.to_json(),
         "abundance":      fig_abundance.to_json(),
-        "tax_viral":      fig_tax_viral.to_json(),
         "tax_bac":        fig_tax_bac.to_json(),
     }
     samples_json     = json.dumps(samples).replace("</", "<\\/")
