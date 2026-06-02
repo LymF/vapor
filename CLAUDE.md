@@ -139,7 +139,7 @@ System requirements: Linux, 16+ cores, 64+ GB RAM, 600+ GB disk.
 
 This pipeline is designed for high-throughput metagenomic analysis, providing end-to-end processing from raw reads to curated results and reports.
 
-## generate_report.py — Line Map (2650 lines total)
+## generate_report.py — Line Map (~2974 lines total)
 
 Use this map to call `Read` with `offset`+`limit` instead of reading the whole file.
 
@@ -170,11 +170,12 @@ Use this map to call `Read` with `offset`+`limit` instead of reading the whole f
 | 1214–1248 | `load_custom_prok()` — Diamond custom prok hits, majority-vote per bin |
 | 1249–1295 | `load_phist()`, `load_iphop()` — host prediction loaders |
 | 1296–1385 | Path building for taxonomy/vcontact3/gtdbtk/phist/iphop; data load calls; novelty + MIMAG metrics; overview back-fill |
-| 1385–1398 | `enrich_taxonomy_with_checkv()` — joins CheckV completeness into tax_data (Task 2) |
-| 1399–1432 | `merge_prok_taxonomy()` — GTDB-Tk priority + Diamond fallback + CheckM2 merge (Task 3) |
-| 1433–1452 | `load_tool_support_matrix()` — tool agreement matrix for heatmap (Task 5) |
+| 1109–1130 | **vConTACT3 network loading** — `vc3_network_data` dict; `_path_dict(getattr(snakemake.input,'network_json',...))` |
+| 1385–1398 | `enrich_taxonomy_with_checkv()` — joins CheckV completeness into tax_data |
+| 1399–1432 | `merge_prok_taxonomy()` — GTDB-Tk priority + Diamond fallback + CheckM2 merge |
+| 1433–1452 | `load_tool_support_matrix()` — tool agreement matrix for heatmap |
 | 1453–1541 | Task 5 figures: `fig_read_funnel` (go.Funnel), `fig_tool_heatmap` (go.Heatmap), `fig_viral_depth` (go.Histogram) |
-| 1542–1622 | Final JSON serialization: `tax_json`, `gtdb_json`, `merged_prok_json`, `figs_json_str`; `params_table_html`, `versions_table_html`, `tool_table_html` Python strings |
+| 1685–1710 | Final JSON serialization: `tax_json`, `vc3_network_json`, `figs_json_str`; HTML tables |
 
 ### HTML/CSS/JS block
 
@@ -184,24 +185,25 @@ Use this map to call `Read` with `offset`+`limit` instead of reading the whole f
 | 1756–1765 | `html = (...)` — string concatenation building `<head>` + `<style>` + `_CSS` |
 | 1766–1810 | f-string start: `<nav id="sidebar">` — sidebar tabs, theme button |
 | 1811–1960 | HTML panels: `panel-overview`, `panel-readqc`, `panel-assembly`, `panel-viral` |
-| 1961–2100 | HTML panels: `panel-taxonomy`, `panel-hostpred`, `panel-bins`, `panel-abundance`, `panel-about` |
-| 2101–2140 | JS constants: `SAMPLES`, `OVERVIEW`, `FIGS`, `TAX_DATA`, `GTDB_DATA`, `MERGED_PROK`, etc. |
-| 2141–2200 | JS helpers: `toggleTheme`, `showTab`, `makeSampleDropdown`, `rf`, `rfFiltered`, `sourceBadge`, `qualBadge` |
-| 2153–2230 | `makeTable(id, rows, cols, renderers)` + `filterTable` — enhanced table with search + TSV export |
-| 2230–2300 | `rf(...)` calls for all pre-built Plotly figures; `makeSampleDropdown` wiring for 6 tabs |
-| 2300–2430 | VIBRANT AMG bar+table; viral quality pyramid (go.Funnel); novelty metrics; vConTACT3 pie+bar+table; MIMAG |
-| 2430–2530 | Viral taxonomy JS: `renderTaxSourcePie`, `renderTaxFamilyBar`, `renderTaxSunburst`; prok taxonomy: `renderProkDomainBar`, `renderProkTopPhyla`, `renderProkMasterTable`; GTDB sunburst |
-| 2530–2600 | Host prediction JS: `renderPhistSection`, `renderIphopSection`; virus-host network (bipartite scatter) |
-| 2600–2636 | Overview grid render: `OV_GROUPS`, `scCard`, run summary, per-sample metric cards |
-| 2637 | `</script></div></div></body></html>"""` — f-string ends here |
-| 2638–2650 | `os.makedirs`, `open(out_html, 'w', encoding='utf-8')`, error handler with traceback log |
+| 1961–2060 | HTML panel: `panel-taxonomy` — Viral Taxonomy (source pie, family bar, sunburst, master table), Novelty section, **vConTACT3 Network section** (`p-vc3-network`), Prokaryotic Taxonomy |
+| 2060–2115 | HTML panels: `panel-hostpred`, `panel-bins`, `panel-abundance`, `panel-annotation`, `panel-about` |
+| 2220–2240 | JS constants: `SAMPLES`, `OVERVIEW`, `FIGS`, `TAX_DATA`, `VC3_NETWORK`, `GTDB_DATA`, etc. |
+| 2240–2360 | JS helpers: `toggleTheme`, `showTab`, `makeSampleDropdown`, `rf`, `rfFiltered`, `sourceBadge`, `qualBadge`, `makeTable`, `filterTable` |
+| 2360–2410 | `rf(...)` calls for all pre-built Plotly figures; `makeSampleDropdown` wiring |
+| 2389–2470 | **`renderVC3Network(sample)`** — vConTACT3 network graph (spectral scatter+edges, coloured by cluster) |
+| 2473–2560 | `makeSampleDropdown('sample-ctrl-taxonomy', ...)` — calls `renderVC3Network` + tax functions |
+| 2560–2700 | Viral taxonomy JS: `renderTaxSourcePie`, `renderTaxFamilyBar`, `renderTaxSunburst`; prok: `renderProkDomainBar`, `renderProkTopPhyla`, `renderProkMasterTable`; GTDB sunburst |
+| 2700–2800 | Host prediction JS: `renderPhistSection`; virus-host network |
+| 2800–2900 | Overview grid render: `OV_GROUPS`, `scCard`, run summary, per-sample metric cards |
+| ~2960 | `</script></div></div></body></html>"""` — f-string ends here |
+| ~2960–2974 | `os.makedirs`, `open(out_html, 'w', encoding='utf-8')`, error handler with traceback log |
 
 ### Critical coding rules for this file
 
-- **CSS is in `_CSS` (lines 1624–1755): plain string, no f-string.** `{` and `}` are literal — no doubling needed.
-- **Everything from line 1766 to 2637 is one f-string.** All `{` and `}` in JS/HTML must be doubled: `{{` `}}`. Exception: `{python_var}` for actual Python interpolation.
+- **CSS is in `_CSS` (~lines 1624–1755): plain string, no f-string.** `{` and `}` are literal — no doubling needed.
+- **Everything from ~line 1766 to ~2960 is one f-string.** All `{` and `}` in JS/HTML must be doubled: `{{` `}}`. Exception: `{python_var}` for actual Python interpolation.
 - **`\t` and `\n` inside JS strings within the f-string must be `\\t` and `\\n`** — otherwise Python interpolates them as real tab/newline characters, breaking the JS (SyntaxError in browser).
 - **Plotly 6.x:** `go.Sunburst` does not accept `showlegend` parameter — remove it if present.
-- **HTML write uses `encoding='utf-8'`** (line 2639) — required on Windows; do not remove.
-- **Test command:** `python3 /tmp/test_report3.py` — generates `mite_report_test2.html` in project root using `results-teste/` data.
+- **HTML write uses `encoding='utf-8'`** (line ~2970) — required on Windows; do not remove.
+- **`VC3_NETWORK`** JS constant: dict keyed by sample name, each value `{nodes:[...], edges:[...]}` loaded from `network_layout.json` per sample.
 

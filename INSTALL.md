@@ -328,41 +328,40 @@ apptainer exec docker://quay.io/biocontainers/hmmer:3.4--hdbdd923_1 \
 
 ### INPHARED
 
+Files are available at **https://github.com/RyanCook94/inphared** — go to the repository
+and download the two required files manually (click the filename → "Raw" → Save as):
+
+| File | Purpose |
+|------|---------|
+| `14Apr2025_data.tsv` | Phage metadata (taxonomy: Family, Genus, Order) |
+| `14Apr2025_vConTACT2_proteins.faa` | Protein sequences for Diamond BLASTp |
+
+> Check the repository for a newer date prefix (e.g. `Jan2026`) and use that instead of `14Apr2025`.
+
+After downloading both files to `$DB_BASE/inphared`, build the Diamond database:
+
 **Conda:**
 ```bash
 mkdir -p "$DB_BASE/inphared"
+# Copy downloaded files to $DB_BASE/inphared, then:
 cd "$DB_BASE/inphared"
-
-# Check https://github.com/RyanCook94/inphared for the latest date tag
-DATE="1Feb2024"
-wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_genomes.fa"
-wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_data_excluding_refseq.tsv"
-wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_vConTACT2_proteins.faa"
-wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_vConTACT2_gene2genome.csv"
 
 conda activate env_viral
 diamond makedb \
-    --in "${DATE}_vConTACT2_proteins.faa" \
-    --db "inphared_proteins" \
+    --in *_vConTACT2_proteins.faa \
+    --db inphared_proteins \
     --threads 32
 conda deactivate
 ```
 
-**Docker:** (wget needs no container; diamond via Docker)
+**Docker:**
 ```bash
-mkdir -p "$DB_BASE/inphared" && cd "$DB_BASE/inphared"
-DATE="1Feb2024"
-wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_genomes.fa"
-wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_data_excluding_refseq.tsv"
-wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_vConTACT2_proteins.faa"
-wget "https://millardlab-inphared.s3.climb.ac.uk/${DATE}_vConTACT2_gene2genome.csv"
+mkdir -p "$DB_BASE/inphared"
+# Copy downloaded files to $DB_BASE/inphared, then:
 
 docker run --rm -v "$DB_BASE/inphared:/dbs" \
     quay.io/biocontainers/diamond:2.1.8--h43eeafb_0 \
-    diamond makedb \
-        --in "/dbs/${DATE}_vConTACT2_proteins.faa" \
-        --db "/dbs/inphared_proteins" \
-        --threads 32
+    bash -c "diamond makedb --in /dbs/*_vConTACT2_proteins.faa --db /dbs/inphared_proteins --threads 32"
 ```
 
 ---

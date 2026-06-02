@@ -165,6 +165,12 @@ def build_command(args, snakefile, config_path):
         # --writable-tmpfs lets tools like VirSorter2 write to their install dir on
         # first run without modifying the read-only container image.
         auto_binds = _collect_bind_paths(config_path)
+        # Always bind the pipeline directory so scripts/ is accessible inside containers
+        # when vapor is invoked from outside the pipeline directory.
+        pipeline_dir = str(Path(snakefile).resolve().parent)
+        if not any(pipeline_dir == p or pipeline_dir.startswith(p + os.sep)
+                   for p in auto_binds):
+            auto_binds = [pipeline_dir] + auto_binds
         bind_flag  = "--bind " + ",".join(auto_binds) if auto_binds else ""
         extra      = args.singularity_args.strip()
         combined   = " ".join(filter(None, ["--writable-tmpfs", extra, bind_flag]))

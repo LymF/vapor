@@ -43,8 +43,9 @@ vapor/
 │   ├── compute_diversity.py     # alpha, beta diversity, Procrustes
 │   ├── make_votu_table.py       # consolidated vOTU summary table
 │   ├── skani_cluster_votus.py   # greedy single-linkage vOTU BFS clustering (ICTV)
-│   ├── generate_report.py       # standalone Plotly HTML report
-│   ├── pin_containers.py        # resolve quay.io tags → containers.lock.yaml
+│   ├── generate_report.py           # standalone Plotly HTML report
+│   ├── vcontact3_network_layout.py  # 2D spectral layout for vConTACT3 network (h5py+scipy)
+│   ├── pin_containers.py            # resolve quay.io tags → containers.lock.yaml
 │
 ├── containers.yaml              ← container version definitions (edit to update)
 ├── containers.lock.yaml         ← resolved quay.io URIs (generated, commit this)
