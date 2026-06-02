@@ -15,8 +15,8 @@
     return {
       backgroundColor: 'transparent',
       textStyle:  { color: dark ? '#f1f5f9' : '#0f172a', fontFamily: 'Inter, system-ui, sans-serif', fontSize: 12 },
-      title:      { textStyle: { fontSize: 13, fontWeight: 600, color: dark ? '#f1f5f9' : '#0f172a' } },
-      legend:     { textStyle: { color: dark ? '#94a3b8' : '#64748b', fontSize: 11 } },
+      title:      { top: 4, textStyle: { fontSize: 13, fontWeight: 600, color: dark ? '#f1f5f9' : '#0f172a' } },
+      legend:     { top: 26, textStyle: { color: dark ? '#94a3b8' : '#64748b', fontSize: 11 } },
       tooltip:    {
         backgroundColor: dark ? '#1e293b' : '#fff',
         borderColor:     dark ? '#334155' : '#e2e8f0',
@@ -58,12 +58,19 @@
                   : { ...theme.yAxis, ...option.yAxis }) : undefined,
       color:   theme.color,
     };
-    // merge remaining keys (series, grid, etc.)
+    // merge remaining keys (series, grid, etc.) — grid gets a default top to clear title+legend
+    const hasLegend = !!(option.legend && (option.legend.data || option.legend.show !== false));
+    const defaultGridTop = hasLegend ? 58 : 36;
     Object.keys(option).forEach(k => {
       if (!['tooltip','legend','xAxis','yAxis','color'].includes(k)) {
         merged[k] = option[k];
       }
     });
+    if (!merged.grid) {
+      merged.grid = { top: defaultGridTop, bottom: 40, left: 50, right: 20, containLabel: true };
+    } else if (!Array.isArray(merged.grid) && merged.grid.top === undefined) {
+      merged.grid = { top: defaultGridTop, bottom: 40, left: 50, right: 20, containLabel: true, ...merged.grid };
+    }
     chart.setOption(merged, true);
     return chart;
   };
@@ -134,6 +141,8 @@
         });
         // Trigger resize for ECharts inside newly visible panel
         setTimeout(() => Object.values(window._charts).forEach(c => c && !c.isDisposed() && c.resize()), 80);
+        // Notify components so they can re-render D3 visuals that need visible dimensions
+        document.dispatchEvent(new CustomEvent('vapor:subtabshow', { detail: { sub: target } }));
       });
     });
   });

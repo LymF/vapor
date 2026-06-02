@@ -144,8 +144,36 @@
       xAxis: { type: 'log', name: 'Length (bp)', min: 1000, max: 1000000, nameLocation: 'middle', nameGap: 30 },
       yAxis: { type: 'value', name: 'Completeness (%)', min: 0, max: 105 },
       series: scatterSeries,
-      grid: { bottom: 60 },
+      grid: { bottom: 60, top: 70 },
     });
+
+    // Add quality zones (markArea + markLine) identical pattern to CheckM2
+    const cvChart = window._charts['vir-checkv-scatter-chart'];
+    if (cvChart) {
+      cvChart.setOption({
+        series: [
+          ...scatterSeries,
+          {
+            type: 'scatter', data: [],
+            markArea: {
+              silent: true,
+              data: [
+                [{ yAxis: 90,  itemStyle: { color: 'rgba(22,163,74,0.09)' } },  { yAxis: 105 }],
+                [{ yAxis: 50,  itemStyle: { color: 'rgba(217,119,6,0.07)' }  },  { yAxis: 90  }],
+                [{ yAxis: 0,   itemStyle: { color: 'rgba(239,68,68,0.05)' }  },  { yAxis: 50  }],
+              ],
+            },
+            markLine: {
+              silent: true,
+              data: [
+                { yAxis: 90, lineStyle: { type: 'dashed', color: '#16a34a' }, label: { formatter: '≥90% HQ',  color: '#16a34a', fontSize: 10 } },
+                { yAxis: 50, lineStyle: { type: 'dotted', color: '#d97706' }, label: { formatter: '≥50% MQ',  color: '#d97706', fontSize: 10 } },
+              ],
+            },
+          },
+        ],
+      }, false);
+    }
 
     // vRhyme summary
     mkChart('vir-vrhyme-chart', {
@@ -478,5 +506,12 @@
       { key: 'KOs',       label: 'KO IDs' },
     ], { searchId: 'amg-search' });
   }
+
+  // Re-render D3 network when its sub-panel becomes visible (so clientWidth is correct)
+  document.addEventListener('vapor:subtabshow', function (e) {
+    if (e.detail.sub === 'vir-network' && typeof window.renderVC3Network === 'function') {
+      setTimeout(() => window.renderVC3Network(window._currentVC3Sample), 50);
+    }
+  });
 
 })();
