@@ -307,15 +307,22 @@ rule viral_taxonomy:
         vc3_path = str(input.vcontact3_net)
         if os.path.exists(vc3_path) and os.path.getsize(vc3_path) > 100:
             with open(vc3_path) as f:
-                for row in csv.DictReader(f, delimiter="\t"):
-                    g = row.get("genome", row.get("Genome","")).strip()
+                first = f.readline(); f.seek(0)
+                # final_assignments.csv is comma-separated; fallback header is tab-separated
+                delim = ',' if first.count(',') > first.count('\t') else '\t'
+            with open(vc3_path) as f:
+                for row in csv.DictReader(f, delimiter=delim):
+                    g = row.get("Genome", row.get("genome","")).strip()
                     if not g: continue
+                    # Skip ICTV reference genomes — only keep query genomes
+                    if row.get("Reference","").lower() in ("true","1","yes"): continue
                     vc3_tax[g] = {
                         "vc":     row.get("VC", row.get("cluster","")),
                         "status": row.get("VC_status", row.get("status","")),
-                        "genus":  row.get("genus",  row.get("Genus","")),
-                        "family": row.get("family", row.get("Family","")),
-                        "order":  row.get("order",  row.get("Order","")),
+                        # v3 final_assignments.csv uses *_prediction columns
+                        "genus":  row.get("genus_prediction",  row.get("genus",  row.get("Genus",""))),
+                        "family": row.get("family_prediction", row.get("family", row.get("Family",""))),
+                        "order":  row.get("order_prediction",  row.get("order",  row.get("Order",""))),
                     }
         lf.write(f"vConTACT3: {len(vc3_tax)} genomes\n")
 
@@ -465,24 +472,35 @@ rule viral_taxonomy:
                 lin    = ";".join(filter(None, [fo, ff, fg]))
                 best   = fg or ff or fo
 
-            elif (iph and iph.get("confidence") and
-                  iph.get("confidence") not in ("unclassified", "order_putative")):
+            elif iph and iph.get("confidence") not in ("unclassified", ""):
                 source = "diamond_inphared"
-                ff, fg = iph.get("family",""), iph.get("genus","")
-                fo     = iph.get("order","")
-                conf   = f"{iph['avg_pident']:.1f}% ({iph['confidence']})"
-                lin    = ";".join(filter(None, [fo, ff, fg]))
-                best   = fg or ff or fo
+                # order_putative (30-50% pident): report order only, not family/genus
+                if iph.get("confidence") == "order_putative":
+                    ff = ""; fg = ""
+                    fo   = iph.get("order","")
+                    best = fo
+                    lin  = fo
+                else:
+                    ff, fg = iph.get("family",""), iph.get("genus","")
+                    fo     = iph.get("order","")
+                    best   = fg or ff or fo
+                    lin    = ";".join(filter(None, [fo, ff, fg]))
+                conf = f"{iph['avg_pident']:.1f}% ({iph['confidence']})"
 
             elif (contig in custom_tax and
-                  custom_tax[contig].get("confidence") not in ("unclassified", "order_putative", "")):
+                  custom_tax[contig].get("confidence") not in ("unclassified", "")):
                 _c     = custom_tax[contig]
                 source = "diamond_custom"
-                ff, fg = _c.get("family",""), _c.get("genus","")
-                fo     = _c.get("order","")
-                conf   = f"{float(_c.get('avg_pident',0) or 0):.1f}% ({_c.get('confidence','')})"
-                lin    = ";".join(filter(None, [fo, ff, fg]))
-                best   = fg or ff or fo
+                if _c.get("confidence") == "order_putative":
+                    ff = ""; fg = ""
+                    fo   = _c.get("order","")
+                    best = fo; lin = fo
+                else:
+                    ff, fg = _c.get("family",""), _c.get("genus","")
+                    fo     = _c.get("order","")
+                    best   = fg or ff or fo
+                    lin    = ";".join(filter(None, [fo, ff, fg]))
+                conf = f"{float(_c.get('avg_pident',0) or 0):.1f}% ({_c.get('confidence','')})"
 
             elif gmd:
                 source = "genomad"
