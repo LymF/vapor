@@ -27,7 +27,9 @@
                     axisLabel: { color: dark ? '#94a3b8' : '#64748b' } },
       yAxis:      { axisLine: { lineStyle: { color: dark ? '#334155' : '#e2e8f0' } },
                     splitLine: { lineStyle: { color: dark ? '#1e293b' : '#f1f5f9' } },
-                    axisLabel: { color: dark ? '#94a3b8' : '#64748b' } },
+                    axisLabel: { color: dark ? '#94a3b8' : '#64748b' },
+                    nameLocation: 'middle', nameGap: 42,
+                    nameTextStyle: { color: dark ? '#94a3b8' : '#64748b', fontSize: 11 } },
       color: window.PAL,
     };
   }

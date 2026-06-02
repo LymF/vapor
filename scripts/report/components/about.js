@@ -29,19 +29,26 @@
     el.innerHTML = `
       <div class="about-wrap">
         <h1>VAPOR</h1>
-        <p class="about-subtitle">Virome and metagenome Analysis Pipeline for Omics Research</p>
+        <p class="about-subtitle">Viral And Prokaryotic mOdular pipelineR</p>
 
         <div class="about-section">
           <h2>About</h2>
           <p>
-            VAPOR is a comprehensive Snakemake-based pipeline for analysing viral and prokaryotic
-            communities from environmental metagenomic samples. It supports both short-read
-            (Illumina PE) and long-read (Nanopore / PacBio HiFi) sequencing data.
+            VAPOR is a modular Snakemake pipeline for metagenomics and viromics, designed to
+            characterise viral and prokaryotic communities from environmental samples.
+            It supports <strong>short reads</strong> (Illumina PE and SE) and
+            <strong>long reads</strong> (Nanopore ONT / PacBio HiFi).
           </p>
           <p style="margin-top:.6rem">
-            The pipeline integrates quality control, assembly, deduplication, viral detection
-            (VirSorter2, GeNomad, VIBRANT), binning, taxonomy assignment (Diamond, vConTACT3,
-            GTDB-Tk), host prediction (PHIST), and functional annotation (Pharokka, EggNOG-mapper).
+            The pipeline covers the full analysis workflow: quality control, assembly,
+            deduplication, viral detection (VirSorter2, GeNomad, VIBRANT), binning and quality
+            assessment (CheckV, vRhyme, CheckM2, GUNC), taxonomy (Diamond, vConTACT3, GTDB-Tk),
+            host prediction (PHIST), functional annotation (Pharokka, Phold, Bakta, EggNOG-mapper),
+            abundance quantification (CoverM), and alpha/beta diversity analysis.
+          </p>
+          <p style="margin-top:.6rem">
+            VAPOR auto-detects the available runtime (<strong>Apptainer → Singularity → Conda</strong>)
+            and derives container bind-mounts automatically from <code>config.yaml</code>.
           </p>
         </div>
 
@@ -52,9 +59,9 @@
             If you use VAPOR in your research, please check the GitHub repository for the most
             up-to-date citation information.
           </p>
-          <p style="margin-top:.6rem">
-            <a class="about-link" href="https://github.com/lucasmelo/vapor" target="_blank" rel="noopener">
-              github.com/lucasmelo/vapor
+          <p style="margin-top:.8rem">
+            <a class="about-link" href="https://github.com/LymF/vapor" target="_blank" rel="noopener">
+              &#128279; github.com/LymF/vapor
             </a>
           </p>
         </div>
