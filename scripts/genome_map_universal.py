@@ -85,6 +85,53 @@ VOGDB_COLORS = {
     "Xu": "#DDDDDD",   # Unknown — gray
 }
 
+VOGDB_LABELS = {
+    "Xs": "Xs — Structural/packaging",
+    "Xr": "Xr — Replication/repair",
+    "Xp": "Xp — Transcription",
+    "Xm": "Xm — Metabolism (AMG)",
+    "Xh": "Xh — Host interaction",
+    "Xl": "Xl — Lysis/release",
+    "Xi": "Xi — Integration/excision",
+    "Xu": "Xu — Unknown",
+}
+
+# Keyword → VOGDB category inference from annotation_description + marker_activity.
+# Applied when GeNomad only provides VOG accession IDs (no category code in TSV).
+_VOGDB_KEYWORDS = [
+    ("Xs", ["capsid", "portal", "terminase", "tail", "baseplate", "spike",
+             "collar", "tube", "fiber", "sheath", "neck", "whisker",
+             "packaging", "procapsid", "coat protein", "structural",
+             "virion", "head protein", "major capsid", "minor capsid"]),
+    ("Xr", ["polymerase", "helicase", "primase", "replication",
+             "nuclease", "exonuclease", "endonuclease", "dna ligase",
+             "methyltransferase", "dna repair", "dnab", "dnac"]),
+    ("Xp", ["rna polymerase", "sigma factor", "transcription factor",
+             "transcriptional regulator", "anti-sigma", "rna-binding"]),
+    ("Xm", ["thymidylate", "ribonucleotide", "thymidine kinase",
+             "dihydroorotate", "nicotinamide", "photosystem",
+             "auxiliary metabolic", "coenzyme", "metabol"]),
+    ("Xh", ["anti-crispr", "acr", "superinfection exclusion",
+             "anti-restriction", "host takeover"]),
+    ("Xl", ["endolysin", "lysin", "lysis", "holin", "spanin",
+             "murein hydrolase", "amidase", "glucosaminidase"]),
+    ("Xi", ["integrase", "excisionase", "site-specific recombinase",
+             "excision", "excisase"]),
+]
+
+
+def _vogdb_category(description, marker_activity=""):
+    """Infer VOGDB two-letter category from annotation description + marker_activity."""
+    d = (description or "").lower()
+    for cat, keywords in _VOGDB_KEYWORDS:
+        if any(k in d for k in keywords):
+            return cat
+    # GeNomad marks viral hallmark genes (capsid, terminase, etc.) explicitly
+    if "viral_hallmark" in (marker_activity or "").lower():
+        return "Xs"
+    return "Xu"
+
+
 # Prokaryote mode — COG functional category letter codes
 COG_COLORS = {
     "J": "#0072B2",   # Translation / ribosomal biogenesis — blue
@@ -225,11 +272,10 @@ def draw_phage(gbk_record, seq, genome_id, name, outdir):
         return
 
     circos = Circos(sectors={genome_id: gsize})
-    circos.text(f"{name}\n{gsize // 1000} kb", size=8, weight="bold", r=12)
     sector = circos.sectors[0]
 
-    # Scale
-    scale_track = sector.add_track((42, 46))
+    # Scale — placed just inside the GC-skew ring (sk_in=56) for visual proximity
+    scale_track = sector.add_track((50, 54))
     scale_track.axis(fc="none", ec="none")
     scale_track.xticks(list(range(0, gsize, 1000)), labels=None,
                        tick_length=1.2, outer=False,
@@ -399,10 +445,9 @@ def _parse_genomad_for_genome(genes_tsv, genome_id):
             except (ValueError, TypeError):
                 continue
             vogdb = row.get("annotation_vogdb", "") or ""
-            # GeNomad stores only the VOG accession (e.g. "VOG03009"), no category.
-            # Category coloring is not available from GeNomad alone — default to "Xu".
-            category = "Xu"
+            marker_activity = row.get("marker_activity", "") or ""
             description = row.get("annotation_description", "") or vogdb
+            category = _vogdb_category(description, marker_activity)
             genes.append({"start": start, "end": end, "strand": strand,
                           "category": category, "description": description})
     return genes
@@ -417,13 +462,12 @@ def draw_virus(genome_id, seq, genes, name, outdir):
 
     circos = Circos(sectors={genome_id: gsize})
     scale_label = f"{gsize // 1000} kb" if gsize >= 1000 else f"{gsize} bp"
-    circos.text(f"{name}\n{scale_label}", size=8, weight="bold", r=12)
     sector = circos.sectors[0]
 
-    # Scale
+    # Scale — placed just inside the GC-skew ring (sk_in=60) for visual proximity
     tick_minor = max(gsize // 20, 500)
     tick_major = max(gsize // 5, 1000)
-    scale_track = sector.add_track((42, 46))
+    scale_track = sector.add_track((53, 57))
     scale_track.axis(fc="none", ec="none")
     scale_track.xticks(list(range(0, gsize, tick_minor)), labels=None,
                        tick_length=1.2, outer=False,
@@ -466,7 +510,7 @@ def draw_virus(genome_id, seq, genes, name, outdir):
 
     fig = circos.plotfig(figsize=(7, 7))
 
-    legend_items = [mpatches.Patch(fc=c, ec="#AAA", lw=0.3, label=k)
+    legend_items = [mpatches.Patch(fc=c, ec="#AAA", lw=0.3, label=VOGDB_LABELS.get(k, k))
                     for k, c in VOGDB_COLORS.items()]
     legend_items += [
         mpatches.Patch(fc="#D55E00", ec="none", label=f"GC > {gc_mean*100:.1f}%"),
@@ -476,10 +520,33 @@ def draw_virus(genome_id, seq, genes, name, outdir):
     ]
     fig.legend(handles=legend_items, loc="lower center", bbox_to_anchor=(0.46, 0.0),
                frameon=True, framealpha=0.9, edgecolor="#CCC", fontsize=5.5,
-               title="VOGDB category", title_fontsize=6, ncol=3,
+               title="VOGDB category", title_fontsize=6, ncol=2,
                handlelength=1.0, handleheight=0.8)
 
     _save_figure(fig, outdir, genome_id, f"{name} — Viral genome map ({scale_label})")
+
+
+def _load_viral_taxonomy(tax_tsv):
+    """Load viral_taxonomy_merged.tsv → dict{contig_id: 'Class | Family | Genus'}."""
+    tax_map = {}
+    if not tax_tsv or not os.path.exists(tax_tsv):
+        return tax_map
+    try:
+        with open(tax_tsv) as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                gid = row.get("contig_id", "").strip()
+                if not gid:
+                    continue
+                parts = []
+                for field in ("class", "family", "genus"):
+                    v = (row.get(field) or "").strip()
+                    if v and v not in ("", "NA", "na", "unknown", "Unclassified"):
+                        parts.append(v)
+                if parts:
+                    tax_map[gid] = " | ".join(parts)
+    except Exception as exc:
+        print(f"[genome_map] WARNING: could not load viral taxonomy: {exc}", file=sys.stderr)
+    return tax_map
 
 
 def batch_virus(args):
@@ -491,6 +558,8 @@ def batch_virus(args):
     min_comp   = args.min_completeness
     top_n      = args.top_n
     exclude_ids = set()
+
+    tax_map = _load_viral_taxonomy(getattr(args, "viral_taxonomy", None))
 
     os.makedirs(outdir, exist_ok=True)
 
@@ -532,7 +601,8 @@ def batch_virus(args):
     _mpl_setup()
     for gid, comp, seq in ranked:
         genes = _parse_genomad_for_genome(genomad_genes, gid)
-        name = f"{gid} ({comp:.1f}%)"
+        tax_label = tax_map.get(gid, "")
+        name = f"{gid} — {tax_label} ({comp:.1f}%)" if tax_label else f"{gid} ({comp:.1f}%)"
         try:
             draw_virus(gid, seq, genes, name, outdir)
         except Exception as exc:
@@ -606,7 +676,6 @@ def draw_prok(records, genome_id, name, outdir):
     scale_label = (f"{gsize_total // 1_000_000:.1f} Mb"
                    if gsize_total >= 1_000_000
                    else f"{gsize_total // 1000} kb")
-    circos.text(f"{name}\n{scale_label}", size=8, weight="bold", r=12)
 
     R = {"fwd_out": 92, "fwd_in": 86,
          "rev_out": 85, "rev_in": 79,
@@ -752,8 +821,9 @@ def parse_args():
     # Phage-specific
     p.add_argument("--gbk",    help="GBK file (phold output for phage, Bakta for prok)")
     # Virus-specific
-    p.add_argument("--genomad-genes", help="GeNomad *_genes.tsv (virus mode)")
-    p.add_argument("--exclude-ids",   help="File of genome IDs to exclude (virus mode)")
+    p.add_argument("--genomad-genes",   help="GeNomad *_genes.tsv (virus mode)")
+    p.add_argument("--exclude-ids",     help="File of genome IDs to exclude (virus mode)")
+    p.add_argument("--viral-taxonomy",  help="viral_taxonomy_merged.tsv — adds class/family to title (optional, virus mode)")
     # Prok-specific
     p.add_argument("--bakta-dir",         help="Directory containing Bakta per-MAG subdirs")
     p.add_argument("--checkm2",           help="CheckM2 quality_report.tsv (prok mode)")

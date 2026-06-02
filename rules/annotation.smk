@@ -486,6 +486,7 @@ rule genome_map_virus:
         outdir      = f"{OUTDIR}/{{sample}}/annotation/genome_maps/virus",
         phage_dir   = f"{OUTDIR}/{{sample}}/annotation/genome_maps/phage",
         genomad_dir = f"{OUTDIR}/{{sample}}/viral/genomad",
+        tax_dir     = f"{OUTDIR}/{{sample}}/viral/taxonomy",
         min_comp    = GENOME_MAP_MIN_COMP_VIRAL,
         top_n       = GENOME_MAP_TOP_N,
     run:
@@ -511,6 +512,9 @@ rule genome_map_virus:
             genomad_genes = str(candidate)
             break
 
+        # Viral taxonomy TSV (optional — enriches genome map titles with class/family)
+        tax_tsv = os.path.join(params.tax_dir, "viral_taxonomy_merged.tsv")
+
         shell(
             "python3 scripts/genome_map_universal.py"
             " --mode virus"
@@ -521,6 +525,7 @@ rule genome_map_virus:
             " --outdir {params.outdir}"
             " --min-completeness {params.min_comp}"
             " --top-n {params.top_n}"
+            + (f" --viral-taxonomy {tax_tsv}" if os.path.exists(tax_tsv) else "") +
             " >> {log} 2>&1 || true"
         )
         Path(str(output.done)).touch()
