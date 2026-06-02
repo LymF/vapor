@@ -569,7 +569,9 @@ try:
                 except: continue
     fig_checkv_scatter.update_layout(title="CheckV — Length vs Completeness (● consensus  ◆ vRhyme)",
         xaxis_title="Contig length (bp)",yaxis_title="Completeness (%)",
-        xaxis_type="log",legend_title="Quality",template=T,height=500)
+        xaxis_type="log",xaxis_range=[3, 6],
+        yaxis_range=[0, 105],
+        legend_title="Quality",template=T,height=500)
     
     fig_viral_len=go.Figure()
     for i,sample in enumerate(samples):
