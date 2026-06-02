@@ -68,11 +68,11 @@ rule diamond_inphared:
         if [ ! -f {params.db} ]; then
             diamond makedb --in "$INPHARED_PROT" --db {params.db} --threads {threads} >> {log} 2>&1
         fi
-        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" \
+        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\tsscinames\tsskingdoms\n" \
             > {output.hits}
         diamond blastp \
             --query {input.faa} --db {params.db} --out /dev/stdout \
-            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
+            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore sscinames sskingdoms \
             --max-target-seqs 1 --evalue 1e-5 --id 30 --query-cover 50 \
             --threads {threads} --sensitive --tmpdir /tmp \
             >> {output.hits} 2>> {log}
@@ -111,11 +111,11 @@ rule diamond_custom_viral:
             printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" > {output.hits}
             touch {output.done}; exit 0
         fi
-        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" \
+        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\tsscinames\tsskingdoms\n" \
             > {output.hits}
         diamond blastp \
             --query {input.faa} --db {params.db} --out /dev/stdout \
-            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
+            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore sscinames sskingdoms \
             --max-target-seqs 1 --evalue 1e-5 --id 30 --query-cover 50 \
             --threads {threads} --sensitive --tmpdir /tmp \
             >> {output.hits} 2>> {log}
@@ -356,11 +356,11 @@ rule viral_taxonomy:
                     acc    = "_".join(cols[1].split("_")[:-1]) or cols[1]
                     votes[contig][acc] += 1
                     pident[contig].append(float(cols[2]))
-                    # cols[13]=sscinames, cols[14]=sskingdoms (new outfmt)
+                    # outfmt: 12 standard cols + sscinames(12) + sskingdoms(13)
+                    if len(cols) >= 13 and cols[12] not in ("N/A", "", "0"):
+                        ssci_map[contig].append(cols[12])
                     if len(cols) >= 14 and cols[13] not in ("N/A", "", "0"):
-                        ssci_map[contig].append(cols[13])
-                    if len(cols) >= 15 and cols[14] not in ("N/A", "", "0"):
-                        skingd_map[contig] = cols[14]
+                        skingd_map[contig] = cols[13]
 
         inphared_tax = {}
         for contig, v in votes.items():
@@ -409,8 +409,8 @@ rule viral_taxonomy:
                     acc    = "_".join(cols[1].split("_")[:-1]) or cols[1]
                     custom_votes[contig][acc] += 1
                     custom_pident[contig].append(float(cols[2]))
-                    if len(cols) >= 14 and cols[13] not in ("N/A", "", "0"):
-                        custom_ssci[contig].append(cols[13])
+                    if len(cols) >= 13 and cols[12] not in ("N/A", "", "0"):
+                        custom_ssci[contig].append(cols[12])
 
         custom_tax = {}
         for contig, v in custom_votes.items():
@@ -474,16 +474,18 @@ rule viral_taxonomy:
 
             elif iph and iph.get("confidence") not in ("unclassified", ""):
                 source = "diamond_inphared"
-                # order_putative (30-50% pident): report order only, not family/genus
+                _sci = iph.get("sscinames","").split(";")[0].strip() if iph.get("sscinames") else ""
+                # order_putative (30-50% pident): show family as putative, no genus
                 if iph.get("confidence") == "order_putative":
-                    ff = ""; fg = ""
+                    ff = iph.get("family",""); fg = ""
                     fo   = iph.get("order","")
-                    best = fo
-                    lin  = fo
+                    # Use sscinames (INPHARED phage name) as fallback when ICTV ranks empty
+                    best = ff or fo or _sci
+                    lin  = ";".join(filter(None, [fo, ff]))
                 else:
                     ff, fg = iph.get("family",""), iph.get("genus","")
                     fo     = iph.get("order","")
-                    best   = fg or ff or fo
+                    best   = fg or ff or fo or _sci
                     lin    = ";".join(filter(None, [fo, ff, fg]))
                 conf = f"{iph['avg_pident']:.1f}% ({iph['confidence']})"
 
@@ -491,23 +493,24 @@ rule viral_taxonomy:
                   custom_tax[contig].get("confidence") not in ("unclassified", "")):
                 _c     = custom_tax[contig]
                 source = "diamond_custom"
+                _csci = _c.get("sscinames","").split(";")[0].strip() if _c.get("sscinames") else ""
                 if _c.get("confidence") == "order_putative":
-                    ff = ""; fg = ""
+                    ff = _c.get("family",""); fg = ""
                     fo   = _c.get("order","")
-                    best = fo; lin = fo
+                    best = ff or fo or _csci; lin = ";".join(filter(None, [fo, ff]))
                 else:
                     ff, fg = _c.get("family",""), _c.get("genus","")
                     fo     = _c.get("order","")
-                    best   = fg or ff or fo
+                    best   = fg or ff or fo or _csci
                     lin    = ";".join(filter(None, [fo, ff, fg]))
                 conf = f"{float(_c.get('avg_pident',0) or 0):.1f}% ({_c.get('confidence','')})"
 
             elif gmd:
                 source = "genomad"
-                ff     = gmd.get("family","") or gmd.get("order","") or gmd.get("class","")
+                ff     = gmd.get("family","")    # true family only; no class/order fallback
                 fg     = gmd.get("genus","")
                 fo     = gmd.get("order","")
-                best   = gmd.get("best","")
+                best   = gmd.get("best","")      # deepest level (may include class/order)
                 conf   = f"{gmd['score']:.3f}"
                 lin    = gmd.get("lineage","")
 
