@@ -4,7 +4,7 @@ generate_report.py — MITE (Metagenomic Integrated Taxonomic Engine) HTML repor
 Tabs: Overview | Read QC | Assembly QC | Viral Analysis | Taxonomy | Host Prediction | Bin Quality | Abundance | About
 """
 import json, os, re, glob, sys, zipfile, gzip, traceback
-from collections import defaultdict, Counter
+from collections import Counter
 
 try:
     import plotly.graph_objects as go
@@ -92,31 +92,6 @@ try:
                 if n in counts: counts[n] += 1
             except: pass
         return counts
-    
-    def compute_bin_abundance(depth_path, s2b_dir):
-        cov, clen = {}, {}
-        if os.path.exists(depth_path):
-            with open(depth_path) as f:
-                first = True
-                for line in f:
-                    if first: first = False; continue
-                    p = line.strip().split("\t")
-                    if len(p) >= 3:
-                        cov[p[0]]  = safe_float(p[2])
-                        clen[p[0]] = safe_int(p[1])
-        bin_totals = defaultdict(lambda: {"cov":0.0,"len":0})
-        for s2b in glob.glob(os.path.join(s2b_dir, "*_s2b.tsv")):
-            binner = os.path.basename(s2b).replace("_s2b.tsv","")
-            with open(s2b) as f:
-                for line in f:
-                    p = line.strip().split("\t")
-                    if len(p) == 2:
-                        contig, bn = p; key = f"{binner}::{bn}"
-                        l = clen.get(contig, 0)
-                        bin_totals[key]["cov"] += cov.get(contig,0.0)*l
-                        bin_totals[key]["len"] += l
-        return {k: v["cov"]/v["len"] for k,v in bin_totals.items() if v["len"]>0}
-    
     
     # ── fastp ─────────────────────────────────────────────────────────────────────
     def parse_fastp_json(outdir, sample):
@@ -233,19 +208,6 @@ try:
             except: pass
         counts["VIBRANT"] = len(vib_seqs)
         return counts
-    
-    def collect_viral_scores(outdir, sample):
-        scores = {"GeNomad":[], "VirSorter2":[]}
-        for p in glob.glob(os.path.join(outdir, sample, "viral", "genomad", "*_summary", "*_virus_summary.tsv")):
-            for row in parse_tsv(p):
-                v = safe_float(row.get("virus_score", row.get("Virus_score",-1)))
-                if 0 <= v <= 1: scores["GeNomad"].append(v)
-        vs2_score = os.path.join(outdir, sample, "viral", "virsorter2", "final-viral-score.tsv")
-        for row in parse_tsv(vs2_score):
-            v = safe_float(row.get("max_score", row.get("score",-1)))
-            if 0 <= v <= 1: scores["VirSorter2"].append(v)
-        return scores
-    
     
     # ── vRhyme ────────────────────────────────────────────────────────────────────
     def collect_vrhyme_stats(outdir, sample):
@@ -450,9 +412,8 @@ try:
     depth_paths      = _path_dict(snakemake.input.depth,         samples)
     
     quast_data={}; checkv_data={}; checkv_vrh_data={}; checkm2_data={}; support_data={}
-    abundance_data={}; fastp_data={}; mapping_data={}
-    viral_tool_counts={}; viral_scores={}; viral_contig_lengths={}
-    final_contig_lengths={}; coverage_data={}
+    fastp_data={}; mapping_data={}
+    viral_tool_counts={}; viral_contig_lengths={}
     checkm2_tax_data={}
     binner_counts={}; vrhyme_data={}
     
@@ -462,16 +423,12 @@ try:
         checkv_data[sample]       = parse_tsv(checkv_paths[sample])
         checkv_vrh_data[sample]   = parse_tsv(checkv_vrh_paths[sample])
         support_data[sample]      = parse_support(support_paths[sample])
-        s2b                       = os.path.join(outdir, sample, "bins", "scaffold2bin")
-        abundance_data[sample]    = compute_bin_abundance(depth_paths[sample], s2b)
         fastp_data[sample]        = parse_fastp_json(outdir, sample)
         mapping_data[sample]      = parse_mapping_rate(outdir, sample)
         viral_tool_counts[sample] = collect_viral_tool_counts(outdir, sample)
-        viral_scores[sample]      = collect_viral_scores(outdir, sample)
         checkm2_tax_data[sample]  = parse_checkm2_phyla(checkm2_data[sample])
         binner_counts[sample]     = collect_binner_counts(outdir, sample, checkm2_data[sample])
         vrhyme_data[sample]       = collect_vrhyme_stats(outdir, sample)
-        final_contig_lengths[sample], coverage_data[sample] = collect_depth_data(depth_paths[sample])
         vcfa = glob.glob(os.path.join(outdir, sample, "viral", "consensus", "*_viral_consensus.fasta"))
         viral_contig_lengths[sample] = parse_fasta_lengths(vcfa[0]) if vcfa else []
     
@@ -521,46 +478,18 @@ try:
     for s in samples:
         for rec in fastp_data[s]["reads"]:
             if rec["r_label"] not in all_fq_labels: all_fq_labels.append(rec["r_label"])
-    fig_fq_reads=go.Figure(); fig_fq_qual=go.Figure(); fig_fq_gc=go.Figure()
+    fig_fq_reads=go.Figure()
     for lbl in all_fq_labels:
-        rv,qv,gv=[],[],[]
+        rv=[]
         for s in samples:
             rec=next((r for r in fastp_data[s]["reads"] if r["r_label"]==lbl),None)
             rv.append(rec["total_sequences"] if rec else 0)
-            qv.append(rec["mean_quality"]    if rec else 0)
-            gv.append(rec["gc_percent"]      if rec else 0)
-        color=stage_colors.get(lbl,GRAY); kw=dict(name=lbl,x=samples,marker_color=color)
-        fig_fq_reads.add_trace(go.Bar(**kw,y=rv,hovertemplate="<b>%{x}</b><br>"+lbl+": %{y:,}<extra></extra>"))
-        fig_fq_qual.add_trace( go.Bar(**kw,y=qv,hovertemplate="<b>%{x}</b><br>"+lbl+": %{y:.1f}<extra></extra>"))
-        fig_fq_gc.add_trace(   go.Bar(**kw,y=gv,hovertemplate="<b>%{x}</b><br>"+lbl+": %{y:.1f}%<extra></extra>"))
-    for fig,title,yl in [(fig_fq_reads,"Total Reads — Raw vs Trimmed","Read count"),
-                         (fig_fq_qual,"Mean Per-Base Quality Score","Phred score"),
-                         (fig_fq_gc,"GC Content — Raw vs Trimmed","% GC")]:
-        fig.update_layout(barmode="group",title=title,yaxis_title=yl,legend_title="Read set",template=T,height=420)
-    fig_fq_qual.add_hline(y=30,line_dash="dash",line_color=GREEN,annotation_text="Q30",annotation_position="right")
-    fig_fq_qual.add_hline(y=20,line_dash="dot", line_color=AMBER,annotation_text="Q20",annotation_position="right")
-    fig_fq_gc.add_hline(y=60,line_dash="dot",line_color=GRAY,annotation_text="60%",annotation_position="right")
-    fig_fq_gc.add_hline(y=40,line_dash="dot",line_color=GRAY,annotation_text="40%",annotation_position="right")
+        color=stage_colors.get(lbl,GRAY)
+        fig_fq_reads.add_trace(go.Bar(name=lbl,x=samples,marker_color=color,y=rv,
+            hovertemplate="<b>%{x}</b><br>"+lbl+": %{y:,}<extra></extra>"))
+    fig_fq_reads.update_layout(barmode="group",title="Total Reads — Raw vs Trimmed",
+        yaxis_title="Read count",legend_title="Read set",template=T,height=420)
 
-    fig_trim=make_subplots(rows=1,cols=3,horizontal_spacing=0.10,
-        subplot_titles=["Adapter reads — R1 (%)","Adapter reads — R2 (%)","Bases quality-trimmed (%)"])
-    for col,(key,color) in enumerate([("adapter_r1_pct",AMBER),("adapter_r2_pct","#fbbf24"),("bp_removed_pct",RED)],1):
-        vals=[fastp_data[s]["trim"].get(key,0) for s in samples]
-        fig_trim.add_trace(go.Bar(x=samples,y=vals,marker_color=color,showlegend=False,
-            hovertemplate=f"<b>%{{x}}</b><br>%{{y:.1f}}%<extra></extra>"),row=1,col=col)
-    fig_trim.update_layout(title="Fastp Trimming Efficiency",height=400,template=T)
-    
-    fig_mapping=go.Figure()
-    mvals=[mapping_data[s] for s in samples]
-    mcolors=[GREEN if v>=70 else ORANGE if v>=50 else RED if v>0 else GRAY for v in mvals]
-    fig_mapping.add_trace(go.Bar(x=samples,y=mvals,marker_color=mcolors,showlegend=False,
-        text=[f"{v:.1f}%" if v>0 else "N/A" for v in mvals],textposition="outside",
-        hovertemplate="<b>%{x}</b><br>Mapped: %{y:.1f}%<extra></extra>"))
-    fig_mapping.add_hline(y=70,line_dash="dash",line_color=GREEN,annotation_text="70% (good)",annotation_position="right")
-    fig_mapping.add_hline(y=50,line_dash="dot", line_color=AMBER,annotation_text="50% (acceptable)",annotation_position="right")
-    fig_mapping.update_layout(title="Read Mapping Rate (BWA-MEM2 → Assembly)",
-        yaxis_title="% reads mapped",yaxis=dict(range=[0,115]),template=T,height=380)
-    
     # ─ Assembly ───────────────────────────────────────────────────────────────────
     asm_stages=["MEGAHIT","metaSPAdes","metaviralSPAdes","merged_filtered","deduplicated"]
     asm_colors=[CYAN,"#67e8f9",PURPLE,AMBER,TEAL]
@@ -583,47 +512,6 @@ try:
             hovertemplate=f"<b>%{{x}}</b><br>{metric}: %{{y:,.0f}}<extra></extra>"),row=1,col=col)
     fig_assembly.update_layout(title="Final Assembly Quality (QUAST — deduplicated)",height=420,template=T)
     
-    # Ensure contig lengths: depth.txt primary, fasta fallback
-    for sample in samples:
-        if not final_contig_lengths[sample]:
-            for fpath in [
-                os.path.join(outdir, sample, "mmseqs", f"{sample}_rep_seq.fasta"),
-                os.path.join(outdir, sample, "assembly", "merged", f"{sample}_merged_contigs.fasta"),
-            ]:
-                if os.path.exists(fpath):
-                    final_contig_lengths[sample] = parse_fasta_lengths(fpath)
-                    break
-
-    # Ensure contig lengths — fallback to mmseqs fasta if depth.txt missing/empty
-    for sample in samples:
-        if not final_contig_lengths[sample]:
-            for fpath in [
-                os.path.join(outdir, sample, "mmseqs", f"{sample}_rep_seq.fasta"),
-                os.path.join(outdir, sample, "assembly", "merged", f"{sample}_merged_contigs.fasta"),
-            ]:
-                if os.path.exists(fpath):
-                    final_contig_lengths[sample] = parse_fasta_lengths(fpath); break
-
-    fig_contig_len=go.Figure()
-    for i,sample in enumerate(samples):
-        lengths=[l for l in final_contig_lengths[sample] if l>0]
-        if lengths:
-            fig_contig_len.add_trace(go.Histogram(x=lengths,name=sample,opacity=0.7,nbinsx=60,
-                marker_color=PALETTE[i%len(PALETTE)],
-                hovertemplate="Length: %{x:,} bp<br>Count: %{y}<extra>"+sample+"</extra>"))
-    fig_contig_len.update_layout(barmode="overlay",xaxis_type="log",
-        title="Contig Length Distribution (log x)",xaxis_title="Length (bp)",yaxis_title="Count",template=T,height=420)
-    
-    fig_cov=go.Figure()
-    for i,sample in enumerate(samples):
-        depths=[d for d in coverage_data[sample] if 0<d<500]
-        if depths:
-            fig_cov.add_trace(go.Histogram(x=depths,name=sample,opacity=0.7,nbinsx=60,
-                marker_color=PALETTE[i%len(PALETTE)],
-                hovertemplate="Coverage: %{x:.1f}×<br>Count: %{y}<extra>"+sample+"</extra>"))
-    fig_cov.update_layout(barmode="overlay",title="Coverage Distribution (clipped 500×)",
-        xaxis_title="Mean depth (×)",yaxis_title="Count",template=T,height=420)
-    
     # ─ Viral ──────────────────────────────────────────────────────────────────────
     tools=["VirSorter2","GeNomad","VIBRANT"]
     tcols={"VirSorter2":CYAN,"GeNomad":TEAL,"VIBRANT":"#9333ea"}
@@ -642,15 +530,6 @@ try:
             hovertemplate="<b>%{x}</b><br>"+lbl+": %{y}<extra></extra>"))
     fig_viral.update_layout(barmode="stack",title="Tool Agreement — Consensus Filter",
         yaxis_title="Contigs",legend_title="Agreement",template=T,height=420)
-    
-    fig_scores=go.Figure()
-    for sample in samples:
-        for tool,color in [("VirSorter2",CYAN),("GeNomad",TEAL)]:
-            vals=viral_scores[sample].get(tool,[])
-            if vals:
-                fig_scores.add_trace(go.Violin(y=vals,name=f"{sample} — {tool}",
-                    box_visible=True,meanline_visible=True,marker_color=color,opacity=0.7))
-    fig_scores.update_layout(title="Viral Score Distributions",yaxis_title="Score (0–1)",template=T,height=480)
     
     checkv_cats=["Complete","High-quality","Medium-quality","Low-quality","Not-determined"]
     cv_colors=[GREEN,"#4ade80","#fbbf24",AMBER,RED]
@@ -814,28 +693,6 @@ try:
     fig_bin_size.update_layout(barmode="overlay",title="Bin Genome Size Distribution",
         xaxis_title="Estimated size (Mb)",yaxis_title="Count",template=T,height=400)
     
-    # ─ Abundance ──────────────────────────────────────────────────────────────────
-    all_bin_ids=[]
-    for s in samples:
-        for bid in sorted(abundance_data[s]):
-            lbl=f"{s} | {bid}"
-            if lbl not in all_bin_ids: all_bin_ids.append(lbl)
-    z_matrix=[]; bin_labels=[]
-    for lbl in all_bin_ids:
-        src=lbl.split(" | ")[0]; bid=lbl.split(" | ",1)[1]
-        z_matrix.append([abundance_data[s].get(bid,0.0) if s==src else 0.0 for s in samples])
-        bin_labels.append(lbl)
-    if z_matrix:
-        fig_abundance=go.Figure(go.Heatmap(z=z_matrix,x=samples,y=bin_labels,colorscale="Viridis",
-            colorbar=dict(title="Mean depth (×)"),
-            hovertemplate="<b>%{y}</b><br>%{x}: %{z:.2f}×<extra></extra>"))
-        fig_abundance.update_layout(title="Bin Abundance",height=max(450,len(bin_labels)*14+100),template=T,
-            yaxis=dict(tickfont=dict(size=8),autorange="reversed"))
-    else:
-        fig_abundance=go.Figure()
-        fig_abundance.add_annotation(text="No bin abundance data.",xref="paper",yref="paper",x=0.5,y=0.5,showarrow=False)
-        fig_abundance.update_layout(height=300,template=T)
-    
     # ─ Taxonomy ───────────────────────────────────────────────────────────────────
 
     all_phyla=Counter(); phylum_counts={}
@@ -869,7 +726,7 @@ try:
                                 sum(cnt for n, cnt in sp.items() if n >= 2))(
                                 os.path.join(outdir, sample, "viral", "consensus",
                                              f"{sample}_viral_consensus.fasta")),
-            "complete_viral":  sum(1 for r in cv if r.get("checkv_quality","")=="Complete"),
+            "complete_viral":  sum(1 for r in cv if r.get("checkv_quality","") in ("Complete","High-quality")),
             "vmags":      vrhyme_data[sample]["n_bins"],
             "unbinned_viral": (lambda p: sum(1 for l in open(p) if l.startswith('>')) - vrhyme_data[sample]["total_members"]
                                if os.path.exists(p) else 0)(
@@ -889,17 +746,10 @@ try:
     # ══════════════════════════════════════════════════════════════════════════════
     figs_json={
         "fq_reads":       fig_fq_reads.to_json(),
-        "fq_qual":        fig_fq_qual.to_json(),
-        "fq_gc":          fig_fq_gc.to_json(),
-        "trim":           fig_trim.to_json(),
-        "mapping":        fig_mapping.to_json(),
         "asm_prog":       fig_asm_prog.to_json(),
         "assembly":       fig_assembly.to_json(),
-        "contig_len":     fig_contig_len.to_json(),
-        "coverage":       fig_cov.to_json(),
         "tool_counts":    fig_tool_counts.to_json(),
         "viral":          fig_viral.to_json(),
-        "scores":         fig_scores.to_json(),
         "checkv":         fig_checkv.to_json(),
         "checkv_vrh":     fig_checkv_vrh.to_json(),
         "checkv_scatter": fig_checkv_scatter.to_json(),
@@ -911,7 +761,6 @@ try:
         "bin_size":       fig_bin_size.to_json(),
         "binner_total":   fig_binner_total.to_json(),
         "das_tax":        fig_das_tax.to_json(),
-        "abundance":      fig_abundance.to_json(),
         "tax_bac":        fig_tax_bac.to_json(),
     }
     samples_json     = json.dumps(samples).replace("</", "<\\/")
@@ -1316,10 +1165,12 @@ try:
     # Uses Best_taxonomy (deepest assigned rank) so sequences with empty classification
     # (Source set but no actual rank assigned) are not counted.
     for sample in samples:
-        overview[sample]["taxonomy_classified"] = sum(
-            1 for r in tax_data
+        overview[sample]["taxonomy_classified"] = len({
+            r.get("Genome","")
+            for r in tax_data
             if r.get("sample") == sample
-            and (r.get("Best_taxonomy","") or r.get("final_family","") or r.get("final_genus","")))
+            and r.get("Genome","")
+            and (r.get("Best_taxonomy","") or r.get("final_family","") or r.get("final_genus",""))})
 
     # ── Task 2: Enrich viral taxonomy with CheckV data ────────────────────────
     def enrich_taxonomy_with_checkv(tax_records, checkv_dict):
@@ -1368,87 +1219,6 @@ try:
 
     merged_prok_data = merge_prok_taxonomy(gtdb_data, custom_prok_data, checkm2_data)
     print(f"[generate_report] Merged prok taxonomy: {len(merged_prok_data)} MAGs")
-
-    # ── Task 5: Tool support matrix for heatmap ───────────────────────────────
-    def load_tool_support_matrix(outdir_base, samples_list):
-        tools_order = ["VirSorter2","GeNomad","VIBRANT"]
-        rows = []
-        for s in samples_list:
-            for p in glob.glob(os.path.join(outdir_base, s, "viral", "consensus",
-                                            "*_tool_support.tsv")):
-                for row in parse_tsv(p):
-                    contig    = row.get('contig', row.get('contig_id',''))
-                    tool_str  = row.get('tools','')
-                    n_tools   = safe_int(row.get('n_tools', 0))
-                    if not contig: continue
-                    rec = {'sample': s, 'contig': contig, 'n_tools': n_tools}
-                    for t in tools_order:
-                        rec[t] = 1 if t in tool_str else 0
-                    rows.append(rec)
-        return rows
-
-    tool_matrix_data = load_tool_support_matrix(outdir, samples)
-
-    # ── Task 5: Read utilization funnel ──────────────────────────────────────
-    fig_read_funnel = go.Figure()
-    funnel_stages = ["Raw reads", "Post-trimming", "Mapped to assembly",
-                     "Viral consensus (≥3 tools)", "Prokaryotic MAG bins"]
-    for i, sample in enumerate(samples):
-        raw     = safe_int(fastp_data[sample]["trim"].get('reads_in', 0))
-        trimmed = safe_int(fastp_data[sample]["trim"].get('reads_written', 0))
-        mapped  = int(raw * mapping_data[sample] / 100) if mapping_data[sample] > 0 and raw > 0 else 0
-        viral_c = support_data[sample].get(3,0) + support_data[sample].get(4,0)
-        bin_c   = sum(1 for r in checkm2_data[sample])
-        # estimate reads in viral contigs / bins as proxy (per-contig depth × len / read_len)
-        viral_reads_proxy = viral_c * 5000 // 150 if viral_c else 0
-        bin_reads_proxy   = bin_c   * 20000 // 150 if bin_c   else 0
-        funnel_vals = [raw, trimmed, mapped, viral_reads_proxy, bin_reads_proxy]
-        if any(v > 0 for v in funnel_vals):
-            fig_read_funnel.add_trace(go.Funnel(
-                name=sample,
-                y=funnel_stages,
-                x=funnel_vals,
-                textinfo="value+percent previous",
-                marker=dict(color=PALETTE[i % len(PALETTE)]),
-                opacity=0.85,
-            ))
-    fig_read_funnel.update_layout(
-        title="Read Utilization — From Raw to Assigned",
-        height=480, template=T,
-        annotations=[dict(
-            text="Note: viral/bin read counts are approximate (contig-based proxy)",
-            xref="paper", yref="paper", x=0.5, y=-0.08,
-            showarrow=False, font=dict(size=10, color=GRAY)
-        )]
-    )
-
-    # ── Task 5: Tool agreement heatmap ────────────────────────────────────────
-    fig_tool_heatmap = go.Figure()
-    if tool_matrix_data:
-        _tools_ord = ["VirSorter2","GeNomad","VIBRANT"]
-        _z = [[r.get(t, 0) for t in _tools_ord] for r in tool_matrix_data]
-        _contigs = [r['contig'] for r in tool_matrix_data]
-        # show at most 100 contigs for readability
-        _max = min(100, len(_z))
-        fig_tool_heatmap = go.Figure(go.Heatmap(
-            z=_z[:_max],
-            x=_tools_ord,
-            y=_contigs[:_max],
-            colorscale=[[0,"#f1f5f9"],[1,TEAL]],
-            showscale=False,
-            hovertemplate="<b>%{y}</b><br>%{x}: %{z}<extra></extra>",
-        ))
-        fig_tool_heatmap.update_layout(
-            title=f"Tool Agreement Heatmap (first {_max} of {len(_z)} viral contigs)",
-            height=max(400, _max * 8 + 80),
-            yaxis=dict(tickfont=dict(size=7), autorange="reversed"),
-            template=T,
-        )
-    else:
-        fig_tool_heatmap.add_annotation(
-            text="No tool support data available",
-            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        fig_tool_heatmap.update_layout(height=300, template=T)
 
     # ── Task 5: Viral contig depth distribution ────────────────────────────
     fig_viral_depth = go.Figure()
@@ -1870,7 +1640,6 @@ try:
     gtdb_json        = _js(gtdb_data)
     custom_prok_json = _js(custom_prok_data)
     merged_prok_json = _js(merged_prok_data)
-    tool_matrix_json = _js(tool_matrix_data)
     phist_json = _js(phist_data)
     overview_json = _js(overview)
 
@@ -1883,8 +1652,6 @@ try:
     bench_json     = _js(bench_table_rows)
 
     # Add Task-5 figures to figs_json and finalize the string
-    figs_json["read_funnel"]   = fig_read_funnel.to_json()
-    figs_json["tool_heatmap"]  = fig_tool_heatmap.to_json()
     figs_json["viral_depth"]   = fig_viral_depth.to_json()
 
     # BLOCO 8 figures
@@ -2134,7 +1901,6 @@ table.dtbl tbody tr:hover{background:rgba(13,148,136,.06)}
   <button class="tab" onclick="showTab('taxonomy', this)"><span class="ticon">🌳</span>Taxonomy</button>
   <button class="tab" onclick="showTab('hostpred', this)"><span class="ticon">🔗</span>Host Prediction</button>
   <button class="tab" onclick="showTab('bins',     this)"><span class="ticon">🧫</span>Bin Quality</button>
-  <button class="tab" onclick="showTab('abundance', this)"><span class="ticon">📈</span>Abundance</button>
   <button class="tab" onclick="showTab('ecology',  this)"><span class="ticon">🌿</span>Ecology</button>
   <button class="tab" onclick="showTab('annotation',this)"><span class="ticon">🗺</span>Annotation</button>
   <div class="nav-section">Pipeline</div>
@@ -2163,24 +1929,12 @@ table.dtbl tbody tr:hover{background:rgba(13,148,136,.06)}
   <div id="sample-ctrl-readqc" class="sample-ctrl"></div>
   <div class="sec">Read Quality</div>
   <div class="card"><h2>Total Reads — Raw vs Trimmed</h2><p class="sub">R1 and R2 before/after fastp.</p><div id="p-fq-reads" class="pw"></div></div>
-  <div class="r2">
-    <div class="card"><h2>Mean Per-Base Quality</h2><p class="sub">Q30 = 1 error per 1,000 bases.</p><div id="p-fq-qual" class="pw"></div></div>
-    <div class="card"><h2>GC Content</h2><p class="sub">Soil metagenomes typically 55–65%.</p><div id="p-fq-gc" class="pw"></div></div>
-  </div>
-  <div class="sec">Trimming &amp; Mapping</div>
-  <div class="card"><h2>Fastp Trimming Efficiency</h2><p class="sub">From fastp JSON report.</p><div id="p-trim" class="pw"></div></div>
-  <div class="card"><h2>Read Mapping Rate (BWA-MEM2 → Assembly)</h2><p class="sub">samtools flagstat. &lt;50% may indicate assembly quality issues.</p><div id="p-mapping" class="pw"></div></div>
-  <div class="card"><h2>Read Utilization Funnel</h2><p class="sub">Reads progressing from raw sequencing to assigned bins/viruses.</p><div id="p-read-funnel" class="pw"></div></div>
 </div>
 
 <div id="panel-assembly" class="panel">
   <div id="sample-ctrl-assembly" class="sample-ctrl"></div>
   <div class="card"><h2>Assembly Progression — All 4 Stages</h2><p class="sub">MEGAHIT → metaSPAdes → merged+filtered → MMseqs2 deduplicated.</p><div id="p-asm-prog" class="pw"></div></div>
   <div class="card"><h2>Final Assembly Quality (QUAST)</h2><div id="p-assembly" class="pw"></div></div>
-  <div class="r2">
-    <div class="card"><h2>Contig Length Distribution</h2><p class="sub">Log x-axis.</p><div id="p-contig-len" class="pw"></div></div>
-    <div class="card"><h2>Contig Coverage Distribution</h2><p class="sub">Clipped at 500×.</p><div id="p-coverage" class="pw"></div></div>
-  </div>
 </div>
 
 <div id="panel-viral" class="panel">
@@ -2188,10 +1942,7 @@ table.dtbl tbody tr:hover{background:rgba(13,148,136,.06)}
   <div class="sec">Detection</div>
   <div class="card"><h2>Per-Tool Counts (Before Consensus Filter)</h2><div id="p-tool-counts" class="pw"></div></div>
   <div class="card"><h2>Tool Agreement — Stacked Bar</h2><p class="sub">Pipeline threshold: ≥{min_viral_tools} tools.</p><div id="p-viral" class="pw"></div></div>
-  <div class="card"><h2>Score Distributions</h2><div id="p-scores" class="pw"></div></div>
-  <div class="card"><h2>Tool Agreement Heatmap</h2><p class="sub">Each row = one viral contig. Columns = detection tools. Teal = detected.</p><div id="p-tool-heatmap" class="pw"></div></div>
   <div class="sec">Quality Assessment</div>
-  <div class="card"><h2>Viral Quality Pyramid</h2><p class="sub">CheckV quality tiers across all samples (MIUViG standard).</p><div id="p-viral-pyramid" style="height:340px"></div></div>
   <div class="card"><h2>CheckV — Consensus Contigs</h2><div id="p-checkv" class="pw"></div></div>
   <div class="card"><h2>CheckV — vRhyme vMAGs</h2><div id="p-checkv-vrh" class="pw"></div></div>
   <div class="card"><h2>CheckV — Length vs Completeness (● consensus  ◆ vRhyme)</h2><div id="p-checkv-scatter" class="pw"></div></div>
@@ -2288,12 +2039,6 @@ table.dtbl tbody tr:hover{background:rgba(13,148,136,.06)}
 <div id="panel-bins-extra" style="display:none">
   <div class="sec">Functional Annotation (COG)</div>
   <div class="card"><h2>COG Functional Categories (EggNOG-mapper)</h2><p class="sub">Broad functional annotation of MAG genes from EggNOG-mapper v2.</p><div id="p-cog" class="pw"></div></div>
-</div>
-
-<div id="panel-abundance" class="panel">
-  <div class="card"><h2>Bin Abundance Across Samples</h2><p class="sub">Weighted mean read depth per bin.</p>
-  <div id="p-abundance" class="pw"></div>
-  <p class="note">⚠️ Within-sample coverage only. Cross-sample comparison requires dRep + re-mapping.</p></div>
 </div>
 
 <!-- ══════════════════════ ECOLOGY TAB ══════════════════════ -->
@@ -2421,8 +2166,7 @@ table.dtbl tbody tr:hover{background:rgba(13,148,136,.06)}
 <script>
 const SAMPLES={samples_json};const OVERVIEW={overview_json};const FIGS={figs_json_str};
 const TAX_DATA={tax_json};const GTDB_DATA={gtdb_json};const CUSTOM_PROK={custom_prok_json};
-const MERGED_PROK={merged_prok_json};const TOOL_MATRIX={tool_matrix_json};
-const VC3_DATA={vcontact3_json};const NOVELTY={novelty_json};const MIMAG={mimag_json};
+const MERGED_PROK={merged_prok_json};const VC3_DATA={vcontact3_json};const NOVELTY={novelty_json};const MIMAG={mimag_json};
 const VIBRANT_DATA={vibrant_json};const VIBRANT_AMG={vibrant_amg_json};
 const PHIST_DATA={phist_json};
 const VOTU_DATA={votu_json};
@@ -2554,16 +2298,14 @@ function filterTable(id,query){{
 }}
 
 // ── Render all pre-built figures ────────────────────────────────────────────
-rf("p-fq-reads","fq_reads");rf("p-fq-qual","fq_qual");rf("p-fq-gc","fq_gc");
-rf("p-trim","trim");rf("p-mapping","mapping");
+rf("p-fq-reads","fq_reads");
 rf("p-asm-prog","asm_prog");rf("p-assembly","assembly");
-rf("p-contig-len","contig_len");rf("p-coverage","coverage");
-rf("p-tool-counts","tool_counts");rf("p-viral","viral");rf("p-scores","scores");
+rf("p-tool-counts","tool_counts");rf("p-viral","viral");
 rf("p-checkv","checkv");rf("p-checkv-vrh","checkv_vrh");rf("p-checkv-scatter","checkv_scatter");
 rf("p-viral-len","viral_len");rf("p-vrhyme","vrhyme");rf("p-vrhyme-detail","vrhyme_detail");
 rf("p-checkm2","checkm2");rf("p-cm2-hist","cm2_hist");rf("p-bin-size","bin_size");
-rf("p-binner-total","binner_total");rf("p-das-tax","das_tax");rf("p-abundance","abundance");
-rf("p-read-funnel","read_funnel");rf("p-tool-heatmap","tool_heatmap");rf("p-viral-depth","viral_depth");
+rf("p-binner-total","binner_total");rf("p-das-tax","das_tax");
+rf("p-viral-depth","viral_depth");
 // BLOCO 8 pre-built figures
 rf("p-lifestyle","lifestyle");rf("p-phrogs","phrogs");rf("p-cog","cog");
 rf("p-alpha-viral","alpha_viral");rf("p-alpha-prok","alpha_prok");rf("p-alpha-combined","alpha_combined");
@@ -2572,17 +2314,13 @@ rf("p-procrustes","procrustes");rf("p-abund-viral","abund_viral");rf("p-abund-pr
 
 // ── Per-sample dropdowns ─────────────────────────────────────────────────────
 makeSampleDropdown('sample-ctrl-readqc', s=>{{
-  rfFiltered('p-fq-reads','fq_reads',s);rfFiltered('p-fq-qual','fq_qual',s);
-  rfFiltered('p-fq-gc','fq_gc',s);rfFiltered('p-trim','trim',s);
-  rfFiltered('p-mapping','mapping',s);rfFiltered('p-read-funnel','read_funnel',s);
+  rfFiltered('p-fq-reads','fq_reads',s);
 }});
 makeSampleDropdown('sample-ctrl-assembly', s=>{{
   rfFiltered('p-asm-prog','asm_prog',s);rfFiltered('p-assembly','assembly',s);
-  rfFiltered('p-contig-len','contig_len',s);rfFiltered('p-coverage','coverage',s);
 }});
 makeSampleDropdown('sample-ctrl-viral', s=>{{
   rfFiltered('p-tool-counts','tool_counts',s);rfFiltered('p-viral','viral',s);
-  rfFiltered('p-scores','scores',s);rfFiltered('p-tool-heatmap','tool_heatmap',s);
   rfFiltered('p-checkv','checkv',s);rfFiltered('p-checkv-vrh','checkv_vrh',s);
   rfFiltered('p-checkv-scatter','checkv_scatter',s);
   rfFiltered('p-viral-len','viral_len',s);rfFiltered('p-viral-depth','viral_depth',s);
@@ -2701,34 +2439,6 @@ function renderGenomeMapViewer(){{
     sampleSel.onchange=()=>{{_gmSample=sampleSel.value;renderGenomeMapViewer();}};
   }}
   setGmMode('phage');
-}})();
-
-// ── Task 5: Viral quality pyramid ─────────────────────────────────────────────
-(function(){{
-  const tiers=['Complete','High-quality','Medium-quality','Low-quality','Not-determined'];
-  const colors=['#16a34a','#4ade80','#fbbf24','#d97706','#6b7280'];
-  const allCV=[...Object.values(FIGS)].filter(()=>false);  // fallback — count from TAX_DATA
-  const tierCounts={{}};tiers.forEach(t=>tierCounts[t]=0);
-  // Use MIMAG data as proxy for quality counts
-  SAMPLES.forEach(s=>{{
-    const m=MIMAG[s]||{{}};
-    tierCounts['High-quality']=(tierCounts['High-quality']||0)+(m.HQ||0);
-    tierCounts['Medium-quality']=(tierCounts['Medium-quality']||0)+(m.MQ||0);
-    tierCounts['Low-quality']=(tierCounts['Low-quality']||0)+(m.LQ||0);
-  }});
-  const vals=tiers.map(t=>tierCounts[t]||0);
-  const total=vals.reduce((a,b)=>a+b,0)||1;
-  if(total<2){{document.getElementById('p-viral-pyramid').innerHTML='<p style="padding:20px;color:var(--txt3);font-size:.8rem">Quality tier data not available</p>';return;}}
-  Plotly.newPlot('p-viral-pyramid',[{{
-    type:'funnel',y:tiers,x:vals,
-    textinfo:'value+percent initial',
-    marker:{{color:colors}},
-    connector:{{line:{{color:'rgba(0,0,0,0)'}}}},
-  }}],{{
-    margin:{{t:20,b:20,l:160,r:20}},
-    paper_bgcolor:'rgba(0,0,0,0)',
-    plot_bgcolor:'rgba(0,0,0,0)',
-  }},cfg);
 }})();
 
 // ── Novelty metrics ─────────────────────────────────────────────────────────
@@ -3035,7 +2745,7 @@ const OV_GROUPS=[
   ]}},
   {{label:'Viral Analysis',color:'var(--pur)',metrics:[
     {{key:'viral_consensus',label:'Viral consensus (≥{min_viral_tools} tools)',fmt:'int',tl:[10,1,true]}},
-    {{key:'complete_viral',label:'Complete vOTUs (CheckV)',fmt:'int',tl:[1,1,true]}},
+    {{key:'complete_viral',label:'HQ+Complete vOTUs (CheckV)',fmt:'int',tl:[1,1,true]}},
     {{key:'vmags',label:'vMAGs (vRhyme)',fmt:'int',tl:null}},
     {{key:'unbinned_viral',label:'Unbinned viral contigs',fmt:'int',tl:null}},
     {{key:'taxonomy_classified',label:'Viral seqs w/ taxonomy',fmt:'int',tl:[1,1,true]}},
@@ -3065,7 +2775,7 @@ function fmtv(v){{return(v===undefined||v===null||v===""||v==="N/A")?"—":v;}}
   sumEl.innerHTML=`<span class="rs-label">Summary</span>`+
     `Analysed <b>${{ns}}</b> sample${{ns!==1?'s':''}}. `+
     `Viral analysis identified <b>${{totViral.toLocaleString()}}</b> consensus viral sequence${{totViral!==1?'s':''}} `+
-    `(<b>${{totComp}}</b> complete; <b>${{totTax}}</b> classified). `+
+    `(<b>${{totComp}}</b> HQ+Complete; <b>${{totTax}}</b> classified). `+
     `Prokaryotic binning recovered <b>${{totBins}}</b> MAG${{totBins!==1?'s':''}} `+
     `(<b>${{totHQ}}</b> high-quality, <b>${{hqPct}}%</b> of total).`;
   }}catch(e){{console.warn('run summary error:',e);}}
