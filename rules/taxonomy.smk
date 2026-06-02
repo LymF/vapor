@@ -7,7 +7,7 @@
 #   Tier 3 — Diamond/Custom + GeNomad fallback (class/order for unknowns)
 #
 # Diamond confidence thresholds (avg pident):
-#   >= 70% → genus | >= 50% → family | >= 30% → order_putative
+#   >= 90% → genus | >= 50% → family | >= 30% → order_putative
 #
 # Also contains diamond_custom_prok for prokaryote bin taxonomy.
 # ══════════════════════════════════════════════════════════════════════
@@ -231,6 +231,7 @@ rule vcontact3:
         N=$(grep -c "^>" {params.hq_fa} || echo 0)
         echo "[vcontact3] Running on $N genomes" | tee -a {log}
 
+        VC3_EXIT=0
         vcontact3 run \
             --nucleotide      {params.hq_fa} \
             --output          {params.outdir}/vConTACT3_results \
@@ -239,13 +240,16 @@ rule vcontact3:
             --db-version      {params.vc3_ver} \
             --db-domain       prokaryotes \
             --distance-metric SqRoot \
-            --max-iterations  5 \
+            --max-iterations  10 \
             --reduce-memory \
             --target-rank family genus \
             --exports profiles completeness \
             --no-progress \
             --force-overwrite \
-            >> {log} 2>&1 || true
+            >> {log} 2>&1 || VC3_EXIT=$?
+        if [ $VC3_EXIT -ne 0 ]; then
+            echo "[vcontact3] WARNING: vConTACT3 exited with code $VC3_EXIT — check log" | tee -a {log}
+        fi
 
         # vConTACT3 v3 writes final_assignments.csv in exports/
         VC3_OUT="{params.outdir}/vConTACT3_results/exports/final_assignments.csv"
@@ -366,7 +370,7 @@ rule viral_taxonomy:
             top_acc, top_votes = v.most_common(1)[0]
             meta = inphared_meta.get(top_acc, {})
             avg  = sum(pident[contig]) / len(pident[contig])
-            if avg >= 70:   conf = "genus"
+            if avg >= 90:   conf = "genus"
             elif avg >= 50: conf = "family"
             elif avg >= 30: conf = "order_putative"
             else:           conf = "unclassified"
@@ -414,7 +418,7 @@ rule viral_taxonomy:
             top_acc, top_votes = v.most_common(1)[0]
             meta = custom_meta.get(top_acc, {})
             avg  = sum(custom_pident[contig]) / len(custom_pident[contig])
-            if avg >= 70:   conf = "genus"
+            if avg >= 90:   conf = "genus"
             elif avg >= 50: conf = "family"
             elif avg >= 30: conf = "order_putative"
             else:           conf = "unclassified"
@@ -439,14 +443,25 @@ rule viral_taxonomy:
                     score = row.get("virus_score","0")
                     if not name or not tax: continue
                     parts = [p.strip() for p in tax.split(";")
-                             if p.strip() and p.strip() != "Viruses"]
+                             if p.strip() and p.strip() not in ("Viruses", "")]
                     family=""; genus=""; order=""; cls=""; best=""
+                    # High-rank names (phylum/kingdom) must not be used as fallback
+                    _high = set()
                     for p in parts:
-                        if   p.endswith("viridae"):                          family = p
-                        elif p.endswith("virales"):                          order  = p
-                        elif p.endswith("viricetes") or p.endswith("viria"): cls   = p
-                        elif p.endswith("virus") or p.endswith("phage"):     genus  = p
-                    best = genus or family or order or cls or (parts[-1] if parts else "")
+                        if p.endswith("viridae") or p.endswith("virnae"):
+                            family = p
+                        elif p.endswith("virales"):
+                            order  = p
+                        elif p.endswith("viricetes"):
+                            cls    = p
+                        elif p.endswith("virus") or p.endswith("phage"):
+                            genus  = p
+                        elif any(p.endswith(s) for s in
+                                 ("viricota", "virae", "viria", "virites")):
+                            _high.add(p)  # phylum/kingdom — skip as taxonomy fallback
+                    _low = [p for p in parts if p not in _high]
+                    best = genus or family or order or cls or (
+                        _low[-1] if _low else (parts[-1] if parts else ""))
                     genomad_tax[name] = {
                         "family": family, "genus": genus, "order": order,
                         "class": cls, "best": best, "lineage": tax,
@@ -461,11 +476,13 @@ rule viral_taxonomy:
             iph = inphared_tax.get(contig, {})
             gmd = genomad_tax.get(contig, {})
 
-            if vc3 and (vc3.get("family") or vc3.get("genus")):
+            vc3_status = vc3.get("status","").strip()
+            if (vc3 and vc3_status not in ("Singleton", "Outlier") and
+                    (vc3.get("family") or vc3.get("genus"))):
                 source = "vcontact3"
                 ff, fg = vc3.get("family",""), vc3.get("genus","")
                 fo     = vc3.get("order","")
-                conf   = vc3.get("status","")
+                conf   = vc3_status
                 lin    = ";".join(filter(None, [fo, ff, fg]))
                 best   = fg or ff or fo
 
