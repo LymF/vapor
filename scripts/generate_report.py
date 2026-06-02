@@ -2512,8 +2512,8 @@ function qualBadge(q){{
 }}
 
 // ── Enhanced makeTable with search, renderers, sticky header ────────────────
-function makeTable(id,rows,cols,renderers){{
-  renderers=renderers||{{}};
+function makeTable(id,rows,cols,renderers,labels){{
+  renderers=renderers||{{}};labels=labels||{{}};
   const el=document.getElementById(id);
   if(!el)return;
   if(!rows||!rows.length){{el.innerHTML='<p style="color:var(--txt3);padding:10px;font-size:.78rem">No data available</p>';return;}}
@@ -2521,7 +2521,7 @@ function makeTable(id,rows,cols,renderers){{
   let h=`<input type="text" class="tbl-search" placeholder="Search table…" oninput="filterTable('${{id}}',this.value)">`;
   h+=`<button class="dl-btn" id="${{btnId}}">↓ TSV</button>`;
   h+='<div class="tbl-wrap"><table class="dtbl" id="t-'+id+'"><thead><tr>';
-  cols.forEach(c=>h+=`<th>${{c}}</th>`);
+  cols.forEach(c=>h+=`<th>${{labels[c]||c}}</th>`);
   h+='</tr></thead><tbody>';
   rows.forEach(r=>{{
     h+='<tr>';
@@ -2535,7 +2535,7 @@ function makeTable(id,rows,cols,renderers){{
   h+='</tbody></table></div>';
   el.innerHTML=h;
   document.getElementById(btnId).addEventListener('click',()=>{{
-    const tsv=[cols.join('\\t'),...rows.map(r=>cols.map(c=>String(r[c]??'')).join('\\t'))].join('\\n');
+    const tsv=[cols.map(c=>labels[c]||c).join('\\t'),...rows.map(r=>cols.map(c=>String(r[c]??'')).join('\\t'))].join('\\n');
     const a=document.createElement('a');
     a.href=URL.createObjectURL(new Blob([tsv],{{type:'text/tab-separated-values'}}));
     a.download=(id.replace(/^tbl-/,'')||id)+'.tsv';a.click();
@@ -2593,8 +2593,10 @@ makeSampleDropdown('sample-ctrl-taxonomy', s=>{{
   renderProkDomainBar(s);renderProkTopPhyla(s);renderProkMasterTable(s);
   makeTable('tbl-vcontact',
     (s==='__all__'?TAX_DATA:TAX_DATA.filter(r=>r.sample===s)),
-    ['sample','Genome','final_family','final_genus','Order','Best_taxonomy','Source','Confidence','Completeness','Genome_length','CheckV_quality'],
-    {{Source:v=>sourceBadge(v),CheckV_quality:v=>qualBadge(v)}});
+    ['Source','Genome','Best_taxonomy','final_family','Confidence','CheckV_quality','Completeness','sample'],
+    {{Source:v=>sourceBadge(v),CheckV_quality:v=>qualBadge(v),
+      Genome:v=>`<span title="${{v}}" style="display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom">${{v}}</span>`}},
+    {{Best_taxonomy:'Best Taxonomy',final_family:'Family',CheckV_quality:'CheckV Quality',Completeness:'Complete %',sample:'Sample'}});
 }});
 makeSampleDropdown('sample-ctrl-hostpred', s=>{{
   renderHostPredSection(s);
@@ -2981,8 +2983,10 @@ renderTaxSourcePie('__all__');
 renderTaxFamilyBar('__all__');
 renderTaxSunburst('__all__');
 makeTable('tbl-vcontact',TAX_DATA,
-  ['sample','Genome','final_family','final_genus','Order','Best_taxonomy','Source','Confidence','Completeness','Genome_length','CheckV_quality'],
-  {{Source:v=>sourceBadge(v),CheckV_quality:v=>qualBadge(v)}});
+  ['Source','Genome','Best_taxonomy','final_family','Confidence','CheckV_quality','Completeness','sample'],
+  {{Source:v=>sourceBadge(v),CheckV_quality:v=>qualBadge(v),
+    Genome:v=>`<span title="${{v}}" style="display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom">${{v}}</span>`}},
+  {{Best_taxonomy:'Best Taxonomy',final_family:'Family',CheckV_quality:'CheckV Quality',Completeness:'Complete %',sample:'Sample'}});
 renderProkDomainBar('__all__');
 renderProkTopPhyla('__all__');
 renderProkMasterTable('__all__');
