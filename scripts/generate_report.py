@@ -922,18 +922,16 @@ try:
                 final_order  = row.get('final_order','')
                 lineage      = row.get('lineage','')
                 source       = row.get('source','')
-                # Guard: vConTACT3 singleton/novel entries that leaked through a
-                # previous taxonomy bug get demoted to unclassified so they don't
-                # appear as source=vcontact3 with family="singleton" in the table.
-                if source == 'vcontact3':
-                    if (not final_family or final_family.lower() in _VC3_NULL) and \
-                       (not final_genus  or final_genus.lower()  in _VC3_NULL):
-                        source = 'unclassified'
-                        final_family = final_genus = final_order = ''
-                # Sanitize: remove sentinel strings from family/genus
+                # Sanitize: remove sentinel strings (vConTACT3 singleton leakage)
                 if final_family.lower() in _VC3_NULL: final_family = ''
                 if final_genus.lower()  in _VC3_NULL: final_genus  = ''
                 if final_order.lower()  in _VC3_NULL: final_order  = ''
+                # Demote wrongly-Assigned vConTACT3 singletons to unclassified
+                if source == 'vcontact3' and not final_family and not final_genus:
+                    source = 'unclassified'
+                # Skip unclassified entirely — they must not appear in any chart/table
+                if source in ('unclassified', ''):
+                    continue
                 # If family/genus empty, try to extract from lineage
                 if not final_family or not final_genus:
                     lf, lg, lo = deepest_level(lineage)
@@ -953,7 +951,7 @@ try:
                     'Family':        final_family,
                     'Genus':         final_genus,
                     'Order':         final_order,
-                    'Best_taxonomy': (bt if (bt := row.get('best_taxonomy', best_tax)) and bt.lower() not in _VC3_NULL else best_tax),
+                    'Best_taxonomy': best_tax,
                     'GeNomad_best':  row.get('genomad_best', ''),
                     'GeNomad_class': row.get('genomad_class', ''),
                     'Source':        source,
@@ -1091,14 +1089,20 @@ try:
     print(f"[generate_report] Custom prok: {len(custom_prok_data)} bins")
     print(f"[generate_report] PHIST: {len(phist_data)} predictions")
 
-    # Novelty metrics per sample
+    # Back-fill taxonomy_classified: all entries now in tax_data are classified
+    # (unclassified were excluded in load_viral_taxonomy and vConTACT3 merge).
+    for sample in samples:
+        overview[sample]["taxonomy_classified"] = sum(
+            1 for r in tax_data if r.get("sample") == sample)
+
+    # Novelty metrics — computed from overview so unclassified sequences are
+    # accounted for correctly (viral_consensus = total, taxonomy_classified = classified).
     novelty_data = {}
     for sample in samples:
-        total_viral = sum(1 for r in tax_data if r.get('sample')==sample)
-        unclassified = sum(1 for r in tax_data if r.get('sample')==sample
-                          and r.get('Source','') == 'unclassified')
-        classified = total_viral - unclassified
-        pct_novel = round(100.0 * unclassified / total_viral, 1) if total_viral > 0 else 0.0
+        total_viral  = overview[sample].get("viral_consensus", 0)
+        classified   = overview[sample].get("taxonomy_classified", 0)
+        unclassified = max(0, total_viral - classified)
+        pct_novel    = round(100.0 * unclassified / total_viral, 1) if total_viral > 0 else 0.0
         novelty_data[sample] = {
             'total': total_viral, 'classified': classified,
             'unclassified': unclassified, 'pct_novel': pct_novel
@@ -1141,6 +1145,9 @@ try:
     # ── Merge vConTACT3 records into unified tax_data ─────────────────────────
     tax_genome_keys = {(r.get('sample',''), r.get('Genome','')) for r in tax_data}
     for vc_row in vcontact3_data:
+        # Only merge vConTACT3 entries with an actual family or genus assignment
+        if not vc_row.get('Family') and not vc_row.get('Genus'):
+            continue
         key = (vc_row.get('sample',''), vc_row.get('Genome',''))
         if key not in tax_genome_keys:
             tax_data.append({
@@ -1148,6 +1155,7 @@ try:
                 'Genome':        vc_row['Genome'],
                 'final_family':  vc_row.get('Family',''),
                 'final_genus':   vc_row.get('Genus',''),
+                'final_order':   vc_row.get('Order',''),
                 'Family':        vc_row.get('Family',''),
                 'Genus':         vc_row.get('Genus',''),
                 'Order':         vc_row.get('Order',''),
@@ -1161,16 +1169,7 @@ try:
             })
             tax_genome_keys.add(key)
 
-    # Back-fill taxonomy_classified: sequences with family- or genus-level assignment.
-    # Excludes source=unclassified and entries with only order/class level (no family/genus).
-    for sample in samples:
-        overview[sample]["taxonomy_classified"] = len({
-            r.get("Genome","")
-            for r in tax_data
-            if r.get("sample") == sample
-            and r.get("Genome","")
-            and r.get("Source", r.get("source","")) not in ("unclassified", "")
-            and (r.get("final_family","") or r.get("final_genus",""))})
+    # taxonomy_classified back-fill moved above (before novelty_data computation)
 
     # ── Task 2: Enrich viral taxonomy with CheckV data ────────────────────────
     def enrich_taxonomy_with_checkv(tax_records, checkv_dict):
