@@ -932,17 +932,19 @@ try:
                 # Skip unclassified entirely — they must not appear in any chart/table
                 if source in ('unclassified', ''):
                     continue
-                # If family/genus empty, try to extract from lineage
+                # Try to extract family/genus from lineage when not set directly
                 if not final_family or not final_genus:
                     lf, lg, lo = deepest_level(lineage)
                     if not final_family: final_family = lf
                     if not final_genus:  final_genus  = lg
                     if not final_order:  final_order  = lo
+                # Require at least family OR genus — order/class-only is too ambiguous
+                # to count as "taxonomy applied" (e.g. Diamond order_putative with no
+                # family, or GeNomad with only Caudoviricetes class in the lineage).
+                if not final_family and not final_genus:
+                    continue
                 # Build best_taxonomy: deepest assigned level for display
                 best_tax = final_genus or final_family or final_order
-                if not best_tax and lineage:
-                    parts = [p.strip() for p in lineage.split(';') if p.strip() and p.strip() != 'Viruses']
-                    best_tax = parts[-1] if parts else ''
                 records.append({'sample': s,
                     'Genome':        name,
                     'final_family':  final_family,
