@@ -24,7 +24,11 @@
       },
       xAxis:      { axisLine: { lineStyle: { color: dark ? '#334155' : '#e2e8f0' } },
                     splitLine: { lineStyle: { color: dark ? '#1e293b' : '#f1f5f9' } },
-                    axisLabel: { color: dark ? '#94a3b8' : '#64748b' } },
+                    axisLabel: {
+                      color: dark ? '#94a3b8' : '#64748b',
+                      // Truncate long category labels (e.g. sample names); tooltip still shows full name
+                      formatter: val => String(val).length > 18 ? String(val).slice(0, 17) + '…' : val,
+                    } },
       yAxis:      { axisLine: { lineStyle: { color: dark ? '#334155' : '#e2e8f0' } },
                     splitLine: { lineStyle: { color: dark ? '#1e293b' : '#f1f5f9' } },
                     axisLabel: { color: dark ? '#94a3b8' : '#64748b' },
@@ -34,6 +38,19 @@
     };
   }
   window.echartsTheme = echartsTheme;
+
+  // Deep-merge axis: preserves theme axisLabel defaults (formatter, color) while
+  // allowing per-chart overrides (rotate, width, etc.) to be layered on top.
+  function _mergeAxis(themeAxis, optAxis) {
+    const merged = { ...themeAxis, ...optAxis };
+    if (themeAxis.axisLabel || optAxis.axisLabel) {
+      merged.axisLabel = { ...(themeAxis.axisLabel || {}), ...(optAxis.axisLabel || {}) };
+    }
+    if (themeAxis.nameTextStyle || optAxis.nameTextStyle) {
+      merged.nameTextStyle = { ...(themeAxis.nameTextStyle || {}), ...(optAxis.nameTextStyle || {}) };
+    }
+    return merged;
+  }
 
   // ── Create/update an ECharts instance ────────────────────────────────────
   window._charts = {};
@@ -53,11 +70,11 @@
       tooltip: { ...theme.tooltip, trigger: 'axis', ...(option.tooltip || {}) },
       legend:  { ...theme.legend,  ...(option.legend  || {}) },
       xAxis:   option.xAxis ? (Array.isArray(option.xAxis)
-                  ? option.xAxis.map(a => ({ ...theme.xAxis, ...a }))
-                  : { ...theme.xAxis, ...option.xAxis }) : undefined,
+                  ? option.xAxis.map(a => _mergeAxis(theme.xAxis, a))
+                  : _mergeAxis(theme.xAxis, option.xAxis)) : undefined,
       yAxis:   option.yAxis ? (Array.isArray(option.yAxis)
-                  ? option.yAxis.map(a => ({ ...theme.yAxis, ...a }))
-                  : { ...theme.yAxis, ...option.yAxis }) : undefined,
+                  ? option.yAxis.map(a => _mergeAxis(theme.yAxis, a))
+                  : _mergeAxis(theme.yAxis, option.yAxis)) : undefined,
       color:   theme.color,
     };
     // merge remaining keys (series, grid, etc.) — grid gets a default top to clear title+legend
