@@ -231,8 +231,8 @@ def load_phist(phist_csv):
     if not os.path.exists(phist_csv):
         return data
     for row in read_csv(phist_csv, required=False):
-        phage_path = row.get("phage", "").strip()
-        host_path  = row.get("host",  "").strip()
+        phage_path = (row.get("phage") or "").strip()
+        host_path  = (row.get("host")  or "").strip()
         if not phage_path:
             continue
         virus = os.path.basename(phage_path)
