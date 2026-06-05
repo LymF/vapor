@@ -662,14 +662,10 @@ rule galah_derep:
             printf "representative\tmember\n" > {output.cluster}
             touch {output.done}; exit 0
         fi
-        # galah cluster: pass CheckM2 quality (col 1=Name col 2=Completeness col 3=Contamination)
-        QUAL_TSV={params.outdir}/checkm2_quality.tsv
-        awk 'BEGIN{{FS=OFS="\\t"}} NR==1{{print "Name","Completeness","Contamination"; next}} \
-             {{print $1".fa",$2,$3}}' {input.checkm2_tsv} > "$QUAL_TSV"
         galah cluster \
             --genome-fasta-files "${{BINS[@]}}" \
             --ani {params.ani} \
-            --checkm2-quality-report "$QUAL_TSV" \
+            --checkm2-quality-report {input.checkm2_tsv} \
             --output-cluster-definition {output.cluster} \
             --output-representative-fasta-directory {params.repdir} \
             --threads {threads} \
