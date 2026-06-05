@@ -664,7 +664,7 @@ rule galah_derep:
         fi
         # galah cluster: pass CheckM2 quality (col 1=Name col 2=Completeness col 3=Contamination)
         QUAL_TSV={params.outdir}/checkm2_quality.tsv
-        awk 'BEGIN{{FS=OFS="\\t"}} NR==1{{print "genome","completeness","contamination"; next}} \
+        awk 'BEGIN{{FS=OFS="\\t"}} NR==1{{print "Name","Completeness","Contamination"; next}} \
              {{print $1".fa",$2,$3}}' {input.checkm2_tsv} > "$QUAL_TSV"
         galah cluster \
             --genome-fasta-files "${{BINS[@]}}" \
