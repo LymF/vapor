@@ -275,7 +275,7 @@ rule semibin2:
             --environment {SEMIBIN_ENV} \
             --engine $ENGINE \
             -t {threads} \
-            > {log} 2>&1
+            > {log} 2>&1 || echo "[SemiBin2] WARNING: binning failed (e.g. too few long contigs) — skipping" | tee -a {log}
         touch {output.done}
         """
 
