@@ -213,15 +213,19 @@
   };
 
   // ── Kick off all renders ──────────────────────────────────────────────────
+  // Each render runs in its own try/catch so a bug in one tab (e.g. bad data
+  // for a single chart) cannot prevent later tabs from rendering at all.
   document.addEventListener('DOMContentLoaded', () => {
     showTab('overview');
-    if (typeof renderOverview    === 'function') renderOverview();
-    if (typeof renderSequencing  === 'function') renderSequencing();
-    if (typeof renderViral       === 'function') renderViral();
-    if (typeof renderProkaryotic === 'function') renderProkaryotic();
-    if (typeof renderDiversity   === 'function') renderDiversity();
-    if (typeof renderAnnotation  === 'function') renderAnnotation();
-    if (typeof renderAbout       === 'function') renderAbout();
+    [renderOverview, renderSequencing, renderViral, renderProkaryotic,
+     renderDiversity, renderAnnotation, renderAbout].forEach(fn => {
+      if (typeof fn !== 'function') return;
+      try {
+        fn();
+      } catch (e) {
+        console.error(`[VAPOR] render error in ${fn.name}:`, e);
+      }
+    });
   });
 
 })();

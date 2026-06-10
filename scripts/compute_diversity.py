@@ -22,16 +22,7 @@ import sys
 from collections import defaultdict
 
 import numpy as np
-
-# scipy imports — conditionally used
-try:
-    from scipy.spatial import procrustes as scipy_procrustes
-    from scipy.linalg import eigh
-    SCIPY_OK = True
-except ImportError:
-    SCIPY_OK = False
-    print("[compute_diversity] WARNING: scipy not available — beta diversity skipped",
-          file=sys.stderr)
+from numpy.linalg import eigh
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -215,14 +206,41 @@ def pcoa_to_tsv(samples, dist_matrix, domain, n_axes=5):
 #  Procrustes — co-variation between viral and prokaryotic ordinations
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _orthogonal_procrustes(a, b):
+    """Find orthogonal R and scale minimizing ||a - b @ R||_F (numpy-only)."""
+    u, w, vt = np.linalg.svd(b.T @ a)
+    r = u @ vt
+    return r, w.sum()
+
+
+def _procrustes(data1, data2):
+    """
+    numpy-only re-implementation of scipy.spatial.procrustes:
+    standardize both matrices (centered, unit Frobenius norm) and rotate
+    data2 onto data1. Returns (mtx1, mtx2_aligned, disparity).
+    """
+    mtx1 = np.array(data1, dtype=float)
+    mtx2 = np.array(data2, dtype=float)
+    mtx1 -= mtx1.mean(axis=0)
+    mtx2 -= mtx2.mean(axis=0)
+    norm1 = np.linalg.norm(mtx1)
+    norm2 = np.linalg.norm(mtx2)
+    if norm1 == 0 or norm2 == 0:
+        raise ValueError("Input matrices must contain >1 unique points")
+    mtx1 /= norm1
+    mtx2 /= norm2
+    r, scale = _orthogonal_procrustes(mtx1, mtx2)
+    mtx2 = mtx2 @ r.T * scale
+    disparity = float(np.sum((mtx1 - mtx2) ** 2))
+    return mtx1, mtx2, disparity
+
+
 def run_procrustes(viral_pcoa_rows, prok_pcoa_rows):
     """
     Align viral and prokaryotic PCoA coordinates via Procrustes.
     Only uses samples present in both ordinations.
     Returns list of dicts with aligned coordinates + disparity score.
     """
-    if not SCIPY_OK:
-        return [], None
     v_dict = {r["sample"]: r for r in viral_pcoa_rows}
     p_dict = {r["sample"]: r for r in prok_pcoa_rows}
     common = sorted(set(v_dict) & set(p_dict))
@@ -237,7 +255,7 @@ def run_procrustes(viral_pcoa_rows, prok_pcoa_rows):
     mat_v = np.array([[v_dict[s].get(c, 0.0) for c in pc_cols] for s in common])
     mat_p = np.array([[p_dict[s].get(c, 0.0) for c in pc_cols] for s in common])
     try:
-        _, mat_v_t, disparity = scipy_procrustes(mat_p, mat_v)
+        _, mat_v_t, disparity = _procrustes(mat_p, mat_v)
     except Exception as e:
         print(f"[compute_diversity] Procrustes error: {e}", file=sys.stderr)
         return [], None
@@ -322,14 +340,6 @@ def main():
     write_tsv(out_alpha, alpha_rows,
               ["sample", "domain", "richness", "shannon", "simpson", "chao1"])
     log(f"[compute_diversity] Alpha: {len(alpha_rows)} rows")
-
-    if not SCIPY_OK:
-        # Write empty beta outputs so Snakemake targets exist
-        for p in [out_pcoa_v, out_pcoa_p, out_pcoa_c, out_procrust]:
-            open(p, "w").close()
-        open(out_done, "w").close()
-        log_f.close()
-        return
 
     # ── Beta diversity — viral ────────────────────────────────────────
     v_samples, v_dist = bray_curtis_matrix(vfeats, v_data)

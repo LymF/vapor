@@ -14,7 +14,7 @@ from .data_loaders import (
     collect_depth_data, parse_fasta_lengths,
     collect_viral_tool_counts, collect_vrhyme_stats, collect_binner_counts,
     parse_checkm2_phyla,
-    load_vibrant, load_vcontact3, load_viral_taxonomy, load_gtdbtk,
+    load_vibrant, load_vcontact3, load_viral_taxonomy, load_viral_source_distribution, load_gtdbtk,
     load_custom_prok, load_phist,
     enrich_taxonomy_with_checkv, merge_prok_taxonomy,
     load_alpha_diversity, load_pcoord, load_eggnog, load_phrogs,
@@ -102,6 +102,8 @@ def _build(snakemake):
 
     # ── Load taxonomy + host prediction ───────────────────────────────────────
     tax_data     = load_viral_taxonomy([taxonomy_paths.get(s, '') for s in samples], samples)
+    viral_source_dist = load_viral_source_distribution(
+        [taxonomy_paths.get(s, '') for s in samples], samples)
     vc3_data     = load_vcontact3(vcontact3_paths, samples)
     gtdb_data    = load_gtdbtk(gtdbtk_bac_l, gtdbtk_arc_l, samples)
     phist_data   = load_phist(phist_paths_l, samples)
@@ -322,6 +324,7 @@ def _build(snakemake):
         "VIRAL_ABUND":  viral_abund,
         "PROK_ABUND":   prok_abund,
         "TAX_DATA":     tax_data,
+        "VIRAL_SOURCE_DIST": viral_source_dist,
         "VC3_DATA":     vc3_data,
         "VC3_NETWORK":  vc3_network_data,
         "GTDB_DATA":    gtdb_data,

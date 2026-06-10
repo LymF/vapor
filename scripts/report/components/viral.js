@@ -138,6 +138,7 @@
     mkChart('vir-checkv-scatter-chart', {
       title: { text: 'CheckV — Length vs Completeness (● consensus  ◆ vRhyme)' },
       tooltip: {
+        trigger: 'item',
         formatter: p => `${p.data.name}<br>Length: ${p.data.value[0].toLocaleString()} bp<br>Completeness: ${p.data.value[1].toFixed(1)}%`,
       },
       legend: { type: 'scroll' },
@@ -236,28 +237,51 @@
   }
 
   // ── Multi-pie helper ──────────────────────────────────────────────────────
+  // Lays out one donut per sample on a grid (rows x cols) sized so they don't
+  // overlap, regardless of how many samples there are.
   function _multiPie(id, title, samples, perSampleData) {
-    const n = samples.length || 1;
-    const pies = samples.map((s, i) => ({
-      name: s,
-      type: 'pie',
-      radius: ['30%', '55%'],
-      center: [`${(i + 0.5) / n * 100}%`, '55%'],
-      data: perSampleData[i],
-      label: { show: false },
-      tooltip: { formatter: p => `${p.name}: ${p.value} (${p.percent.toFixed(1)}%)` },
-    }));
-    const annotations = samples.map((s, i) => ({
-      type: 'text',
-      bottom: '8%',
-      left: `${(i + 0.5) / n * 100}%`,
-      style: { text: s, textAlign: 'center', fill: 'inherit', fontSize: 11 },
-    }));
+    const n    = Math.max(samples.length, 1);
+    const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
+    const rows = Math.max(1, Math.ceil(n / cols));
+    const el   = document.getElementById(id);
+    const W    = (el && el.clientWidth)  || 900;
+    const H    = (el && el.clientHeight) || 420;
+    const minDim  = Math.min(W, H);
+    const outerPx = Math.min(W / cols, H / rows) * 0.40;
+    const outerPct = (outerPx / minDim * 100).toFixed(1) + '%';
+    const innerPct = (outerPx * 0.5 / minDim * 100).toFixed(1) + '%';
+    const dark = document.documentElement.dataset.theme === 'dark';
+    const labelColor = dark ? '#94a3b8' : '#64748b';
+
+    const pies = samples.map((s, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      return {
+        name: s,
+        type: 'pie',
+        radius: [innerPct, outerPct],
+        center: [`${(col + 0.5) / cols * 100}%`, `${(row + 0.5) / rows * 100}%`],
+        data: perSampleData[i],
+        label: { show: false },
+        tooltip: { formatter: p => `${s}<br>${p.name}: ${p.value} (${p.percent.toFixed(1)}%)` },
+      };
+    });
+
+    const graphics = samples.map((s, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const label = s.length > 14 ? s.slice(0, 13) + '…' : s;
+      return {
+        type: 'text',
+        left: `${(col + 0.5) / cols * 100}%`,
+        top:  `${Math.min(98, (row + 0.5) / rows * 100 + (outerPx / H * 100) + 2)}%`,
+        style: { text: label, fill: labelColor, font: '10px Inter, system-ui, sans-serif', textAlign: 'center' },
+      };
+    });
 
     mkChart(id, {
       title: { text: title },
       tooltip: { trigger: 'item' },
       series: pies,
+      graphic: graphics,
     });
   }
 
@@ -265,19 +289,22 @@
   function _renderTaxonomy(sample) {
     const tax = typeof TAX_DATA !== 'undefined' ? TAX_DATA.filter(r => r.sample === sample) : [];
 
-    // Source pie
-    const srcCount = {};
-    tax.forEach(r => { const s = r.Source || 'other'; srcCount[s] = (srcCount[s] || 0) + 1; });
-    const srcPieData = Object.entries(srcCount).map(([name, value]) => ({ name, value }));
+    // Source pie — covers ALL contigs (incl. diamond_custom-only hits and unknown)
+    const srcDist = (typeof VIRAL_SOURCE_DIST !== 'undefined' ? VIRAL_SOURCE_DIST : {})[sample] || {};
+    const srcPieData = Object.entries(srcDist).map(([name, value]) => ({ name, value }));
     mkChart('vir-tax-source-chart', {
       title: { text: `${sample} — Classification Source` },
       tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
       series: [{ type: 'pie', radius: ['35%', '60%'], data: srcPieData, label: { formatter: '{b}\n{d}%' } }],
     });
 
-    // Family bar (top 20)
+    // Family bar (top 20) — only contigs with an actual family-level assignment
     const famCount = {};
-    tax.forEach(r => { const f = r.final_family || r.Family || 'Unknown'; famCount[f] = (famCount[f] || 0) + 1; });
+    tax.forEach(r => {
+      const f = r.final_family || r.Family || '';
+      if (!f) return;
+      famCount[f] = (famCount[f] || 0) + 1;
+    });
     const topFams = Object.entries(famCount).sort((a, b) => b[1] - a[1]).slice(0, 20);
     mkChart('vir-tax-family-chart', {
       title: { text: `${sample} — Top Viral Families` },
@@ -433,14 +460,14 @@
       .attr('stroke-opacity', 0.6);
 
     const nodeSel = svg.append('g').selectAll('circle').data(nodes).join('circle')
-      .attr('r', d => d.is_reference ? 5 : 7)
-      .attr('fill', d => color(d.vc || 'Singleton'))
-      .attr('fill-opacity', d => d.is_reference ? 0.4 : 0.85)
+      .attr('r', d => d.is_novel === false ? 5 : 7)
+      .attr('fill', d => color(d.cluster || 'Singleton'))
+      .attr('fill-opacity', d => d.is_novel === false ? 0.4 : 0.85)
       .attr('stroke', dark ? '#0f172a' : '#fff')
       .attr('stroke-width', 1.5)
       .style('cursor', 'pointer');
 
-    const labels = svg.append('g').selectAll('text').data(nodes.filter(d => !d.is_reference)).join('text')
+    const labels = svg.append('g').selectAll('text').data(nodes.filter(d => d.is_novel !== false)).join('text')
       .attr('font-size', 9)
       .attr('fill', dark ? '#94a3b8' : '#64748b')
       .attr('dy', '-.5em')
@@ -451,7 +478,7 @@
     const tip = d3.select(el).append('div').attr('class', 'd3-tooltip').style('display', 'none');
     nodeSel.on('mouseover', (e, d) => {
       tip.style('display', 'block').style('left', (e.offsetX + 12) + 'px').style('top', (e.offsetY - 12) + 'px')
-        .html(`<strong>${d.id || ''}</strong><br>VC: ${d.vc || 'Singleton'}<br>Family: ${d.family || '—'}`);
+        .html(`<strong>${d.id || ''}</strong><br>VC: ${d.cluster || 'Singleton'}<br>Family: ${d.family || '—'}`);
     }).on('mouseout', () => tip.style('display', 'none'));
 
     const sim = d3.forceSimulation(nodes)

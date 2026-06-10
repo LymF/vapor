@@ -73,14 +73,16 @@
 
     // Scatter: Contamination vs Completeness + MIMAG zones
     const domColors = { Bacteria: '#0d9488', Archaea: '#d97706', Unknown: '#64748b' };
+    const merged = typeof MERGED_PROK !== 'undefined' ? MERGED_PROK : [];
+    const domLookup = {};
+    merged.forEach(r => { domLookup[`${r.sample}::${r.Bin}`] = r.Domain || 'Unknown'; });
     const seriesMap = {};
     samples.forEach(s => {
       (cm[s] || []).forEach(r => {
         const comp = +(r.Completeness || 0);
         const cont = +(r.Contamination || 0);
-        const tax  = r.Taxonomic_lineage || r.taxonomic_lineage || '';
-        const name = r.Name || r.name || '';
-        const dom  = 'Archaea' in tax ? 'Archaea' : (tax.includes('Bacteria') || tax.includes('bacteria')) ? 'Bacteria' : 'Unknown';
+        const name = (r.Name || r.name || '').replace(/\.fa$/, '');
+        const dom  = domLookup[`${s}::${name}`] || 'Unknown';
         if (!seriesMap[dom]) {
           seriesMap[dom] = { name: dom, type: 'scatter', symbolSize: 9, color: domColors[dom],
             itemStyle: { opacity: 0.8, borderColor: 'white', borderWidth: 1 }, data: [] };

@@ -105,15 +105,19 @@ def parse_fastp_json(outdir, sample):
 
     reads = []
     for stage_key, stage_lbl in [("before_filtering", "raw"), ("after_filtering", "trimmed")]:
+        # gc_content/q30_rate are only present in the aggregate summary block,
+        # not in the per-read read{1,2}_{before,after}_filtering blocks.
+        summ_stage = j.get("summary", {}).get(stage_key, {})
+        gc_pct = safe_float(summ_stage.get("gc_content", 0)) * 100
+        q30    = safe_float(summ_stage.get("q30_rate", 0) or 0)
         for read_key, read_lbl in [("read1", "R1"), ("read2", "R2")]:
-            rd = j.get(f"{read_key}_{stage_key}") or j.get("summary", {}).get(stage_key, {})
-            q30 = safe_float(rd.get("q30_rate", 0) or 0)
+            rd = j.get(f"{read_key}_{stage_key}") or summ_stage
             reads.append({
                 "stage":           stage_lbl,
                 "read":            read_lbl,
                 "r_label":         f"{stage_lbl} {read_lbl}",
                 "total_sequences": safe_int(rd.get("total_reads", 0)),
-                "gc_percent":      safe_float(rd.get("gc_content", 0)) * 100,
+                "gc_percent":      gc_pct,
                 "mean_quality":    q30 * 35 + (1 - q30) * 10,
             })
 
@@ -455,6 +459,37 @@ def load_viral_taxonomy(paths, samples):
     return records
 
 
+def load_viral_source_distribution(paths, samples):
+    """Per-sample distribution of classification sources for ALL viral contigs
+    (including ones dropped from load_viral_taxonomy because they have no
+    family/genus/order). Buckets: genomad, diamond_inphared, vcontact3,
+    diamond_custom (IMGVR-only hit), unknown (no hit at all)."""
+    _NULL = {"singleton", "unclassified", "nd", "none", ""}
+    dist = {}
+    for p, s in zip(paths, samples):
+        counts = Counter()
+        for row in load_tsv(p):
+            if not row.get('seq_name', ''):
+                continue
+            final_family = row.get('final_family', '').strip().lower()
+            final_genus  = row.get('final_genus', '').strip().lower()
+            final_order  = row.get('final_order', '').strip().lower()
+            source       = row.get('source', '').strip()
+            custom_acc   = row.get('custom_acc', '').strip()
+            genomad_class = (row.get('genomad_class', '') or row.get('genomad_best', '')).strip()
+            if final_family not in _NULL or final_genus not in _NULL or final_order not in _NULL:
+                bucket = source if source not in _NULL else 'genomad'
+            elif genomad_class.lower() not in _NULL:
+                bucket = 'genomad'
+            elif custom_acc.lower() not in _NULL:
+                bucket = 'diamond_custom'
+            else:
+                bucket = 'unknown'
+            counts[bucket] += 1
+        dist[s] = dict(counts)
+    return dist
+
+
 def _deepest_level(lineage):
     if not lineage: return '', '', ''
     parts = [p.strip() for p in lineage.split(';')]
@@ -607,28 +642,37 @@ def merge_prok_taxonomy(gtdb_records, custom_prok_records, checkm2_dict):
 
 # ── New loaders: diversity + functional ──────────────────────────────────────
 
+_ALPHA_DOMAIN_MAP = {'prokaryotic': 'prok', 'prok': 'prok', 'viral': 'viral', 'combined': 'combined'}
+_ALPHA_INDEX_MAP  = {'richness': 'observed', 'shannon': 'shannon', 'simpson': 'simpson', 'chao1': 'chao1'}
+
+
 def load_alpha_diversity(path):
-    """Load alpha_diversity.tsv → list of {sample, domain, index, value}."""
+    """Load alpha_diversity.tsv (wide: sample, domain, richness, shannon, simpson, chao1)
+    and reshape into long format → list of {sample, domain, index, value}."""
     rows = []
     for row in load_tsv(path):
         sample = row.get('sample', '')
-        domain = row.get('domain', 'combined')
-        index  = row.get('index', row.get('metric', ''))
-        value  = safe_float(row.get('value', 0))
-        if sample and index:
-            rows.append({'sample': sample, 'domain': domain, 'index': index, 'value': value})
+        domain = _ALPHA_DOMAIN_MAP.get(row.get('domain', ''), row.get('domain', 'combined'))
+        if not sample:
+            continue
+        for col, index in _ALPHA_INDEX_MAP.items():
+            if col in row:
+                rows.append({'sample': sample, 'domain': domain, 'index': index,
+                             'value': safe_float(row.get(col, 0))})
     return rows
 
 
 def load_pcoord(path):
-    """Load beta_pcoord_*.tsv → list of {sample, pc1, pc2, var_pc1, var_pc2}."""
+    """Load beta_pcoord_*.tsv → list of {sample, pc1, pc2, var_pc1, var_pc2}.
+    PC1_var/PC2_var are written as percentages; stored here as 0-1 fractions
+    (the JS multiplies by 100 when displaying)."""
     rows = []
     for row in load_tsv(path):
         sample  = row.get('sample', '')
         pc1     = safe_float(row.get('PC1', row.get('pc1', 0)))
         pc2     = safe_float(row.get('PC2', row.get('pc2', 0)))
-        var_pc1 = safe_float(row.get('var_pc1', row.get('variance_pc1', 0)))
-        var_pc2 = safe_float(row.get('var_pc2', row.get('variance_pc2', 0)))
+        var_pc1 = safe_float(row.get('PC1_var', row.get('var_pc1', 0))) / 100.0
+        var_pc2 = safe_float(row.get('PC2_var', row.get('var_pc2', 0))) / 100.0
         if sample:
             rows.append({'sample': sample, 'pc1': pc1, 'pc2': pc2,
                          'var_pc1': var_pc1, 'var_pc2': var_pc2})

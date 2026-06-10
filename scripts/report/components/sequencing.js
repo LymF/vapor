@@ -153,30 +153,46 @@
       grid: { bottom: 70 },
     });
 
-    // Contig length distribution (stacked histogram bins)
+    // Contig length distribution (boxplot per sample — scales to any sample count)
     const lenData = typeof VIRAL_LENGTHS !== 'undefined' ? VIRAL_LENGTHS : {};
-    const binSize  = 5000;
-    const maxLen   = 200000;
-    const binEdges = [];
-    for (let i = 0; i <= maxLen; i += binSize) binEdges.push(i);
-    const lenSeries = samples.map((s, i) => {
-      const lens = lenData[s] || [];
-      const bins = new Array(binEdges.length - 1).fill(0);
-      lens.forEach(l => {
-        const b = Math.min(Math.floor(l / binSize), bins.length - 1);
-        bins[b]++;
-      });
-      return { name: s, type: 'bar', stack: null, barMaxWidth: 20, data: bins, color: PAL[i % PAL.length] };
+
+    function _quantile(sorted, q) {
+      const pos  = (sorted.length - 1) * q;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      return sorted[base + 1] !== undefined
+        ? sorted[base] + rest * (sorted[base + 1] - sorted[base])
+        : sorted[base];
+    }
+
+    const boxData  = [];
+    const outliers = [];
+    samples.forEach((s, i) => {
+      const lens = (lenData[s] || []).slice().sort((a, b) => a - b);
+      if (!lens.length) { boxData.push([0, 0, 0, 0, 0]); return; }
+      const q1  = _quantile(lens, 0.25);
+      const med = _quantile(lens, 0.5);
+      const q3  = _quantile(lens, 0.75);
+      const iqr = q3 - q1;
+      const lo  = q1 - 1.5 * iqr;
+      const hi  = q3 + 1.5 * iqr;
+      const within = lens.filter(v => v >= lo && v <= hi);
+      boxData.push([within[0] ?? lens[0], q1, med, q3, within[within.length - 1] ?? lens[lens.length - 1]]);
+      lens.forEach(v => { if (v < lo || v > hi) outliers.push([i, v]); });
     });
 
     mkChart('seq-depth-chart', {
-      title: { text: 'Assembly Contig Length Distribution' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: samples },
-      xAxis: { type: 'category', data: binEdges.slice(0, -1).map(v => (v/1000).toFixed(0) + 'k'), axisLabel: { rotate: 45 } },
-      yAxis: { type: 'value', name: 'Count' },
-      series: lenSeries,
-      grid: { bottom: 80 },
+      title: { text: 'Viral Contig Length Distribution (bp)' },
+      tooltip: { trigger: 'item' },
+      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
+      yAxis: { type: 'log', name: 'Length (bp)' },
+      series: [
+        { name: 'Length',  type: 'boxplot', data: boxData,
+          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
+        { name: 'Outlier', type: 'scatter', data: outliers,
+          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
+      ],
+      grid: { bottom: 90 },
     });
 
     // ── Assembly tab ──────────────────────────────────────────────────────────
