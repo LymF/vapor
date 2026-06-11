@@ -94,7 +94,7 @@
 
     mkChart('prok-checkm2-chart', {
       title: { text: 'MAG Quality — Completeness vs Contamination (CheckM2)' },
-      tooltip: { formatter: p => `${p.data.name}<br>Comp: ${p.data.value[1].toFixed(1)}%<br>Cont: ${p.data.value[0].toFixed(1)}%` },
+      tooltip: { trigger: 'item', formatter: p => `${p.data.name}<br>Comp: ${p.data.value[1].toFixed(1)}%<br>Cont: ${p.data.value[0].toFixed(1)}%` },
       legend: { data: Object.keys(seriesMap) },
       xAxis: { type: 'value', name: 'Contamination (%)', min: -0.5, max: 15, nameLocation: 'middle', nameGap: 30 },
       yAxis: { type: 'value', name: 'Completeness (%)',  min: -2,   max: 105, nameLocation: 'middle', nameGap: 35 },

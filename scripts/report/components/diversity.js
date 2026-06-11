@@ -87,9 +87,12 @@
     const dark   = document.documentElement.dataset.theme === 'dark';
     const W      = el.clientWidth  || 900;
     const H      = 500;
-    const margin = { top: 40, right: 40, bottom: 70, left: 70 };
+    // Extra right margin gives on-chart sample labels room to render without
+    // being clipped by the SVG viewport (default overflow:hidden on <svg>).
+    const margin = { top: 40, right: 90, bottom: 70, left: 70 };
     const iW     = W - margin.left - margin.right;
     const iH     = H - margin.top  - margin.bottom;
+    const truncLabel = s => (s.length > 18 ? s.slice(0, 17) + '…' : s);
 
     const pc1Vals  = rows.map(r => +r.pc1);
     const pc2Vals  = rows.map(r => +r.pc2);
@@ -159,7 +162,8 @@
       .attr('y', d => yScale(+d.pc2) + 4)
       .attr('font-size', 10)
       .attr('fill', dark ? '#94a3b8' : '#64748b')
-      .text(d => d.sample);
+      .text(d => truncLabel(d.sample))
+      .append('title').text(d => d.sample);
   }
 
 })();

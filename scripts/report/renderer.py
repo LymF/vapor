@@ -214,7 +214,11 @@ def _build(snakemake):
             "n_contigs":          qd.get("# contigs", "N/A"),
             "n50":                qd.get("N50", "N/A"),
             "viral_consensus":    vc_count,
-            "complete_viral":     sum(1 for r in votu_data[s] if r.get("checkv_quality", "") == "High-quality"),
+            # Use checkv_data (all consensus contigs) rather than votu_data (mmseqs
+            # cluster representatives only) — the latter often excludes the HQ/Complete
+            # contigs entirely if they weren't picked as cluster representatives,
+            # which made this KPI read 0% even when the CheckV scatter/donuts show HQ hits.
+            "complete_viral":     sum(1 for r in cv if r.get("checkv_quality", "") in ("Complete", "High-quality")),
             "vmags":              vrhyme_data[s]["n_bins"],
             "total_bins":         das.get("total", 0),
             "hq_bins":            sum(1 for r in cm if safe_float(r.get("Completeness", 0)) >= 90

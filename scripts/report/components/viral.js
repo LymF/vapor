@@ -85,29 +85,56 @@
     const cvCats = ['Complete', 'High-quality', 'Medium-quality', 'Low-quality', 'Not-determined'];
     const cvCols = ['#16a34a', '#4ade80', '#fbbf24', '#d97706', '#ef4444'];
 
-    // CheckV pie (consensus)
-    const pieData = samples.map(s => {
+    // CheckV quality donuts — "All samples" (aggregated) or a single sample
+    const ALL = 'All samples';
+    function _checkvCounts(data, sampleList) {
       const counts = {};
-      (cv[s] || []).forEach(r => {
+      sampleList.forEach(s => (data[s] || []).forEach(r => {
         const q = r.checkv_quality || 'Not-determined';
         counts[q] = (counts[q] || 0) + 1;
-      });
-      return cvCats.map((c, i) => ({ value: counts[c] || 0, name: c, itemStyle: { color: cvCols[i] } }));
-    });
+      }));
+      return counts;
+    }
+    function _renderCheckvDonuts(sel) {
+      const sampleList = sel === ALL ? samples : [sel];
+      const label = sel === ALL ? 'all samples' : sel;
 
-    // Multi-pie for consensus
-    _multiPie('vir-checkv-pie-chart', 'CheckV — Consensus Contigs Quality', samples, pieData);
-
-    // CheckV pie (vRhyme)
-    const pieDataVrh = samples.map(s => {
-      const counts = {};
-      (cvr[s] || []).forEach(r => {
-        const q = r.checkv_quality || 'Not-determined';
-        counts[q] = (counts[q] || 0) + 1;
+      const counts = _checkvCounts(cv, sampleList);
+      mkChart('vir-checkv-pie-chart', {
+        title: { text: `CheckV — Consensus Contigs Quality (${label})` },
+        tooltip: { trigger: 'item', formatter: p => `${p.name}: ${p.value} (${p.percent.toFixed(1)}%)` },
+        legend: { orient: 'vertical', left: 'left', top: 'middle' },
+        series: [{
+          type: 'pie', radius: ['40%', '70%'],
+          data: cvCats.map((c, i) => ({ value: counts[c] || 0, name: c, itemStyle: { color: cvCols[i] } })),
+          label: { formatter: '{b}: {c}' },
+        }],
       });
-      return cvCats.map((c, i) => ({ value: counts[c] || 0, name: c, itemStyle: { color: cvCols[i] } }));
-    });
-    _multiPie('vir-checkv-pie-vrh-chart', 'CheckV — vRhyme vMAGs Quality', samples, pieDataVrh);
+
+      const countsVrh = _checkvCounts(cvr, sampleList);
+      mkChart('vir-checkv-pie-vrh-chart', {
+        title: { text: `CheckV — vRhyme vMAGs Quality (${label})` },
+        tooltip: { trigger: 'item', formatter: p => `${p.name}: ${p.value} (${p.percent.toFixed(1)}%)` },
+        legend: { orient: 'vertical', left: 'left', top: 'middle' },
+        series: [{
+          type: 'pie', radius: ['40%', '70%'],
+          data: cvCats.map((c, i) => ({ value: countsVrh[c] || 0, name: c, itemStyle: { color: cvCols[i] } })),
+          label: { formatter: '{b}: {c}' },
+        }],
+      });
+    }
+
+    const checkvSel = document.getElementById('sample-sel-vir-checkv');
+    if (checkvSel) {
+      checkvSel.innerHTML = '';
+      [ALL, ...samples].forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = s;
+        checkvSel.appendChild(opt);
+      });
+      checkvSel.addEventListener('change', () => _renderCheckvDonuts(checkvSel.value));
+    }
+    _renderCheckvDonuts(ALL);
 
     // CheckV scatter: length vs completeness
     const scatterSeries = [];
@@ -237,55 +264,6 @@
           symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
       ],
       grid: { bottom: 90 },
-    });
-  }
-
-  // ── Multi-pie helper ──────────────────────────────────────────────────────
-  // Lays out one donut per sample on a grid (rows x cols) sized so they don't
-  // overlap, regardless of how many samples there are.
-  function _multiPie(id, title, samples, perSampleData) {
-    const n    = Math.max(samples.length, 1);
-    const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
-    const rows = Math.max(1, Math.ceil(n / cols));
-    const el   = document.getElementById(id);
-    const W    = (el && el.clientWidth)  || 900;
-    const H    = (el && el.clientHeight) || 420;
-    const minDim  = Math.min(W, H);
-    const outerPx = Math.min(W / cols, H / rows) * 0.40;
-    const outerPct = (outerPx / minDim * 100).toFixed(1) + '%';
-    const innerPct = (outerPx * 0.5 / minDim * 100).toFixed(1) + '%';
-    const dark = document.documentElement.dataset.theme === 'dark';
-    const labelColor = dark ? '#94a3b8' : '#64748b';
-
-    const pies = samples.map((s, i) => {
-      const col = i % cols, row = Math.floor(i / cols);
-      return {
-        name: s,
-        type: 'pie',
-        radius: [innerPct, outerPct],
-        center: [`${(col + 0.5) / cols * 100}%`, `${(row + 0.5) / rows * 100}%`],
-        data: perSampleData[i],
-        label: { show: false },
-        tooltip: { formatter: p => `${s}<br>${p.name}: ${p.value} (${p.percent.toFixed(1)}%)` },
-      };
-    });
-
-    const graphics = samples.map((s, i) => {
-      const col = i % cols, row = Math.floor(i / cols);
-      const label = s.length > 14 ? s.slice(0, 13) + '…' : s;
-      return {
-        type: 'text',
-        left: `${(col + 0.5) / cols * 100}%`,
-        top:  `${Math.min(98, (row + 0.5) / rows * 100 + (outerPx / H * 100) + 2)}%`,
-        style: { text: label, fill: labelColor, font: '10px Inter, system-ui, sans-serif', textAlign: 'center' },
-      };
-    });
-
-    mkChart(id, {
-      title: { text: title },
-      tooltip: { trigger: 'item' },
-      series: pies,
-      graphic: graphics,
     });
   }
 
