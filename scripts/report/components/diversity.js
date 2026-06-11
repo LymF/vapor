@@ -102,7 +102,6 @@
       .domain([d3.min(pc2Vals) * 1.2, d3.max(pc2Vals) * 1.2]).range([iH, 0]);
 
     const color  = d3.scaleOrdinal(PAL);
-    const samples= typeof SAMPLES !== 'undefined' ? SAMPLES : [];
 
     const svg = d3.select(el).append('svg').attr('width', W).attr('height', H);
     const g   = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
@@ -152,7 +151,8 @@
       })
       .on('mouseout', () => tip.style('display', 'none'));
 
-    // Labels next to points
+    // Labels next to points (each point is already labeled — no separate legend needed,
+    // since a per-sample legend with ~32 entries would overflow the SVG and be clipped)
     g.selectAll('.pcoa-label').data(rows).join('text')
       .attr('class', 'pcoa-label')
       .attr('x', d => xScale(+d.pc1) + 10)
@@ -160,16 +160,6 @@
       .attr('font-size', 10)
       .attr('fill', dark ? '#94a3b8' : '#64748b')
       .text(d => d.sample);
-
-    // Legend
-    const legend = svg.append('g').attr('transform', `translate(${margin.left + iW + 10},${margin.top})`);
-    const uniqSamples = [...new Set(rows.map(r => r.sample))];
-    uniqSamples.forEach((s, i) => {
-      const ly = i * 20;
-      legend.append('circle').attr('cx', 6).attr('cy', ly + 6).attr('r', 6).attr('fill', color(s));
-      legend.append('text').attr('x', 16).attr('y', ly + 11).attr('font-size', 11)
-        .attr('fill', dark ? '#94a3b8' : '#64748b').text(s);
-    });
   }
 
 })();

@@ -9,6 +9,31 @@
     '#64748b','#2563eb','#db2777','#059669','#ca8a04',
   ];
 
+  // ── Boxplot stats helper (median/IQR/whiskers + 1.5*IQR outliers) ──────────
+  // Used by per-sample distribution charts (contig length/depth, genome size,
+  // completeness/contamination) to avoid one legend entry per sample.
+  window.boxStats = function (values) {
+    const sorted = (values || []).slice().sort((a, b) => a - b);
+    if (!sorted.length) return { box: [0, 0, 0, 0, 0], outliers: [] };
+    const q = p => {
+      const pos  = (sorted.length - 1) * p;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      return sorted[base + 1] !== undefined
+        ? sorted[base] + rest * (sorted[base + 1] - sorted[base])
+        : sorted[base];
+    };
+    const q1 = q(0.25), med = q(0.5), q3 = q(0.75);
+    const iqr = q3 - q1;
+    const lo = q1 - 1.5 * iqr, hi = q3 + 1.5 * iqr;
+    const within   = sorted.filter(v => v >= lo && v <= hi);
+    const outliers = sorted.filter(v => v < lo || v > hi);
+    return {
+      box: [within[0] ?? sorted[0], q1, med, q3, within[within.length - 1] ?? sorted[sorted.length - 1]],
+      outliers,
+    };
+  };
+
   // ── ECharts base theme ────────────────────────────────────────────────────
   function echartsTheme() {
     const dark = document.documentElement.dataset.theme === 'dark';

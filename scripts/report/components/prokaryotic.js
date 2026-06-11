@@ -42,28 +42,29 @@
       grid: { bottom: 70 },
     });
 
-    // Genome size distribution
+    // Genome size distribution — boxplot per sample
     const cm = typeof CHECKM2 !== 'undefined' ? CHECKM2 : {};
-    const binSize = 0.5; // Mb
-    const maxSize = 10;
-    const bins    = [];
-    for (let i = 0; i <= maxSize; i += binSize) bins.push(i);
-
-    const sizeSeries = samples.map((s, i) => {
+    const sizeBox = [];
+    const sizeOutliers = [];
+    samples.forEach((s, i) => {
       const sizes = (cm[s] || []).map(r => +(r.Genome_Size || r.genome_size || 0) / 1e6).filter(v => v > 0);
-      const cnts  = new Array(bins.length - 1).fill(0);
-      sizes.forEach(v => { const b = Math.min(Math.floor(v / binSize), cnts.length - 1); cnts[b]++; });
-      return { name: s, type: 'bar', data: cnts, color: PAL[i % PAL.length], opacity: 0.75 };
+      const { box, outliers: out } = window.boxStats(sizes);
+      sizeBox.push(box);
+      out.forEach(v => sizeOutliers.push([i, v]));
     });
 
     mkChart('prok-size-chart', {
-      title: { text: 'MAG Genome Size Distribution' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: samples },
-      xAxis: { type: 'category', data: bins.slice(0, -1).map(v => v.toFixed(1) + ' Mb'), axisLabel: { rotate: 45 } },
-      yAxis: { type: 'value', name: 'Count' },
-      series: sizeSeries,
-      grid: { bottom: 80 },
+      title: { text: 'MAG Genome Size Distribution (Mb)' },
+      tooltip: { trigger: 'item' },
+      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
+      yAxis: { type: 'value', name: 'Genome size (Mb)' },
+      series: [
+        { name: 'Genome size', type: 'boxplot', data: sizeBox,
+          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
+        { name: 'Outlier', type: 'scatter', data: sizeOutliers,
+          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
+      ],
+      grid: { bottom: 90 },
     });
   }
 
@@ -129,43 +130,50 @@
       }, false);
     }
 
-    // Completeness histogram
-    const binSize = 5;
-    const compBins = [];
-    for (let i = 0; i <= 100; i += binSize) compBins.push(i);
-    const compSeries = samples.map((s, i) => {
+    // Completeness distribution — boxplot per sample
+    const compBox = [];
+    const compOutliers = [];
+    samples.forEach((s, i) => {
       const vals = (cm[s] || []).map(r => +(r.Completeness || 0));
-      const cnts  = new Array(compBins.length - 1).fill(0);
-      vals.forEach(v => { const b = Math.min(Math.floor(v / binSize), cnts.length - 1); cnts[b]++; });
-      return { name: s, type: 'bar', data: cnts, color: PAL[i % PAL.length], opacity: 0.75 };
+      const { box, outliers: out } = window.boxStats(vals);
+      compBox.push(box);
+      out.forEach(v => compOutliers.push([i, v]));
     });
     mkChart('prok-cm2-comp-chart', {
-      title: { text: 'Completeness Distribution' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: samples },
-      xAxis: { type: 'category', data: compBins.slice(0, -1).map(v => v + '%'), axisLabel: { rotate: 45 } },
-      yAxis: { type: 'value', name: 'Bins' },
-      series: compSeries,
-      grid: { bottom: 80 },
+      title: { text: 'Completeness Distribution (%)' },
+      tooltip: { trigger: 'item' },
+      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
+      yAxis: { type: 'value', name: 'Completeness (%)', min: 0, max: 100 },
+      series: [
+        { name: 'Completeness', type: 'boxplot', data: compBox,
+          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
+        { name: 'Outlier', type: 'scatter', data: compOutliers,
+          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
+      ],
+      grid: { bottom: 90 },
     });
 
-    // Contamination histogram
-    const contBins = [];
-    for (let i = 0; i <= 20; i++) contBins.push(i);
-    const contSeries = samples.map((s, i) => {
+    // Contamination distribution — boxplot per sample
+    const contBox = [];
+    const contOutliers = [];
+    samples.forEach((s, i) => {
       const vals = (cm[s] || []).map(r => +(r.Contamination || 0));
-      const cnts  = new Array(contBins.length - 1).fill(0);
-      vals.forEach(v => { const b = Math.min(Math.floor(v), cnts.length - 1); cnts[b]++; });
-      return { name: s, type: 'bar', data: cnts, color: PAL[i % PAL.length], opacity: 0.75 };
+      const { box, outliers: out } = window.boxStats(vals);
+      contBox.push(box);
+      out.forEach(v => contOutliers.push([i, v]));
     });
     mkChart('prok-cm2-cont-chart', {
-      title: { text: 'Contamination Distribution' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: samples },
-      xAxis: { type: 'category', data: contBins.slice(0, -1).map(v => v + '%'), axisLabel: { rotate: 45 } },
-      yAxis: { type: 'value', name: 'Bins' },
-      series: contSeries,
-      grid: { bottom: 80 },
+      title: { text: 'Contamination Distribution (%)' },
+      tooltip: { trigger: 'item' },
+      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
+      yAxis: { type: 'value', name: 'Contamination (%)', min: 0 },
+      series: [
+        { name: 'Contamination', type: 'boxplot', data: contBox,
+          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
+        { name: 'Outlier', type: 'scatter', data: contOutliers,
+          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
+      ],
+      grid: { bottom: 90 },
     });
 
     // MIMAG table

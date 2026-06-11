@@ -191,48 +191,52 @@
       grid: { bottom: 70 },
     });
 
-    // Viral contig length distribution
+    // Viral contig length distribution — boxplot per sample
     const lenData = typeof VIRAL_LENGTHS !== 'undefined' ? VIRAL_LENGTHS : {};
-    const binSize = 2000; const maxLen = 60000;
-    const binEdges = []; for (let i = 0; i <= maxLen; i += binSize) binEdges.push(i);
-
-    const lenSeries = samples.map((s, i) => {
-      const lens = lenData[s] || [];
-      const bins = new Array(binEdges.length - 1).fill(0);
-      lens.forEach(l => { const b = Math.min(Math.floor(l / binSize), bins.length - 1); bins[b]++; });
-      return { name: s, type: 'bar', barMaxWidth: 18, data: bins, color: PAL[i % PAL.length], opacity: 0.75 };
+    const lenBox = [];
+    const lenOutliers = [];
+    samples.forEach((s, i) => {
+      const { box, outliers: out } = window.boxStats(lenData[s] || []);
+      lenBox.push(box);
+      out.forEach(v => lenOutliers.push([i, v]));
     });
 
     mkChart('vir-len-chart', {
-      title: { text: 'Viral Contig Length Distribution' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: samples },
-      xAxis: { type: 'category', data: binEdges.slice(0, -1).map(v => (v/1000).toFixed(0) + 'k'), axisLabel: { rotate: 45 } },
-      yAxis: { type: 'value', name: 'Count' },
-      series: lenSeries,
-      grid: { bottom: 80 },
+      title: { text: 'Viral Contig Length Distribution (bp)' },
+      tooltip: { trigger: 'item' },
+      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
+      yAxis: { type: 'log', name: 'Length (bp)' },
+      series: [
+        { name: 'Length',  type: 'boxplot', data: lenBox,
+          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
+        { name: 'Outlier', type: 'scatter', data: lenOutliers,
+          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
+      ],
+      grid: { bottom: 90 },
     });
 
-    // Viral contig depth distribution
+    // Viral contig depth distribution — boxplot per sample
     const depthData = typeof VIRAL_DEPTH !== 'undefined' ? VIRAL_DEPTH : {};
-    const dBinSize  = 20; const dMax = 500;
-    const dBinEdges = []; for (let i = 0; i <= dMax; i += dBinSize) dBinEdges.push(i);
-
-    const depthSeries = samples.map((s, i) => {
-      const vals = depthData[s] || [];
-      const bins = new Array(dBinEdges.length - 1).fill(0);
-      vals.forEach(v => { const b = Math.min(Math.floor(v / dBinSize), bins.length - 1); bins[b]++; });
-      return { name: s, type: 'bar', barMaxWidth: 18, data: bins, color: PAL[i % PAL.length], opacity: 0.75 };
+    const depthBox = [];
+    const depthOutliers = [];
+    samples.forEach((s, i) => {
+      const { box, outliers: out } = window.boxStats(depthData[s] || []);
+      depthBox.push(box);
+      out.forEach(v => depthOutliers.push([i, v]));
     });
 
     mkChart('vir-depth-chart', {
-      title: { text: 'Viral Contig Coverage Depth Distribution' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: samples },
-      xAxis: { type: 'category', data: dBinEdges.slice(0, -1).map(v => v + '×'), axisLabel: { rotate: 45 } },
-      yAxis: { type: 'value', name: 'Count' },
-      series: depthSeries,
-      grid: { bottom: 80 },
+      title: { text: 'Viral Contig Coverage Depth Distribution (×)' },
+      tooltip: { trigger: 'item' },
+      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
+      yAxis: { type: 'log', name: 'Depth (×)' },
+      series: [
+        { name: 'Depth',   type: 'boxplot', data: depthBox,
+          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
+        { name: 'Outlier', type: 'scatter', data: depthOutliers,
+          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
+      ],
+      grid: { bottom: 90 },
     });
   }
 
