@@ -141,6 +141,15 @@
   // Restore saved preference
   applyTheme(localStorage.getItem('vapor-theme') === 'dark');
 
+  // ── Back to top ────────────────────────────────────────────────────────────
+  const backToTop = document.getElementById('back-to-top');
+  if (backToTop) {
+    window.addEventListener('scroll', () => {
+      backToTop.classList.toggle('visible', window.scrollY > 400);
+    });
+    backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  }
+
   // ── Main tab switching ────────────────────────────────────────────────────
   const tabs   = document.querySelectorAll('.nav-tab');
   const panels = document.querySelectorAll('.tab-panel');
@@ -251,6 +260,13 @@
         console.error(`[VAPOR] render error in ${fn.name}:`, e);
       }
     });
+    // Export toolbars (PNG/SVG/PDF) on every chart/table card
+    if (window.VaporExport) {
+      window.VaporExport.injectAll();
+      // Re-scan after lazy tab/sub-tab renders (D3 networks, etc.)
+      document.addEventListener('vapor:tabshow',    () => setTimeout(() => window.VaporExport.injectAll(), 100));
+      document.addEventListener('vapor:subtabshow', () => setTimeout(() => window.VaporExport.injectAll(), 100));
+    }
   });
 
 })();

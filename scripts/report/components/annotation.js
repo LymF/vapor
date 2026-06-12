@@ -7,13 +7,28 @@
     _renderFunctional(samples);
     makeSampleDropdown('sample-sel-ann',  _renderPhageAnnotation);
     makeSampleDropdown('sample-sel-maps', _renderMaps);
+    _updateMapsSampleLabels();
     // Map mode selector
     const modeEl = document.getElementById('genome-map-mode');
     if (modeEl) modeEl.addEventListener('change', () => {
+      _updateMapsSampleLabels();
       const sel = document.getElementById('sample-sel-maps');
       if (sel) _renderMaps(sel.value);
     });
   };
+
+  // ── Annotate the sample dropdown with per-mode genome counts ─────────────
+  function _updateMapsSampleLabels() {
+    const sel    = document.getElementById('sample-sel-maps');
+    const modeEl = document.getElementById('genome-map-mode');
+    if (!sel || !modeEl) return;
+    const mode = modeEl.value;
+    const maps = typeof GENOME_MAPS !== 'undefined' ? GENOME_MAPS : {};
+    [...sel.options].forEach(opt => {
+      const count = ((maps[opt.value] || {})[mode] || []).length;
+      opt.textContent = `${opt.value} (${count})`;
+    });
+  }
 
   // ── COG + PHROGS stacked bars ─────────────────────────────────────────────
   function _renderFunctional(samples) {
@@ -106,6 +121,11 @@
       svg.style.maxWidth = '100%';
       svg.style.height   = 'auto';
     });
+
+    // Export toolbars (PNG/SVG/PDF) for each genome map
+    if (window.VaporExport) {
+      cont.querySelectorAll('.genome-map-item').forEach(item => window.VaporExport.attachToSVGHost(item));
+    }
   }
 
 })();

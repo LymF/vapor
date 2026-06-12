@@ -203,6 +203,7 @@ body {
 
 /* ── Chart cards ──────────────────────────────────────────────────────────── */
 .chart-card {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -219,6 +220,59 @@ body {
 }
 
 .echarts-box { width: 100%; height: 340px; }
+
+/* ── Export toolbar (PNG/SVG/PDF) ─────────────────────────────────────────── */
+.export-toolbar {
+  position: absolute;
+  top: .5rem;
+  right: .5rem;
+  display: flex;
+  gap: .25rem;
+  opacity: 0;
+  transition: opacity .15s;
+  z-index: 5;
+}
+.chart-card:hover .export-toolbar,
+.genome-map-item:hover .export-toolbar,
+.export-toolbar:focus-within {
+  opacity: 1;
+}
+.export-btn {
+  padding: .15rem .4rem;
+  font-size: .65rem;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1.4;
+}
+.export-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ── Back to top ──────────────────────────────────────────────────────────── */
+.back-to-top {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--accent);
+  color: #fff;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  transition: transform .15s, opacity .15s;
+}
+.back-to-top.visible { display: flex; }
+.back-to-top:hover { transform: translateY(-2px); }
 
 /* ── Grid helpers ─────────────────────────────────────────────────────────── */
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
@@ -335,6 +389,7 @@ body {
   gap: 1rem;
 }
 .genome-map-item {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);

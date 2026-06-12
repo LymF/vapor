@@ -360,7 +360,7 @@ def _build(snakemake):
     d3_js     = _read(os.path.join(_ASSETS, "d3.min.js"))
 
     js_parts  = []
-    for js_file in ["app.js", "overview.js", "sequencing.js", "viral.js",
+    for js_file in ["app.js", "export.js", "overview.js", "sequencing.js", "viral.js",
                     "prokaryotic.js", "diversity.js", "annotation.js", "about.js"]:
         js_parts.append(_read(os.path.join(_COMP, js_file)))
     app_js = "\n".join(js_parts)

@@ -424,12 +424,19 @@
       .style('pointer-events', 'none')
       .text(d => d.label);
 
+    // Invisible larger "hit area" so small sequence nodes are easy to hover
+    const hitSel = zoomLayer.append('g').selectAll('circle.hit').data(nodes).join('circle')
+      .attr('class', 'hit')
+      .attr('r', d => Math.max(radius(d) + 4, 6))
+      .attr('fill', 'transparent')
+      .style('cursor', 'pointer');
+
     // Tooltip
     const tip = d3.select(el).append('div').attr('class', 'd3-tooltip').style('display', 'none');
     const rankLabel = { sequence: 'Sequence', genus: 'Genus', family: 'Family', order: 'Order' };
-    nodeSel.on('mouseover', (e, d) => {
+    hitSel.on('mouseover', (e, d) => {
       tip.style('display', 'block').style('left', (e.offsetX + 12) + 'px').style('top', (e.offsetY - 12) + 'px')
-        .html(`<strong>${d.label}</strong><br>${rankLabel[d.type]}${d.type !== 'sequence' ? `<br>Sequences: ${d.count}` : ''}`);
+        .html(`<strong>${rankLabel[d.type]}:</strong> ${d.label}${d.type !== 'sequence' ? `<br>Sequences: ${d.count}` : ''}`);
     }).on('mouseout', () => tip.style('display', 'none'));
 
     const sim = d3.forceSimulation(nodes)
@@ -458,12 +465,13 @@
       linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
              .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
       nodeSel.attr('cx', d => d.x).attr('cy', d => d.y);
+      hitSel.attr('cx', d => d.x).attr('cy', d => d.y);
       labels.attr('x', d => d.x).attr('y', d => d.y);
     });
     sim.on('end', fitToView);
 
     // Drag
-    nodeSel.call(d3.drag()
+    hitSel.call(d3.drag()
       .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
       .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
       .on('end',   (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
