@@ -268,8 +268,13 @@
   }
 
   // ── Taxonomy ──────────────────────────────────────────────────────────────
+  let _currentTaxSample = null;
+  let _currentTax = [];
+
   function _renderTaxonomy(sample) {
     const tax = typeof TAX_DATA !== 'undefined' ? TAX_DATA.filter(r => r.sample === sample) : [];
+    _currentTaxSample = sample;
+    _currentTax = tax;
 
     // Source pie — covers ALL contigs (incl. diamond_custom-only hits and unknown)
     const srcDist = (typeof VIRAL_SOURCE_DIST !== 'undefined' ? VIRAL_SOURCE_DIST : {})[sample] || {};
@@ -280,25 +285,40 @@
       series: [{ type: 'pie', radius: ['35%', '60%'], data: srcPieData, label: { formatter: '{b}\n{d}%' } }],
     });
 
-    // Family bar (top 20) — only contigs with an actual family-level assignment
-    const famCount = {};
-    tax.forEach(r => {
-      const f = r.final_family || r.Family || '';
-      if (!f) return;
-      famCount[f] = (famCount[f] || 0) + 1;
-    });
-    const topFams = Object.entries(famCount).sort((a, b) => b[1] - a[1]).slice(0, 20);
-    mkChart('vir-tax-family-chart', {
-      title: { text: `${sample} — Top Viral Families` },
-      tooltip: { trigger: 'axis' },
-      xAxis: { type: 'value', name: 'Count' },
-      yAxis: { type: 'category', data: topFams.map(x => x[0]).reverse(), axisLabel: { width: 140, overflow: 'truncate' } },
-      series: [{ type: 'bar', data: topFams.map(x => x[1]).reverse(), itemStyle: { color: '#0d9488' } }],
-      grid: { left: 160, right: 30 },
-    });
+    // Family/Genus bar (top 20) — only contigs with an actual assignment at that rank
+    function renderRankBar(level) {
+      const fields = level === 'genus' ? ['final_genus', 'Genus'] : ['final_family', 'Family'];
+      const label  = level === 'genus' ? 'Genus' : 'Family';
+      const count = {};
+      tax.forEach(r => {
+        const v = r[fields[0]] || r[fields[1]] || '';
+        if (!v) return;
+        count[v] = (count[v] || 0) + 1;
+      });
+      const top = Object.entries(count).sort((a, b) => b[1] - a[1]).slice(0, 20);
+      mkChart('vir-tax-family-chart', {
+        title: { text: `${sample} — Top Viral ${label === 'Family' ? 'Families' : 'Genera'}` },
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'value', name: 'Count', nameLocation: 'middle', nameGap: 28 },
+        yAxis: { type: 'category', data: top.map(x => x[0]).reverse(), axisLabel: { width: 140, overflow: 'truncate' } },
+        series: [{ type: 'bar', data: top.map(x => x[1]).reverse(), itemStyle: { color: '#0d9488' } }],
+        grid: { left: 160, right: 30, bottom: 50 },
+      });
+    }
 
-    // Zoomable icicle (D3) for taxonomy hierarchy
-    _renderTaxIcicle(tax, sample);
+    const famBtn   = document.getElementById('vir-tax-family-btn');
+    const genusBtn = document.getElementById('vir-tax-genus-btn');
+    const currentLevel = (famBtn && famBtn.classList.contains('active')) || !genusBtn ? 'family'
+      : (genusBtn.classList.contains('active') ? 'genus' : 'family');
+    if (famBtn && genusBtn) {
+      famBtn.onclick = () => { famBtn.classList.add('active'); genusBtn.classList.remove('active'); renderRankBar('family'); };
+      genusBtn.onclick = () => { genusBtn.classList.add('active'); famBtn.classList.remove('active'); renderRankBar('genus'); };
+      if (!famBtn.classList.contains('active') && !genusBtn.classList.contains('active')) famBtn.classList.add('active');
+    }
+    renderRankBar(currentLevel);
+
+    // Taxonomy network (D3 force) — Order → Family → Genus → Sequence
+    _renderTaxNetwork(tax, sample);
 
     // Table
     makeTable('vir-tax-table', tax, [
@@ -314,96 +334,148 @@
     });
   }
 
-  // ── Taxonomy icicle (D3 partition) ────────────────────────────────────────
-  function _renderTaxIcicle(tax, sample) {
-    const el = document.getElementById('vir-tax-icicle');
+  // ── Taxonomy network (D3 force) — Order → Family → Genus → Sequence ────────
+  function _renderTaxNetwork(tax, sample) {
+    const el = document.getElementById('vir-tax-network');
     if (!el) return;
     el.innerHTML = '';
 
-    // Build hierarchy: root → family → genus
-    const famMap = {};
-    tax.forEach(r => {
-      const fam = r.final_family || 'Unclassified';
-      const gen = r.final_genus  || 'Unclassified';
-      if (!famMap[fam]) famMap[fam] = {};
-      famMap[fam][gen] = (famMap[fam][gen] || 0) + 1;
-    });
-
-    const root = { name: 'Viruses', children: [] };
-    Object.entries(famMap).forEach(([fam, gens]) => {
-      root.children.push({
-        name: fam,
-        children: Object.entries(gens).map(([gen, cnt]) => ({ name: gen, value: cnt })),
-      });
-    });
-
-    if (!root.children.length) {
+    if (!tax.length) {
       el.innerHTML = '<p style="color:var(--text-muted);padding:1rem">No taxonomy data for this sample.</p>';
       return;
     }
 
-    const dark    = document.documentElement.dataset.theme === 'dark';
-    const W       = el.clientWidth || 900;
-    const H       = 460;
-    const color   = d3.scaleOrdinal(PAL);
+    // Build node/edge sets: each sequence links up through genus → family → order
+    const nodesMap = new Map();
+    const edgeKeys = new Set();
+    const edges = [];
 
-    const hierarchy = d3.hierarchy(root).sum(d => d.value || 0).sort((a, b) => b.value - a.value);
-    d3.partition().size([H, W])(hierarchy);
-
-    const svg = d3.select(el).append('svg').attr('width', W).attr('height', H).style('font', '11px Inter, system-ui, sans-serif');
-    const g   = svg.append('g');
-
-    let _current = hierarchy;
-
-    function clicked(event, p) {
-      _current = p;
-      const t = svg.transition().duration(500);
-      g.selectAll('g').transition(t).attr('transform', d => {
-        const x = (d.x0 - p.x0) / (p.x1 - p.x0) * H;
-        const y = (d.y0 - p.y0) / (p.y1 - p.y0) * W;
-        return `translate(${y},${x})`;
-      });
-      g.selectAll('rect').transition(t)
-        .attr('height', d => Math.max(0, (d.x1 - d.x0) / (p.x1 - p.x0) * H - 1))
-        .attr('width',  d => Math.max(0, (d.y1 - d.y0) / (p.y1 - p.y0) * W - 1));
-      g.selectAll('text').style('display', d => {
-        const visH = (d.x1 - d.x0) / (p.x1 - p.x0) * H;
-        return visH > 14 ? null : 'none';
-      });
+    function addNode(id, type, label) {
+      let n = nodesMap.get(id);
+      if (!n) { n = { id, type, label, count: 0 }; nodesMap.set(id, n); }
+      n.count++;
+      return n;
+    }
+    function addEdge(a, b) {
+      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      if (edgeKeys.has(key)) return;
+      edgeKeys.add(key);
+      edges.push({ source: a, target: b });
     }
 
-    const cell = g.selectAll('g').data(hierarchy.descendants()).join('g')
-      .attr('transform', d => `translate(${d.y0},${d.x0})`);
+    tax.forEach(r => {
+      const order  = r.final_order  || '';
+      const family = r.final_family || '';
+      const genus  = r.final_genus  || '';
+      const seqId  = `seq:${r.Genome}`;
+      addNode(seqId, 'sequence', r.Genome);
 
-    cell.append('rect')
-      .attr('width',  d => Math.max(0, d.y1 - d.y0 - 1))
-      .attr('height', d => Math.max(0, d.x1 - d.x0 - 1))
-      .attr('fill',   d => { let node = d; while (node.depth > 1) node = node.parent; return color(node.data.name); })
-      .attr('fill-opacity', d => 0.6 + d.depth * 0.13)
-      .attr('rx', 2)
-      .style('cursor', 'pointer')
-      .on('click', clicked);
+      let parent = seqId;
+      if (genus)  { const id = `genus:${genus}`;   addNode(id, 'genus', genus);   addEdge(parent, id); parent = id; }
+      if (family) { const id = `family:${family}`; addNode(id, 'family', family); addEdge(parent, id); parent = id; }
+      if (order)  { const id = `order:${order}`;   addNode(id, 'order', order);   addEdge(parent, id); parent = id; }
+    });
 
-    cell.append('text')
-      .attr('x', 4).attr('y', 13)
-      .style('font-size', '11px')
-      .style('fill', dark ? '#f1f5f9' : '#0f172a')
+    const nodes = [...nodesMap.values()];
+    if (!nodes.length) {
+      el.innerHTML = '<p style="color:var(--text-muted);padding:1rem">No taxonomy data for this sample.</p>';
+      return;
+    }
+
+    const dark  = document.documentElement.dataset.theme === 'dark';
+    const W     = el.clientWidth || 900;
+    const H     = 500;
+
+    const typeColor = {
+      sequence: dark ? '#475569' : '#cbd5e1',
+      genus:    '#d97706',
+      family:   '#0891b2',
+      order:    '#7c3aed',
+    };
+    function radius(d) {
+      if (d.type === 'sequence') return 3;
+      if (d.type === 'genus')    return 5 + Math.sqrt(d.count) * 1.5;
+      if (d.type === 'family')   return 7 + Math.sqrt(d.count) * 2;
+      return 9 + Math.sqrt(d.count) * 2.5; // order
+    }
+
+    const svg = d3.select(el).append('svg').attr('width', W).attr('height', H);
+    const zoomLayer = svg.append('g').attr('class', 'zoom-layer');
+
+    const linkSel = zoomLayer.append('g').selectAll('line').data(edges).join('line')
+      .attr('stroke', dark ? '#334155' : '#cbd5e1')
+      .attr('stroke-width', 0.8)
+      .attr('stroke-opacity', 0.6);
+
+    const nodeSel = zoomLayer.append('g').selectAll('circle').data(nodes).join('circle')
+      .attr('r', radius)
+      .attr('fill', d => typeColor[d.type])
+      .attr('fill-opacity', d => d.type === 'sequence' ? 0.6 : 0.9)
+      .attr('stroke', dark ? '#0f172a' : '#fff')
+      .attr('stroke-width', d => d.type === 'sequence' ? 0.5 : 1.5)
+      .style('cursor', 'pointer');
+
+    const labels = zoomLayer.append('g').selectAll('text')
+      .data(nodes.filter(d => d.type !== 'sequence')).join('text')
+      .attr('font-size', d => d.type === 'order' ? 11 : 10)
+      .attr('font-weight', d => d.type === 'order' ? 600 : 400)
+      .attr('fill', dark ? '#e2e8f0' : '#334155')
+      .attr('dy', '-.7em')
       .style('pointer-events', 'none')
-      .style('display', d => (d.x1 - d.x0) > 14 ? null : 'none')
-      .text(d => d.data.name)
-      .each(function (d) {
-        const w = d.y1 - d.y0 - 8;
-        const self = d3.select(this);
-        let text = d.data.name;
-        self.text(text);
-        while (this.getComputedTextLength() > w && text.length > 3) {
-          text = text.slice(0, -1);
-          self.text(text + '…');
-        }
-      });
+      .text(d => d.label);
 
-    // Back-click on root
-    svg.on('click', e => { if (e.target === svg.node()) clicked(e, hierarchy); });
+    // Tooltip
+    const tip = d3.select(el).append('div').attr('class', 'd3-tooltip').style('display', 'none');
+    const rankLabel = { sequence: 'Sequence', genus: 'Genus', family: 'Family', order: 'Order' };
+    nodeSel.on('mouseover', (e, d) => {
+      tip.style('display', 'block').style('left', (e.offsetX + 12) + 'px').style('top', (e.offsetY - 12) + 'px')
+        .html(`<strong>${d.label}</strong><br>${rankLabel[d.type]}${d.type !== 'sequence' ? `<br>Sequences: ${d.count}` : ''}`);
+    }).on('mouseout', () => tip.style('display', 'none'));
+
+    const sim = d3.forceSimulation(nodes)
+      .force('link',    d3.forceLink(edges).id(d => d.id).distance(d =>
+        d.source.type === 'sequence' || d.target.type === 'sequence' ? 25 : 60).strength(0.6))
+      .force('charge',  d3.forceManyBody().strength(-50))
+      .force('center',  d3.forceCenter(W / 2, H / 2))
+      .force('collide', d3.forceCollide(d => radius(d) + 2));
+
+    // Zoom / pan
+    const zoom = d3.zoom()
+      .scaleExtent([0.1, 8])
+      .on('zoom', e => zoomLayer.attr('transform', e.transform));
+    svg.call(zoom);
+
+    function fitToView() {
+      const b = zoomLayer.node().getBBox();
+      if (!b.width || !b.height) return;
+      const scale = Math.min(8, Math.max(0.1, 0.9 / Math.max(b.width / W, b.height / H)));
+      const tx = W / 2 - scale * (b.x + b.width / 2);
+      const ty = H / 2 - scale * (b.y + b.height / 2);
+      svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+    }
+
+    sim.on('tick', () => {
+      linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+             .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      nodeSel.attr('cx', d => d.x).attr('cy', d => d.y);
+      labels.attr('x', d => d.x).attr('y', d => d.y);
+    });
+    sim.on('end', fitToView);
+
+    // Drag
+    nodeSel.call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end',   (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
+    );
+
+    // Zoom control buttons
+    const zoomIn  = document.getElementById('vir-tax-net-zoom-in');
+    const zoomOut = document.getElementById('vir-tax-net-zoom-out');
+    const zoomFit = document.getElementById('vir-tax-net-zoom-fit');
+    if (zoomIn)  zoomIn.onclick  = () => svg.transition().duration(250).call(zoom.scaleBy, 1.4);
+    if (zoomOut) zoomOut.onclick = () => svg.transition().duration(250).call(zoom.scaleBy, 1 / 1.4);
+    if (zoomFit) zoomFit.onclick = fitToView;
   }
 
   // ── vConTACT3 Network (D3 force) ─────────────────────────────────────────
@@ -436,12 +508,15 @@
       .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
       .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', dark ? '#475569' : '#94a3b8');
 
-    const linkSel = svg.append('g').selectAll('line').data(edges).join('line')
+    // All zoomable/pannable content lives inside this group
+    const zoomLayer = svg.append('g').attr('class', 'zoom-layer');
+
+    const linkSel = zoomLayer.append('g').selectAll('line').data(edges).join('line')
       .attr('stroke', dark ? '#334155' : '#cbd5e1')
       .attr('stroke-width', 0.8)
       .attr('stroke-opacity', 0.6);
 
-    const nodeSel = svg.append('g').selectAll('circle').data(nodes).join('circle')
+    const nodeSel = zoomLayer.append('g').selectAll('circle').data(nodes).join('circle')
       .attr('r', d => d.is_novel === false ? 5 : 7)
       .attr('fill', d => color(d.cluster || 'Singleton'))
       .attr('fill-opacity', d => d.is_novel === false ? 0.4 : 0.85)
@@ -449,7 +524,7 @@
       .attr('stroke-width', 1.5)
       .style('cursor', 'pointer');
 
-    const labels = svg.append('g').selectAll('text').data(nodes.filter(d => d.is_novel !== false)).join('text')
+    const labels = zoomLayer.append('g').selectAll('text').data(nodes.filter(d => d.is_novel !== false)).join('text')
       .attr('font-size', 9)
       .attr('fill', dark ? '#94a3b8' : '#64748b')
       .attr('dy', '-.5em')
@@ -469,12 +544,28 @@
       .force('center',  d3.forceCenter(W / 2, H / 2))
       .force('collide', d3.forceCollide(12));
 
+    // Zoom / pan — lets nodes that drift outside the W×H viewport be reached
+    const zoom = d3.zoom()
+      .scaleExtent([0.1, 8])
+      .on('zoom', e => zoomLayer.attr('transform', e.transform));
+    svg.call(zoom);
+
+    function fitToView() {
+      const b = zoomLayer.node().getBBox();
+      if (!b.width || !b.height) return;
+      const scale = Math.min(8, Math.max(0.1, 0.9 / Math.max(b.width / W, b.height / H)));
+      const tx = W / 2 - scale * (b.x + b.width / 2);
+      const ty = H / 2 - scale * (b.y + b.height / 2);
+      svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+    }
+
     sim.on('tick', () => {
       linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
              .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
       nodeSel.attr('cx', d => d.x).attr('cy', d => d.y);
       labels.attr('x', d => d.x).attr('y', d => d.y);
     });
+    sim.on('end', fitToView);
 
     // Drag
     nodeSel.call(d3.drag()
@@ -482,6 +573,14 @@
       .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
       .on('end',   (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
     );
+
+    // Zoom control buttons (rebound each render — old listeners discarded with old svg)
+    const zoomIn  = document.getElementById('vc3-zoom-in');
+    const zoomOut = document.getElementById('vc3-zoom-out');
+    const zoomFit = document.getElementById('vc3-zoom-fit');
+    if (zoomIn)  zoomIn.onclick  = () => svg.transition().duration(250).call(zoom.scaleBy, 1.4);
+    if (zoomOut) zoomOut.onclick = () => svg.transition().duration(250).call(zoom.scaleBy, 1 / 1.4);
+    if (zoomFit) zoomFit.onclick = fitToView;
   };
 
   // ── Lifestyle ─────────────────────────────────────────────────────────────
@@ -520,6 +619,9 @@
   document.addEventListener('vapor:subtabshow', function (e) {
     if (e.detail.sub === 'vir-network' && typeof window.renderVC3Network === 'function') {
       setTimeout(() => window.renderVC3Network(window._currentVC3Sample), 50);
+    }
+    if (e.detail.sub === 'vir-taxonomy' && _currentTaxSample) {
+      setTimeout(() => _renderTaxNetwork(_currentTax, _currentTaxSample), 50);
     }
   });
 

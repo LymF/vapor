@@ -217,10 +217,10 @@
     mkChart('prok-phyla-chart', {
       title: { text: `${sample} — Top Phyla` },
       tooltip: { trigger: 'axis' },
-      xAxis: { type: 'value', name: 'MAGs' },
+      xAxis: { type: 'value', name: 'MAGs', nameLocation: 'middle', nameGap: 28 },
       yAxis: { type: 'category', data: topPhyla.map(x => x[0]).reverse(), axisLabel: { width: 160, overflow: 'truncate' } },
       series: [{ type: 'bar', data: topPhyla.map(x => x[1]).reverse(), itemStyle: { color: '#d97706' } }],
-      grid: { left: 180, right: 30 },
+      grid: { left: 180, right: 30, bottom: 50 },
     });
 
     // Table

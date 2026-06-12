@@ -128,9 +128,23 @@
         </div>
         <div class="grid-2">
           <div class="chart-card"><div id="vir-tax-source-chart"  class="echarts-box"></div></div>
-          <div class="chart-card"><div id="vir-tax-family-chart"  class="echarts-box"></div></div>
+          <div class="chart-card">
+            <div class="toolbar" style="margin-bottom:.25rem">
+              <button id="vir-tax-family-btn" class="btn-sm" type="button" data-level="family">Family</button>
+              <button id="vir-tax-genus-btn"  class="btn-sm" type="button" data-level="genus">Genus</button>
+            </div>
+            <div id="vir-tax-family-chart" class="echarts-box"></div>
+          </div>
         </div>
-        <div class="chart-card mt-md"><div id="vir-tax-icicle" style="height:500px;overflow:hidden"></div></div>
+        <div class="chart-card mt-md">
+          <div class="toolbar">
+            <span>Taxonomy Network — Order → Family → Genus → Sequence</span>
+            <button id="vir-tax-net-zoom-in"  class="btn-sm" type="button">Zoom +</button>
+            <button id="vir-tax-net-zoom-out" class="btn-sm" type="button">Zoom −</button>
+            <button id="vir-tax-net-zoom-fit" class="btn-sm" type="button">Fit / Reset</button>
+          </div>
+          <div id="vir-tax-network" style="height:500px;overflow:hidden"></div>
+        </div>
         <div class="chart-card mt-md">
           <h3 class="section-title">Classified Viruses</h3>
           <div class="toolbar"><input id="vir-tax-search" type="search" placeholder="Filter…" class="search-input"></div>
@@ -140,6 +154,9 @@
       <div id="sub-vir-network" class="sub-panel" style="display:none">
         <div class="toolbar">
           <label>Sample: <select id="sample-sel-vc3"></select></label>
+          <button id="vc3-zoom-in"  class="btn-sm" type="button">Zoom +</button>
+          <button id="vc3-zoom-out" class="btn-sm" type="button">Zoom −</button>
+          <button id="vc3-zoom-fit" class="btn-sm" type="button">Fit / Reset</button>
         </div>
         <div class="chart-card">
           <div id="vc3-network-svg" style="height:580px;overflow:hidden"></div>

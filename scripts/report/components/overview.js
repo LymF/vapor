@@ -19,27 +19,30 @@
     const ov      = typeof OVERVIEW !== 'undefined' ? OVERVIEW : {};
 
     // Aggregate
-    let totalReads = 0, totalViral = 0, totalMAGs = 0, totalHQV = 0;
-    let hqViral = 0, hqProk = 0, totalBins = 0;
+    let totalReads = 0, totalViral = 0, totalMAGs = 0;
+    let hqViral = 0;
     samples.forEach(s => {
       const d = ov[s] || {};
       totalReads += Number(d.total_raw_reads)  || 0;
       totalViral += Number(d.viral_consensus)  || 0;
       totalMAGs  += Number(d.total_bins)       || 0;
       hqViral    += Number(d.complete_viral)   || 0;
-      hqProk     += Number(d.hq_bins)          || 0;
-      totalBins  += Number(d.total_bins)       || 0;
     });
-    const hqVpct = totalViral > 0  ? ((hqViral / totalViral) * 100).toFixed(1) : 'N/A';
-    const hqPpct = totalBins  > 0  ? ((hqProk  / totalBins)  * 100).toFixed(1) : 'N/A';
+
+    const mimag = typeof MIMAG !== 'undefined' ? MIMAG : {};
+    let hqMqMags = 0;
+    samples.forEach(s => {
+      const m = mimag[s] || {};
+      hqMqMags += (Number(m.HQ) || 0) + (Number(m.MQ) || 0);
+    });
 
     const kpis = [
       { val: samples.length, label: 'Samples' },
       { val: fmt(totalReads), label: 'Total reads', sub: 'raw' },
       { val: fmt(totalViral), label: 'Viral OTUs',  sub: 'consensus' },
       { val: fmt(totalMAGs),  label: 'MAGs',        sub: 'Binette final' },
-      { val: hqVpct === 'N/A' ? 'N/A' : hqVpct + '%', label: 'HQ viral',   sub: 'CheckV' },
-      { val: hqPpct === 'N/A' ? 'N/A' : hqPpct + '%', label: 'HQ+MQ MAGs', sub: 'CheckM2' },
+      { val: fmt(hqViral),  label: 'HQ viral',   sub: 'CheckV' },
+      { val: fmt(hqMqMags), label: 'HQ+MQ MAGs', sub: 'CheckM2' },
     ];
 
     const grid = document.getElementById('kpi-grid');
@@ -59,7 +62,6 @@
     const hqVirVals   = samples.map(s => Number((ov[s] || {}).complete_viral)      || 0);
     const magVals     = samples.map(s => Number((ov[s] || {}).total_bins)          || 0);
 
-    const mimag = typeof MIMAG !== 'undefined' ? MIMAG : {};
     const magHQ  = samples.map(s => (mimag[s] || {}).HQ || 0);
     const magMQ  = samples.map(s => (mimag[s] || {}).MQ || 0);
     const magLQ  = samples.map(s => (mimag[s] || {}).LQ || 0);
