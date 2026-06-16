@@ -20,8 +20,9 @@ rule pharokka:
     Runs in --meta mode on HQ phages selected from CheckV output.
 
     Selection criteria:
-      - checkv_quality ∈ {High-quality, Complete}
-      - completeness >= PHAROKKA_MIN_COMPLETENESS
+      - completeness >= PHAROKKA_MIN_COMPLETENESS  (quality tier NOT required —
+        novel phages often receive "Not-determined" from CheckV despite high
+        completeness because no close reference cluster exists)
       - Capped at PHAROKKA_MAX_GENOMES (sorted by completeness descending)
 
     Output GBK is later used by phold and genome_map_universal.py.
@@ -65,13 +66,16 @@ rule pharokka:
             touch_empty(output.tsv)
             return
 
-        # Filter CheckV for HQ phages
+        # Filter CheckV by completeness only.
+        # Novel phages (Caudovirales, etc.) often receive "Not-determined" quality
+        # from CheckV even when completeness is high, because CheckV cannot assign
+        # a quality tier without a close reference cluster.  Filtering by quality
+        # tier would silently drop these bona-fide phages from Pharokka annotation.
         hq_ids = []
         with open(str(input.checkv)) as f:
             for row in csv.DictReader(f, delimiter="\t"):
-                q = row.get("checkv_quality", "")
                 comp = float(row.get("completeness", "0") or 0)
-                if q in ("High-quality", "Complete") and comp >= float(params.min_comp):
+                if comp >= float(params.min_comp):
                     hq_ids.append((row["contig_id"], comp))
         # Sort by completeness descending, take top N
         hq_ids.sort(key=lambda x: x[1], reverse=True)
@@ -82,7 +86,7 @@ rule pharokka:
         with open(str(params.hq_fa), "w") as out_fa, \
              open(str(input.viral_nr)) as in_fa, \
              open(log_path, "w") as lf:
-            lf.write(f"[pharokka] HQ phages selected: {len(hq_set)}\n")
+            lf.write(f"[pharokka] Phages selected (completeness >= {params.min_comp}%): {len(hq_set)}\n")
             write = False
             for line in in_fa:
                 if line.startswith(">"):

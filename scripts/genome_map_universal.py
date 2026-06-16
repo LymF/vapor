@@ -232,6 +232,18 @@ def _draw_gc_tracks(sector, seq, R, window=500):
     return gc_mean
 
 
+def _save_fasta(genome_id, seq, outdir):
+    """Save individual FASTA file alongside the genome map SVG (used by HTML report 'Copy FASTA')."""
+    try:
+        fasta_path = os.path.join(outdir, f"{genome_id}.fasta")
+        with open(fasta_path, "w") as fh:
+            fh.write(f">{genome_id}\n")
+            for i in range(0, len(seq), 60):
+                fh.write(seq[i:i+60] + "\n")
+    except Exception as exc:
+        print(f"[genome_map] WARNING: could not save FASTA for {genome_id}: {exc}", file=sys.stderr)
+
+
 def _save_figure(fig, outdir, genome_id, title):
     """Save figure as SVG + PDF."""
     fig.suptitle(title, fontsize=9, fontweight="bold", y=0.97)
@@ -412,6 +424,7 @@ def batch_phage(args):
         name = f"{gid} (completeness {comp:.1f}%)"
         try:
             draw_phage(rec, seq, gid, name, outdir)
+            _save_fasta(gid, seq, outdir)
         except Exception as exc:
             print(f"[genome_map] phage: ERROR drawing {gid}: {exc}", file=sys.stderr)
 
@@ -528,27 +541,66 @@ def draw_virus(genome_id, seq, genes, name, outdir):
     _save_figure(fig, outdir, genome_id, f"{name} — Viral genome map ({scale_label})")
 
 
+# Taxonomic markers that identify bacteriophages in the viral taxonomy TSV.
+# Checked against the 'lineage', 'final_order', and 'genomad_class' columns.
+_PHAGE_LINEAGE_MARKERS = {
+    "duplodnaviria",    # realm — tailed dsDNA phages
+    "heunggongvirae",   # kingdom — Caudovirales clade
+    "uroviricota",      # phylum
+    "caudoviricetes",   # class (former Caudovirales order)
+    "caudovirales",     # order (legacy but still used)
+    "monodnaviria",     # realm — ssDNA phages (inoviruses, microviruses, etc.)
+}
+
+
+def _is_bacteriophage(row):
+    """Return True if taxonomy columns indicate a bacteriophage."""
+    lineage = (row.get("lineage") or "").lower()
+    order   = (row.get("final_order") or "").lower()
+    gclass  = (row.get("genomad_class") or "").lower()
+    genus   = (row.get("final_genus") or "").lower()
+    for marker in _PHAGE_LINEAGE_MARKERS:
+        if marker in lineage or marker in order or marker in gclass:
+            return True
+    # genus names ending in 'phage' (e.g. "Lambdavirus" is NOT a phage genus name,
+    # but literal "...phage" suffixes are — e.g. "T4-like phage" parsed as genus)
+    if genus.endswith("phage"):
+        return True
+    return False
+
+
 def _load_viral_taxonomy(tax_tsv):
-    """Load viral_taxonomy_merged.tsv → dict{contig_id: 'Class | Family | Genus'}."""
-    tax_map = {}
+    """Load viral_taxonomy_merged.tsv.
+
+    Returns (tax_map, phage_ids):
+      tax_map   — dict{seq_name: 'Order | Family | Genus'} for map titles
+      phage_ids — set of seq_names identified as bacteriophages by taxonomy
+    """
+    tax_map   = {}
+    phage_ids = set()
     if not tax_tsv or not os.path.exists(tax_tsv):
-        return tax_map
+        return tax_map, phage_ids
     try:
         with open(tax_tsv) as f:
             for row in csv.DictReader(f, delimiter="\t"):
-                gid = row.get("contig_id", "").strip()
+                # TSV uses 'seq_name', not 'contig_id'
+                gid = (row.get("seq_name") or row.get("contig_id") or "").strip()
                 if not gid:
                     continue
+                if _is_bacteriophage(row):
+                    phage_ids.add(gid)
+                # Build display label from deepest resolved rank
+                _null = {"", "na", "unknown", "unclassified", "none", "nd"}
                 parts = []
-                for field in ("class", "family", "genus"):
+                for field in ("final_order", "final_family", "final_genus"):
                     v = (row.get(field) or "").strip()
-                    if v and v not in ("", "NA", "na", "unknown", "Unclassified"):
+                    if v and v.lower() not in _null:
                         parts.append(v)
                 if parts:
                     tax_map[gid] = " | ".join(parts)
     except Exception as exc:
         print(f"[genome_map] WARNING: could not load viral taxonomy: {exc}", file=sys.stderr)
-    return tax_map
+    return tax_map, phage_ids
 
 
 def batch_virus(args):
@@ -561,14 +613,18 @@ def batch_virus(args):
     top_n      = args.top_n
     exclude_ids = set()
 
-    tax_map = _load_viral_taxonomy(getattr(args, "viral_taxonomy", None))
+    tax_map, phage_ids = _load_viral_taxonomy(getattr(args, "viral_taxonomy", None))
+    print(f"[genome_map] virus: taxonomy phage filter identified {len(phage_ids)} bacteriophages",
+          file=sys.stderr)
 
     os.makedirs(outdir, exist_ok=True)
 
-    # Load IDs to exclude (already handled by pharokka as phages)
+    # Load IDs to exclude: (1) already annotated by pharokka, (2) identified as
+    # bacteriophages by taxonomy — virus mode is strictly for non-phage viruses.
     if args.exclude_ids and os.path.exists(args.exclude_ids):
         with open(args.exclude_ids) as f:
             exclude_ids = {line.strip() for line in f if line.strip()}
+    exclude_ids |= phage_ids
 
     if not fasta_path or not os.path.exists(fasta_path) or os.path.getsize(fasta_path) == 0:
         print("[genome_map] virus: FASTA missing or empty — skipping", file=sys.stderr)
@@ -597,7 +653,7 @@ def batch_virus(args):
     ranked.sort(key=lambda x: x[1], reverse=True)
     ranked = ranked[:top_n]
 
-    print(f"[genome_map] virus: {len(ranked)} genomes qualify (≥{min_comp}%, excl phage)",
+    print(f"[genome_map] virus: {len(ranked)} non-phage viruses qualify (≥{min_comp}%)",
           file=sys.stderr)
 
     _mpl_setup()
@@ -607,6 +663,7 @@ def batch_virus(args):
         name = f"{gid} — {tax_label} ({comp:.1f}%)" if tax_label else f"{gid} — Unclassified ({comp:.1f}%)"
         try:
             draw_virus(gid, seq, genes, name, outdir)
+            _save_fasta(gid, seq, outdir)
         except Exception as exc:
             print(f"[genome_map] virus: ERROR drawing {gid}: {exc}", file=sys.stderr)
 

@@ -6,7 +6,7 @@
     const samples = typeof SAMPLES !== 'undefined' ? SAMPLES : [];
     _renderBinning(samples);
     _renderQuality(samples);
-    makeSampleDropdown('sample-sel-prok-tax', _renderTaxonomy);
+    makeSampleDropdown('sample-sel-prok-tax', _renderTaxonomy, { allSamples: true });
   };
 
   // ── Binning summary ───────────────────────────────────────────────────────
@@ -190,7 +190,10 @@
 
   // ── Taxonomy ──────────────────────────────────────────────────────────────
   function _renderTaxonomy(sample) {
-    const mp = typeof MERGED_PROK !== 'undefined' ? MERGED_PROK.filter(r => r.sample === sample) : [];
+    const allMp = typeof MERGED_PROK !== 'undefined' ? MERGED_PROK : [];
+    const isAll = sample === '__all__';
+    const label = isAll ? 'All samples' : sample;
+    const mp    = isAll ? allMp : allMp.filter(r => r.sample === sample);
 
     // Domain bar
     const domCount = {};
@@ -198,7 +201,7 @@
     const domEntries = Object.entries(domCount);
 
     mkChart('prok-domain-bar-chart', {
-      title: { text: `${sample} — Domain Distribution` },
+      title: { text: `${label} — Domain Distribution` },
       tooltip: { trigger: 'axis' },
       xAxis: { type: 'category', data: domEntries.map(x => x[0]) },
       yAxis: { type: 'value', name: 'MAGs' },
@@ -215,7 +218,7 @@
     const topPhyla = Object.entries(phylaCount).sort((a, b) => b[1] - a[1]).slice(0, 20);
 
     mkChart('prok-phyla-chart', {
-      title: { text: `${sample} — Top Phyla` },
+      title: { text: `${label} — Top Phyla` },
       tooltip: { trigger: 'axis' },
       xAxis: { type: 'value', name: 'MAGs', nameLocation: 'middle', nameGap: 28 },
       yAxis: { type: 'category', data: topPhyla.map(x => x[0]).reverse(), axisLabel: { width: 160, overflow: 'truncate' } },
@@ -223,16 +226,28 @@
       grid: { left: 180, right: 30, bottom: 50 },
     });
 
-    // Table
-    makeTable('prok-tax-table', mp, [
-      { key: 'Bin',        label: 'Bin' },
-      { key: 'Domain',     label: 'Domain' },
-      { key: 'Phylum',     label: 'Phylum' },
-      { key: 'Genus',      label: 'Genus' },
-      { key: 'Source_tax', label: 'Source' },
-      { key: 'Completeness',  label: 'Comp %' },
-      { key: 'Contamination', label: 'Cont %' },
-    ], { searchId: 'prok-tax-search' });
+    // Table — add Sample column when showing all
+    const prokCols = isAll
+      ? [
+          { key: 'sample',         label: 'Sample' },
+          { key: 'Bin',            label: 'Bin' },
+          { key: 'Domain',         label: 'Domain' },
+          { key: 'Phylum',         label: 'Phylum' },
+          { key: 'Genus',          label: 'Genus' },
+          { key: 'Source_tax',     label: 'Source' },
+          { key: 'Completeness',   label: 'Comp %' },
+          { key: 'Contamination',  label: 'Cont %' },
+        ]
+      : [
+          { key: 'Bin',            label: 'Bin' },
+          { key: 'Domain',         label: 'Domain' },
+          { key: 'Phylum',         label: 'Phylum' },
+          { key: 'Genus',          label: 'Genus' },
+          { key: 'Source_tax',     label: 'Source' },
+          { key: 'Completeness',   label: 'Comp %' },
+          { key: 'Contamination',  label: 'Cont %' },
+        ];
+    makeTable('prok-tax-table', mp, prokCols, { searchId: 'prok-tax-search' });
   }
 
 })();

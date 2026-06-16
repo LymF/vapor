@@ -104,28 +104,60 @@
     const cont   = document.getElementById('genome-maps-container');
     if (!cont) return;
 
+    cont.innerHTML = '';
+
     if (!items.length) {
       cont.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;padding:.5rem">No genome maps for this selection.</p>';
       return;
     }
 
-    cont.innerHTML = items.map(m =>
-      `<div class="genome-map-item">
-         <h4>${m.id}</h4>
-         ${m.svg}
-       </div>`
-    ).join('');
+    items.forEach(m => {
+      const item = document.createElement('div');
+      item.className = 'genome-map-item';
 
-    // Fix SVG sizing for dark/light themes
-    cont.querySelectorAll('svg').forEach(svg => {
-      svg.style.maxWidth = '100%';
-      svg.style.height   = 'auto';
+      const h4 = document.createElement('h4');
+      h4.textContent = m.id;
+      item.appendChild(h4);
+
+      // Copy FASTA button
+      if (m.seq) {
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'btn-sm';
+        copyBtn.style.cssText = 'margin-bottom:.5rem;display:inline-flex;align-items:center;gap:.3rem';
+        copyBtn.textContent = 'Copy FASTA';
+        copyBtn.title = 'Copy genome sequence (FASTA) to clipboard';
+        copyBtn.addEventListener('click', () => {
+          const wrapped = (m.seq.match(/.{1,60}/g) || []).join('\n');
+          const fasta = `>${m.id}\n${wrapped}`;
+          (navigator.clipboard
+            ? navigator.clipboard.writeText(fasta)
+            : Promise.reject()
+          ).catch(() => {
+            const ta = document.createElement('textarea');
+            ta.value = fasta;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }).finally(() => {
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => { copyBtn.textContent = 'Copy FASTA'; }, 1500);
+          });
+        });
+        item.appendChild(copyBtn);
+      }
+
+      // SVG content
+      const wrap = document.createElement('div');
+      wrap.innerHTML = m.svg;
+      const svg = wrap.querySelector('svg');
+      if (svg) { svg.style.maxWidth = '100%'; svg.style.height = 'auto'; }
+      item.appendChild(svg || wrap);
+
+      cont.appendChild(item);
+      if (window.VaporExport) window.VaporExport.attachToSVGHost(item);
     });
-
-    // Export toolbars (PNG/SVG/PDF) for each genome map
-    if (window.VaporExport) {
-      cont.querySelectorAll('.genome-map-item').forEach(item => window.VaporExport.attachToSVGHost(item));
-    }
   }
 
 })();

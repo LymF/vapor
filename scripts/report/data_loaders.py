@@ -749,7 +749,15 @@ def load_genome_maps(outdir, samples):
                 gid = os.path.basename(svg_f).replace("_map.svg", "")
                 svg = load_svg(svg_f)
                 if svg:
-                    result[s][mode].append({"id": gid, "svg": svg})
+                    seq = ""
+                    fasta_f = os.path.join(mdir, f"{gid}.fasta")
+                    if os.path.exists(fasta_f):
+                        try:
+                            with open(fasta_f) as ff:
+                                seq = "".join(l.strip() for l in ff if not l.startswith(">"))
+                        except Exception:
+                            pass
+                    result[s][mode].append({"id": gid, "svg": svg, "seq": seq})
     return result
 
 

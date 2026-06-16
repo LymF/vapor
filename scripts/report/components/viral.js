@@ -8,7 +8,7 @@
     _renderDetection(samples);
     _renderBinning(samples);
     _renderLifestyle(samples);
-    makeSampleDropdown('sample-sel-viral-tax', _renderTaxonomy);
+    makeSampleDropdown('sample-sel-viral-tax', _renderTaxonomy, { allSamples: true });
     makeSampleDropdown('sample-sel-vc3', window.renderVC3Network);
   };
 
@@ -272,23 +272,33 @@
   let _currentTax = [];
 
   function _renderTaxonomy(sample) {
-    const tax = typeof TAX_DATA !== 'undefined' ? TAX_DATA.filter(r => r.sample === sample) : [];
+    const allTax = typeof TAX_DATA !== 'undefined' ? TAX_DATA : [];
+    const isAll  = sample === '__all__';
+    const label  = isAll ? 'All samples' : sample;
+    const tax    = isAll ? allTax : allTax.filter(r => r.sample === sample);
     _currentTaxSample = sample;
     _currentTax = tax;
 
     // Source pie — covers ALL contigs (incl. diamond_custom-only hits and unknown)
-    const srcDist = (typeof VIRAL_SOURCE_DIST !== 'undefined' ? VIRAL_SOURCE_DIST : {})[sample] || {};
+    const allSrcDist = typeof VIRAL_SOURCE_DIST !== 'undefined' ? VIRAL_SOURCE_DIST : {};
+    let srcDist;
+    if (isAll) {
+      srcDist = {};
+      Object.values(allSrcDist).forEach(d => Object.entries(d).forEach(([k, v]) => { srcDist[k] = (srcDist[k] || 0) + v; }));
+    } else {
+      srcDist = allSrcDist[sample] || {};
+    }
     const srcPieData = Object.entries(srcDist).map(([name, value]) => ({ name, value }));
     mkChart('vir-tax-source-chart', {
-      title: { text: `${sample} — Classification Source` },
+      title: { text: `${label} — Classification Source` },
       tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
       series: [{ type: 'pie', radius: ['35%', '60%'], data: srcPieData, label: { formatter: '{b}\n{d}%' } }],
     });
 
     // Family/Genus bar (top 20) — only contigs with an actual assignment at that rank
     function renderRankBar(level) {
-      const fields = level === 'genus' ? ['final_genus', 'Genus'] : ['final_family', 'Family'];
-      const label  = level === 'genus' ? 'Genus' : 'Family';
+      const fields    = level === 'genus' ? ['final_genus', 'Genus'] : ['final_family', 'Family'];
+      const rankLabel = level === 'genus' ? 'Genera' : 'Families';
       const count = {};
       tax.forEach(r => {
         const v = r[fields[0]] || r[fields[1]] || '';
@@ -297,7 +307,7 @@
       });
       const top = Object.entries(count).sort((a, b) => b[1] - a[1]).slice(0, 20);
       mkChart('vir-tax-family-chart', {
-        title: { text: `${sample} — Top Viral ${label === 'Family' ? 'Families' : 'Genera'}` },
+        title: { text: `${label} — Top Viral ${rankLabel}` },
         tooltip: { trigger: 'axis' },
         xAxis: { type: 'value', name: 'Count', nameLocation: 'middle', nameGap: 28 },
         yAxis: { type: 'category', data: top.map(x => x[0]).reverse(), axisLabel: { width: 140, overflow: 'truncate' } },
@@ -317,18 +327,34 @@
     }
     renderRankBar(currentLevel);
 
-    // Taxonomy network (D3 force) — Order → Family → Genus → Sequence
-    _renderTaxNetwork(tax, sample);
+    // Taxonomy network — disabled for "All samples" (too dense)
+    if (isAll) {
+      const netEl = document.getElementById('vir-tax-network');
+      if (netEl) netEl.innerHTML = '<p style="color:var(--text-muted);padding:1rem">Select a specific sample to view the taxonomy network.</p>';
+    } else {
+      _renderTaxNetwork(tax, sample);
+    }
 
-    // Table
-    makeTable('vir-tax-table', tax, [
-      { key: 'Genome',       label: 'Contig' },
-      { key: 'final_family', label: 'Family' },
-      { key: 'final_genus',  label: 'Genus' },
-      { key: 'Source',       label: 'Source' },
-      { key: 'CheckV_quality', label: 'CheckV', format: qualBadge },
-      { key: 'Completeness', label: 'Completeness' },
-    ], {
+    // Table — add Sample column when showing all
+    const taxCols = isAll
+      ? [
+          { key: 'sample',       label: 'Sample' },
+          { key: 'Genome',       label: 'Contig' },
+          { key: 'final_family', label: 'Family' },
+          { key: 'final_genus',  label: 'Genus' },
+          { key: 'Source',       label: 'Source' },
+          { key: 'CheckV_quality', label: 'CheckV' },
+          { key: 'Completeness', label: 'Completeness' },
+        ]
+      : [
+          { key: 'Genome',       label: 'Contig' },
+          { key: 'final_family', label: 'Family' },
+          { key: 'final_genus',  label: 'Genus' },
+          { key: 'Source',       label: 'Source' },
+          { key: 'CheckV_quality', label: 'CheckV' },
+          { key: 'Completeness', label: 'Completeness' },
+        ];
+    makeTable('vir-tax-table', tax, taxCols, {
       searchId: 'vir-tax-search',
       format: { CheckV_quality: qualBadge },
     });

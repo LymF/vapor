@@ -130,6 +130,13 @@
     return new Blob(parts, { type: 'application/pdf' });
   }
 
+  // ── Table → TSV ──────────────────────────────────────────────────────────
+  function tableToTSV(tableEl) {
+    return [...tableEl.querySelectorAll('tr')]
+      .map(tr => [...tr.children].map(td => td.textContent.replace(/[\t\n\r]/g, ' ').trim()).join('\t'))
+      .join('\n');
+  }
+
   // ── Table → layout / canvas / svg ────────────────────────────────────────
   function tableLayout(tableEl) {
     const rows = [...tableEl.querySelectorAll('tr')];
@@ -248,6 +255,12 @@
     const dark = document.documentElement.dataset.theme === 'dark';
     const bg = dark ? '#1e293b' : '#ffffff';
     try {
+      if (fmt === 'TSV') {
+        if (target.type === 'table') {
+          downloadBlob(new Blob([tableToTSV(target.el)], { type: 'text/tab-separated-values' }), `${name}.tsv`);
+        }
+        return;
+      }
       if (target.type === 'echarts') {
         const chart = window._charts[target.id];
         if (fmt === 'PNG') {
@@ -286,11 +299,12 @@
   }
 
   // ── Toolbar injection ─────────────────────────────────────────────────────
-  function attachToolbar(hostEl, resolver, filenameFn) {
+  function attachToolbar(hostEl, resolver, filenameFn, formats) {
     if (hostEl.querySelector(':scope > .export-toolbar')) return;
+    formats = formats || ['PNG', 'SVG', 'PDF'];
     const bar = document.createElement('div');
     bar.className = 'export-toolbar';
-    ['PNG', 'SVG', 'PDF'].forEach(fmt => {
+    formats.forEach(fmt => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'export-btn';
@@ -311,7 +325,8 @@
   // Attach export toolbars to every chart/table card on the page (idempotent).
   function injectAll() {
     document.querySelectorAll('.chart-card').forEach(card => {
-      attachToolbar(card, () => resolveTarget(card));
+      const formats = card.querySelector('.table-wrap') ? ['TSV'] : ['PNG', 'SVG', 'PDF'];
+      attachToolbar(card, () => resolveTarget(card), null, formats);
     });
   }
 

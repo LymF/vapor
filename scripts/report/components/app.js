@@ -233,10 +233,16 @@
   };
 
   // ── Sample dropdown builder ───────────────────────────────────────────────
-  window.makeSampleDropdown = function (selId, onChange) {
+  window.makeSampleDropdown = function (selId, onChange, opts) {
     const sel = document.getElementById(selId);
     if (!sel) return;
     sel.innerHTML = '';
+    if (opts && opts.allSamples) {
+      const opt = document.createElement('option');
+      opt.value = '__all__';
+      opt.textContent = 'All samples';
+      sel.appendChild(opt);
+    }
     (typeof SAMPLES !== 'undefined' ? SAMPLES : []).forEach(s => {
       const opt = document.createElement('option');
       opt.value = opt.textContent = s;
