@@ -541,8 +541,7 @@ def draw_virus(genome_id, seq, genes, name, outdir):
     _save_figure(fig, outdir, genome_id, f"{name} — Viral genome map ({scale_label})")
 
 
-# Taxonomic markers that identify bacteriophages in the viral taxonomy TSV.
-# Checked against the 'lineage', 'final_order', and 'genomad_class' columns.
+# Lineage markers that identify bacteriophages (checked as substrings of lineage/order).
 _PHAGE_LINEAGE_MARKERS = {
     "duplodnaviria",    # realm — tailed dsDNA phages
     "heunggongvirae",   # kingdom — Caudovirales clade
@@ -552,43 +551,74 @@ _PHAGE_LINEAGE_MARKERS = {
     "monodnaviria",     # realm — ssDNA phages (inoviruses, microviruses, etc.)
 }
 
+# Lineage markers that positively identify eukaryotic viruses.
+_EUKARYOTIC_MARKERS = {
+    "varidnaviria",        # realm — NCLDVs (giant viruses)
+    "nucleocytoviricota",  # phylum — NCLDVs
+    "megaviricetes",       # class — NCLDVs
+    "bamfordvirae",        # kingdom — NCLDVs + PRD1-like
+    "riboviria",           # realm — all RNA viruses
+    "pisuviricota",        # phylum — +ssRNA (picorna-like)
+    "kitrinoviricota",     # phylum — +ssRNA (alphavirus-like)
+    "negarnaviricota",     # phylum — −ssRNA
+    "duplornaviricota",    # phylum — dsRNA
+}
+
 
 def _is_bacteriophage(row):
-    """Return True if taxonomy columns indicate a bacteriophage."""
+    """Return True if any signal indicates a bacteriophage."""
     lineage = (row.get("lineage") or "").lower()
     order   = (row.get("final_order") or "").lower()
     gclass  = (row.get("genomad_class") or "").lower()
     genus   = (row.get("final_genus") or "").lower()
+    # GeNomad's own classification is the most reliable signal for novel sequences
+    if gclass == "phage":
+        return True
     for marker in _PHAGE_LINEAGE_MARKERS:
-        if marker in lineage or marker in order or marker in gclass:
+        if marker in lineage or marker in order:
             return True
-    # genus names ending in 'phage' (e.g. "Lambdavirus" is NOT a phage genus name,
-    # but literal "...phage" suffixes are — e.g. "T4-like phage" parsed as genus)
     if genus.endswith("phage"):
         return True
+    return False
+
+
+def _is_eukaryotic_virus(row):
+    """Return True if there is positive evidence this is a eukaryotic virus."""
+    lineage = (row.get("lineage") or "").lower()
+    gclass  = (row.get("genomad_class") or "").lower()
+    if gclass == "virus":
+        return True
+    for marker in _EUKARYOTIC_MARKERS:
+        if marker in lineage:
+            return True
     return False
 
 
 def _load_viral_taxonomy(tax_tsv):
     """Load viral_taxonomy_merged.tsv.
 
-    Returns (tax_map, phage_ids):
+    Returns (tax_map, phage_ids, euk_ids):
       tax_map   — dict{seq_name: 'Order | Family | Genus'} for map titles
-      phage_ids — set of seq_names identified as bacteriophages by taxonomy
+      phage_ids — seq_names with positive bacteriophage evidence
+      euk_ids   — seq_names with positive eukaryotic-virus evidence
+    Sequences in neither set are unclassified; they are excluded from both maps.
     """
     tax_map   = {}
     phage_ids = set()
+    euk_ids   = set()
     if not tax_tsv or not os.path.exists(tax_tsv):
-        return tax_map, phage_ids
+        return tax_map, phage_ids, euk_ids
     try:
         with open(tax_tsv) as f:
             for row in csv.DictReader(f, delimiter="\t"):
-                # TSV uses 'seq_name', not 'contig_id'
                 gid = (row.get("seq_name") or row.get("contig_id") or "").strip()
                 if not gid:
                     continue
                 if _is_bacteriophage(row):
                     phage_ids.add(gid)
+                elif _is_eukaryotic_virus(row):
+                    euk_ids.add(gid)
+                # else: unclassified — excluded from both genome map modes
                 # Build display label from deepest resolved rank
                 _null = {"", "na", "unknown", "unclassified", "none", "nd"}
                 parts = []
@@ -600,7 +630,7 @@ def _load_viral_taxonomy(tax_tsv):
                     tax_map[gid] = " | ".join(parts)
     except Exception as exc:
         print(f"[genome_map] WARNING: could not load viral taxonomy: {exc}", file=sys.stderr)
-    return tax_map, phage_ids
+    return tax_map, phage_ids, euk_ids
 
 
 def batch_virus(args):
@@ -613,14 +643,20 @@ def batch_virus(args):
     top_n      = args.top_n
     exclude_ids = set()
 
-    tax_map, phage_ids = _load_viral_taxonomy(getattr(args, "viral_taxonomy", None))
-    print(f"[genome_map] virus: taxonomy phage filter identified {len(phage_ids)} bacteriophages",
-          file=sys.stderr)
+    tax_map, phage_ids, euk_ids = _load_viral_taxonomy(getattr(args, "viral_taxonomy", None))
+    print(
+        f"[genome_map] virus: taxonomy identified {len(phage_ids)} phages, "
+        f"{len(euk_ids)} eukaryotic viruses",
+        file=sys.stderr,
+    )
 
     os.makedirs(outdir, exist_ok=True)
 
-    # Load IDs to exclude: (1) already annotated by pharokka, (2) identified as
-    # bacteriophages by taxonomy — virus mode is strictly for non-phage viruses.
+    # Sequences to exclude from virus mode:
+    #   1. already annotated by pharokka (phage mode)
+    #   2. identified as bacteriophages by taxonomy
+    #   3. unclassified (no positive eukaryotic-virus signal) — do not misrepresent
+    #      as eukaryotic viruses; sequences with no euk evidence are omitted.
     if args.exclude_ids and os.path.exists(args.exclude_ids):
         with open(args.exclude_ids) as f:
             exclude_ids = {line.strip() for line in f if line.strip()}
@@ -641,11 +677,16 @@ def batch_virus(args):
                     comp = 0.0
                 comp_map[row.get("contig_id", "")] = comp
 
-    # Rank by completeness, exclude phage IDs
+    # Rank by completeness; require positive eukaryotic-virus evidence.
+    # Sequences not in euk_ids (unclassified or confirmed phages) are skipped —
+    # they must not appear in the virus map to avoid false classification.
     seqs = {r.id: str(r.seq) for r in SeqIO.parse(fasta_path, "fasta")}
     ranked = []
     for gid, seq in seqs.items():
         if gid in exclude_ids:
+            continue
+        if euk_ids and gid not in euk_ids:
+            # Has taxonomy data but no eukaryotic-virus signal → skip
             continue
         comp = comp_map.get(gid, 0.0)
         if comp >= min_comp:
@@ -653,7 +694,7 @@ def batch_virus(args):
     ranked.sort(key=lambda x: x[1], reverse=True)
     ranked = ranked[:top_n]
 
-    print(f"[genome_map] virus: {len(ranked)} non-phage viruses qualify (≥{min_comp}%)",
+    print(f"[genome_map] virus: {len(ranked)} confirmed eukaryotic viruses qualify (≥{min_comp}%)",
           file=sys.stderr)
 
     _mpl_setup()
