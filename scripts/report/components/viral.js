@@ -335,29 +335,22 @@
       _renderTaxNetwork(tax, sample);
     }
 
-    // Table — add Sample column when showing all
-    const taxCols = isAll
-      ? [
-          { key: 'sample',       label: 'Sample' },
-          { key: 'Genome',       label: 'Contig' },
-          { key: 'final_family', label: 'Family' },
-          { key: 'final_genus',  label: 'Genus' },
-          { key: 'Source',       label: 'Source' },
-          { key: 'CheckV_quality', label: 'CheckV' },
-          { key: 'Completeness', label: 'Completeness' },
-        ]
-      : [
-          { key: 'Genome',       label: 'Contig' },
-          { key: 'final_family', label: 'Family' },
-          { key: 'final_genus',  label: 'Genus' },
-          { key: 'Source',       label: 'Source' },
-          { key: 'CheckV_quality', label: 'CheckV' },
-          { key: 'Completeness', label: 'Completeness' },
-        ];
-    makeTable('vir-tax-table', tax, taxCols, {
-      searchId: 'vir-tax-search',
-      format: { CheckV_quality: qualBadge },
-    });
+    // Table — hidden when "All samples" (too many rows)
+    const tableCard = document.querySelector('#vir-tax-table')?.closest('.chart-card');
+    if (tableCard) tableCard.style.display = isAll ? 'none' : '';
+    if (!isAll) {
+      makeTable('vir-tax-table', tax, [
+        { key: 'Genome',         label: 'Contig' },
+        { key: 'final_family',   label: 'Family' },
+        { key: 'final_genus',    label: 'Genus' },
+        { key: 'Source',         label: 'Source' },
+        { key: 'CheckV_quality', label: 'CheckV' },
+        { key: 'Completeness',   label: 'Completeness' },
+      ], {
+        searchId: 'vir-tax-search',
+        format: { CheckV_quality: qualBadge },
+      });
+    }
   }
 
   // ── Taxonomy network (D3 force) — Order → Family → Genus → Sequence ────────

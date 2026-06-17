@@ -226,28 +226,20 @@
       grid: { left: 180, right: 30, bottom: 50 },
     });
 
-    // Table — add Sample column when showing all
-    const prokCols = isAll
-      ? [
-          { key: 'sample',         label: 'Sample' },
-          { key: 'Bin',            label: 'Bin' },
-          { key: 'Domain',         label: 'Domain' },
-          { key: 'Phylum',         label: 'Phylum' },
-          { key: 'Genus',          label: 'Genus' },
-          { key: 'Source_tax',     label: 'Source' },
-          { key: 'Completeness',   label: 'Comp %' },
-          { key: 'Contamination',  label: 'Cont %' },
-        ]
-      : [
-          { key: 'Bin',            label: 'Bin' },
-          { key: 'Domain',         label: 'Domain' },
-          { key: 'Phylum',         label: 'Phylum' },
-          { key: 'Genus',          label: 'Genus' },
-          { key: 'Source_tax',     label: 'Source' },
-          { key: 'Completeness',   label: 'Comp %' },
-          { key: 'Contamination',  label: 'Cont %' },
-        ];
-    makeTable('prok-tax-table', mp, prokCols, { searchId: 'prok-tax-search' });
+    // Table — hidden when "All samples" (too many rows)
+    const tableCard = document.querySelector('#prok-tax-table')?.closest('.chart-card');
+    if (tableCard) tableCard.style.display = isAll ? 'none' : '';
+    if (!isAll) {
+      makeTable('prok-tax-table', mp, [
+        { key: 'Bin',           label: 'Bin' },
+        { key: 'Domain',        label: 'Domain' },
+        { key: 'Phylum',        label: 'Phylum' },
+        { key: 'Genus',         label: 'Genus' },
+        { key: 'Source_tax',    label: 'Source' },
+        { key: 'Completeness',  label: 'Comp %' },
+        { key: 'Contamination', label: 'Cont %' },
+      ], { searchId: 'prok-tax-search' });
+    }
   }
 
 })();
