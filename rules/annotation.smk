@@ -76,7 +76,12 @@ rule pharokka:
         hq_ids = []
         with open(str(input.checkv)) as f:
             for row in csv.DictReader(f, delimiter="\t"):
-                comp = float(row.get("completeness", "0") or 0)
+                try:
+                    comp = float(row.get("completeness", "0") or 0)
+                except ValueError:
+                    # CheckV writes "NA" for completeness on some
+                    # "Not-determined" quality contigs -- treat as 0.
+                    comp = 0.0
                 if comp >= float(params.min_comp):
                     hq_ids.append((row["contig_id"], comp))
         hq_ids.sort(key=lambda x: x[1], reverse=True)
