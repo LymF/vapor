@@ -98,7 +98,7 @@
   // ── Genome maps ───────────────────────────────────────────────────────────
   function _renderMaps(sample) {
     const modeEl = document.getElementById('genome-map-mode');
-    const mode   = modeEl ? modeEl.value : 'phage';
+    const mode   = modeEl ? modeEl.value : 'virus';
     const maps   = (typeof GENOME_MAPS !== 'undefined' ? GENOME_MAPS : {})[sample] || {};
     const items  = (maps[mode] || []);
     const cont   = document.getElementById('genome-maps-container');
@@ -117,6 +117,16 @@
 
       const h4 = document.createElement('h4');
       h4.textContent = m.id;
+      // Phage/Virus badge: the "Virus" view merges both categories into one
+      // list -- the badge shows which one PHROGS hallmark-gene evidence
+      // assigned, instead of forcing a separate mode toggle per category.
+      if (m.category) {
+        const badge = document.createElement('span');
+        badge.className = 'badge ' + (m.category === 'Phage' ? 'badge-teal' : 'badge-amber');
+        badge.style.marginLeft = '.5rem';
+        badge.textContent = m.category;
+        h4.appendChild(badge);
+      }
       item.appendChild(h4);
 
       // Copy FASTA button

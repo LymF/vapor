@@ -778,12 +778,19 @@ def load_svg(svg_path):
 
 
 def load_genome_maps(outdir, samples):
-    """Load genome map SVGs for phage/virus/prok modes, max 5 per mode per sample."""
+    """Load genome map SVGs for virus/prok modes, max 5 per category per sample.
+
+    "virus" merges the phage/ and virus/ output subfolders into a single list
+    -- the report shows one unified "Virus" view, with each genome tagged
+    category="Phage" or category="Virus" (the backend split still exists on
+    disk, decided by PHROGS hallmark-gene evidence in genome_map_universal.py,
+    but the UI no longer forces the user to pick a mode to see all of them).
+    """
     result = {}
     for s in samples:
         base = os.path.join(outdir, s, "annotation", "genome_maps")
-        result[s] = {"phage": [], "virus": [], "prok": []}
-        for mode in ("phage", "virus", "prok"):
+        result[s] = {"virus": [], "prok": []}
+        for mode, category in (("phage", "Phage"), ("virus", "Virus")):
             mdir = os.path.join(base, mode)
             for svg_f in sorted(glob.glob(os.path.join(mdir, "*.svg")))[:5]:
                 gid = os.path.basename(svg_f).replace("_map.svg", "")
@@ -797,7 +804,21 @@ def load_genome_maps(outdir, samples):
                                 seq = "".join(l.strip() for l in ff if not l.startswith(">"))
                         except Exception:
                             pass
-                    result[s][mode].append({"id": gid, "svg": svg, "seq": seq})
+                    result[s]["virus"].append({"id": gid, "svg": svg, "seq": seq, "category": category})
+        mdir = os.path.join(base, "prok")
+        for svg_f in sorted(glob.glob(os.path.join(mdir, "*.svg")))[:5]:
+            gid = os.path.basename(svg_f).replace("_map.svg", "")
+            svg = load_svg(svg_f)
+            if svg:
+                seq = ""
+                fasta_f = os.path.join(mdir, f"{gid}.fasta")
+                if os.path.exists(fasta_f):
+                    try:
+                        with open(fasta_f) as ff:
+                            seq = "".join(l.strip() for l in ff if not l.startswith(">"))
+                    except Exception:
+                        pass
+                result[s]["prok"].append({"id": gid, "svg": svg, "seq": seq})
     return result
 
 
