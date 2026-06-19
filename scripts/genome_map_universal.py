@@ -366,9 +366,54 @@ def draw_phage(gbk_record, seq, genome_id, name, outdir):
     _save_figure(fig, outdir, genome_id, f"{name} — Phage genome map ({gsize//1000} kb)")
 
 
+# PHROGS functional categories that are structural/packaging hallmarks of
+# bacteriophages — essentially never found in eukaryotic virus annotations.
+# Presence of >=1 gene in these categories is used as direct annotation
+# evidence of "this is a phage", replacing reliance on taxonomy database
+# hits (which fail for novel/divergent sequences with no reference match).
+_PHROGS_HALLMARK_CATEGORIES = {
+    "head and packaging",
+    "connector",
+    "tail",
+    "lysis",
+}
+
+
+def _load_pharokka_hallmarks(tsv_path):
+    """Return set of contig IDs with >=1 PHROGS hallmark structural gene.
+
+    pharokka_cds_final_merged_output.tsv columns: 'contig' (or derivable from
+    'gene' id) and 'phrog_category'/'category'.
+    """
+    hallmark_ids = set()
+    if not tsv_path or not os.path.exists(tsv_path) or os.path.getsize(tsv_path) == 0:
+        return hallmark_ids
+    with open(tsv_path) as f:
+        for row in csv.DictReader(f, delimiter="\t"):
+            contig = (row.get("contig") or "").strip()
+            if not contig:
+                gene = row.get("gene", "") or row.get("ID", "")
+                contig = gene.rsplit("_CDS_", 1)[0] if "_CDS_" in gene else gene.rsplit("_", 1)[0]
+            if not contig:
+                continue
+            category = (row.get("phrog_category") or row.get("category") or "").strip().lower()
+            if category in _PHROGS_HALLMARK_CATEGORIES:
+                hallmark_ids.add(contig)
+    return hallmark_ids
+
+
 def batch_phage(args):
-    """Batch: iterate phold GBK, select top-N HQ phages, generate maps."""
-    gbk_path  = args.gbk
+    """Batch: iterate phold GBK, confirm phages by PHROGS hallmark genes, generate maps.
+
+    A genome is only drawn as a phage if pharokka found >=1 structural/packaging
+    hallmark gene (head-and-packaging, connector, tail, lysis) — not merely because
+    it passed the completeness filter and was fed through pharokka. Genomes that
+    went through pharokka but found no hallmark genes are written to
+    confirmed_phage_ids.txt as NON-phages, so genome_map_virus can correctly
+    include them instead of silently dropping or misclassifying them.
+    """
+    gbk_path     = args.gbk
+    pharokka_tsv = args.pharokka_tsv
     fasta_path = args.fasta
     checkv_path = args.checkv
     outdir    = args.outdir
@@ -379,7 +424,13 @@ def batch_phage(args):
 
     if not gbk_path or not os.path.exists(gbk_path) or os.path.getsize(gbk_path) == 0:
         print("[genome_map] phage: phold GBK missing or empty — skipping", file=sys.stderr)
+        # Still write an empty confirmed-phage list so virus mode doesn't break
+        Path(os.path.join(outdir, "confirmed_phage_ids.txt")).touch()
         return
+
+    hallmark_ids = _load_pharokka_hallmarks(pharokka_tsv)
+    print(f"[genome_map] phage: {len(hallmark_ids)} contigs have PHROGS hallmark genes",
+          file=sys.stderr)
 
     # Load CheckV completeness
     comp_map = {}
@@ -398,23 +449,31 @@ def batch_phage(args):
         for rec in SeqIO.parse(fasta_path, "fasta"):
             seqs[rec.id] = str(rec.seq)
 
-    # Parse GBK records and rank by CheckV completeness
+    # Parse GBK records — every record here already passed pharokka annotation
+    # (pharokka now runs on ALL contigs >= min_comp, no cap), so confirmation
+    # is a hallmark-gene check rather than a completeness re-filter.
     gbk_records = list(SeqIO.parse(gbk_path, "genbank"))
     if not gbk_records:
         print("[genome_map] phage: no records in GBK — skipping", file=sys.stderr)
+        Path(os.path.join(outdir, "confirmed_phage_ids.txt")).touch()
         return
 
-    ranked = []
+    confirmed = []
     for rec in gbk_records:
         gid = rec.id
         comp = comp_map.get(gid, 0.0)
-        if comp >= min_comp:
-            ranked.append((gid, comp, rec))
-    ranked.sort(key=lambda x: x[1], reverse=True)
-    ranked = ranked[:top_n]
+        if comp >= min_comp and gid in hallmark_ids:
+            confirmed.append((gid, comp, rec))
+    confirmed.sort(key=lambda x: x[1], reverse=True)
 
-    print(f"[genome_map] phage: {len(ranked)} genomes qualify (≥{min_comp}% completeness)",
-          file=sys.stderr)
+    # Write the FULL confirmed-phage list (not just the displayed top-N) so
+    # genome_map_virus can exclude all real phages, not only the ones drawn.
+    with open(os.path.join(outdir, "confirmed_phage_ids.txt"), "w") as f:
+        f.write("\n".join(gid for gid, _, _ in confirmed) + ("\n" if confirmed else ""))
+
+    ranked = confirmed[:top_n]
+    print(f"[genome_map] phage: {len(confirmed)} confirmed phages (≥{min_comp}% completeness "
+          f"+ hallmark gene), drawing top {len(ranked)}", file=sys.stderr)
 
     _mpl_setup()
     for gid, comp, rec in ranked:
@@ -551,27 +610,19 @@ _PHAGE_LINEAGE_MARKERS = {
     "monodnaviria",     # realm — ssDNA phages (inoviruses, microviruses, etc.)
 }
 
-# Lineage markers that positively identify eukaryotic viruses.
-_EUKARYOTIC_MARKERS = {
-    "varidnaviria",        # realm — NCLDVs (giant viruses)
-    "nucleocytoviricota",  # phylum — NCLDVs
-    "megaviricetes",       # class — NCLDVs
-    "bamfordvirae",        # kingdom — NCLDVs + PRD1-like
-    "riboviria",           # realm — all RNA viruses
-    "pisuviricota",        # phylum — +ssRNA (picorna-like)
-    "kitrinoviricota",     # phylum — +ssRNA (alphavirus-like)
-    "negarnaviricota",     # phylum — −ssRNA
-    "duplornaviricota",    # phylum — dsRNA
-}
-
 
 def _is_bacteriophage(row):
-    """Return True if any signal indicates a bacteriophage."""
+    """Return True if any signal indicates a bacteriophage.
+
+    Used only as a defense-in-depth exclusion for virus mode — the primary
+    phage/virus decision is made by batch_phage from pharokka hallmark-gene
+    annotation evidence (see _PHROGS_HALLMARK_CATEGORIES below), since
+    taxonomy database hits are sparse for novel/divergent sequences.
+    """
     lineage = (row.get("lineage") or "").lower()
     order   = (row.get("final_order") or "").lower()
     gclass  = (row.get("genomad_class") or "").lower()
     genus   = (row.get("final_genus") or "").lower()
-    # GeNomad's own classification is the most reliable signal for novel sequences
     if gclass == "phage":
         return True
     for marker in _PHAGE_LINEAGE_MARKERS:
@@ -582,32 +633,18 @@ def _is_bacteriophage(row):
     return False
 
 
-def _is_eukaryotic_virus(row):
-    """Return True if there is positive evidence this is a eukaryotic virus."""
-    lineage = (row.get("lineage") or "").lower()
-    gclass  = (row.get("genomad_class") or "").lower()
-    if gclass == "virus":
-        return True
-    for marker in _EUKARYOTIC_MARKERS:
-        if marker in lineage:
-            return True
-    return False
-
-
 def _load_viral_taxonomy(tax_tsv):
     """Load viral_taxonomy_merged.tsv.
 
-    Returns (tax_map, phage_ids, euk_ids):
+    Returns (tax_map, phage_ids):
       tax_map   — dict{seq_name: 'Order | Family | Genus'} for map titles
-      phage_ids — seq_names with positive bacteriophage evidence
-      euk_ids   — seq_names with positive eukaryotic-virus evidence
-    Sequences in neither set are unclassified; they are excluded from both maps.
+      phage_ids — seq_names with positive bacteriophage evidence (taxonomy-based,
+                  defense in depth alongside the pharokka hallmark-gene check)
     """
     tax_map   = {}
     phage_ids = set()
-    euk_ids   = set()
     if not tax_tsv or not os.path.exists(tax_tsv):
-        return tax_map, phage_ids, euk_ids
+        return tax_map, phage_ids
     try:
         with open(tax_tsv) as f:
             for row in csv.DictReader(f, delimiter="\t"):
@@ -616,9 +653,6 @@ def _load_viral_taxonomy(tax_tsv):
                     continue
                 if _is_bacteriophage(row):
                     phage_ids.add(gid)
-                elif _is_eukaryotic_virus(row):
-                    euk_ids.add(gid)
-                # else: unclassified — excluded from both genome map modes
                 # Build display label from deepest resolved rank
                 _null = {"", "na", "unknown", "unclassified", "none", "nd"}
                 parts = []
@@ -630,11 +664,23 @@ def _load_viral_taxonomy(tax_tsv):
                     tax_map[gid] = " | ".join(parts)
     except Exception as exc:
         print(f"[genome_map] WARNING: could not load viral taxonomy: {exc}", file=sys.stderr)
-    return tax_map, phage_ids, euk_ids
+    return tax_map, phage_ids
 
 
 def batch_virus(args):
-    """Batch: iterate GeNomad genes TSV, select top-N non-phage viral sequences."""
+    """Batch: iterate GeNomad genes TSV, select top-N non-phage viral sequences.
+
+    Phage/virus classification is decided primarily by pharokka annotation
+    evidence (see batch_phage / confirmed_phage_ids.txt), not by taxonomy —
+    taxonomy database hits are sparse for novel sequences and unreliable as
+    a primary filter. Any sequence that pharokka did not confirm as a phage
+    (no PHROGS structural hallmark gene) is eligible here, including ones
+    with no taxonomy assignment at all ("Unclassified" in the title simply
+    means no database hit, not "definitely a eukaryotic virus").
+    Taxonomy is still used to identify confirmed bacteriophages (defense in
+    depth, e.g. divergent phages with no hallmark gene annotated but a clear
+    taxonomic placement) and to label the genome map title when available.
+    """
     genomad_genes = args.genomad_genes
     fasta_path = args.fasta
     checkv_path = args.checkv
@@ -643,20 +689,17 @@ def batch_virus(args):
     top_n      = args.top_n
     exclude_ids = set()
 
-    tax_map, phage_ids, euk_ids = _load_viral_taxonomy(getattr(args, "viral_taxonomy", None))
-    print(
-        f"[genome_map] virus: taxonomy identified {len(phage_ids)} phages, "
-        f"{len(euk_ids)} eukaryotic viruses",
-        file=sys.stderr,
-    )
+    tax_map, phage_ids = _load_viral_taxonomy(getattr(args, "viral_taxonomy", None))
+    print(f"[genome_map] virus: taxonomy identified {len(phage_ids)} additional phages",
+          file=sys.stderr)
 
     os.makedirs(outdir, exist_ok=True)
 
     # Sequences to exclude from virus mode:
-    #   1. already annotated by pharokka (phage mode)
-    #   2. identified as bacteriophages by taxonomy
-    #   3. unclassified (no positive eukaryotic-virus signal) — do not misrepresent
-    #      as eukaryotic viruses; sequences with no euk evidence are omitted.
+    #   1. confirmed phages from pharokka hallmark-gene evidence (--exclude-ids,
+    #      written by batch_phage as confirmed_phage_ids.txt — the FULL set,
+    #      not just the ones drawn in phage mode)
+    #   2. identified as bacteriophages by taxonomy (defense in depth)
     if args.exclude_ids and os.path.exists(args.exclude_ids):
         with open(args.exclude_ids) as f:
             exclude_ids = {line.strip() for line in f if line.strip()}
@@ -677,16 +720,14 @@ def batch_virus(args):
                     comp = 0.0
                 comp_map[row.get("contig_id", "")] = comp
 
-    # Rank by completeness; require positive eukaryotic-virus evidence.
-    # Sequences not in euk_ids (unclassified or confirmed phages) are skipped —
-    # they must not appear in the virus map to avoid false classification.
+    # Rank by completeness. Anything not excluded above (confirmed phage by
+    # pharokka hallmark gene or by taxonomy) qualifies for the virus map —
+    # including genuinely unclassified sequences, since pharokka already had
+    # the chance to find phage evidence and did not.
     seqs = {r.id: str(r.seq) for r in SeqIO.parse(fasta_path, "fasta")}
     ranked = []
     for gid, seq in seqs.items():
         if gid in exclude_ids:
-            continue
-        if euk_ids and gid not in euk_ids:
-            # Has taxonomy data but no eukaryotic-virus signal → skip
             continue
         comp = comp_map.get(gid, 0.0)
         if comp >= min_comp:
@@ -694,7 +735,7 @@ def batch_virus(args):
     ranked.sort(key=lambda x: x[1], reverse=True)
     ranked = ranked[:top_n]
 
-    print(f"[genome_map] virus: {len(ranked)} confirmed eukaryotic viruses qualify (≥{min_comp}%)",
+    print(f"[genome_map] virus: {len(ranked)} non-phage viral genomes qualify (≥{min_comp}%)",
           file=sys.stderr)
 
     _mpl_setup()
@@ -920,7 +961,10 @@ def parse_args():
     p.add_argument("--outdir", required=True, help="Output directory for SVG/PDF files")
 
     # Phage-specific
-    p.add_argument("--gbk",    help="GBK file (phold output for phage, Bakta for prok)")
+    p.add_argument("--gbk",          help="GBK file (phold output for phage, Bakta for prok)")
+    p.add_argument("--pharokka-tsv", help="pharokka_cds_final_merged_output.tsv — used to confirm "
+                                           "phage hallmark genes (phage mode) and to build the "
+                                           "exclude set for virus mode")
     # Virus-specific
     p.add_argument("--genomad-genes",   help="GeNomad *_genes.tsv (virus mode)")
     p.add_argument("--exclude-ids",     help="File of genome IDs to exclude (virus mode)")

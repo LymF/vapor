@@ -9,7 +9,7 @@
 #
 # All rules soft-fail (touch output) when their database is not configured.
 # Config keys: pharokka_db, phold_db, pharokka_min_completeness,
-#              pharokka_max_genomes, bakta_db, bakta_min_completeness,
+#              bakta_db, bakta_min_completeness,
 #              bakta_max_contamination, eggnog_db
 # ══════════════════════════════════════════════════════════════════════
 
@@ -17,15 +17,18 @@
 rule pharokka:
     """
     Bacteriophage genome annotation with Pharokka (PHROGS database).
-    Runs in --meta mode on HQ phages selected from CheckV output.
+    Runs in --meta mode on ALL viral sequences >= PHAROKKA_MIN_COMPLETENESS.
 
     Selection criteria:
       - completeness >= PHAROKKA_MIN_COMPLETENESS  (quality tier NOT required —
         novel phages often receive "Not-determined" from CheckV despite high
         completeness because no close reference cluster exists)
-      - Capped at PHAROKKA_MAX_GENOMES (sorted by completeness descending)
+      - No cap on genome count: every qualifying sequence is annotated, since
+        the resulting PHROGS hallmark-gene hits are what genome_map_universal.py
+        uses to decide phage vs. non-phage virus (see genome_map_phage/_virus
+        below) — taxonomy alone is unreliable for novel/divergent sequences.
 
-    Output GBK is later used by phold and genome_map_universal.py.
+    Output GBK/TSV are later used by phold and genome_map_universal.py.
     Skipped if PHAROKKA_DB is not configured (empty string).
     """
     input:
@@ -46,7 +49,6 @@ rule pharokka:
         outdir   = f"{OUTDIR}/{{sample}}/annotation/pharokka",
         db       = PHAROKKA_DB,
         min_comp = PHAROKKA_MIN_COMPLETENESS,
-        max_n    = PHAROKKA_MAX_GENOMES,
         hq_fa    = f"{OUTDIR}/{{sample}}/annotation/pharokka/hq_phages.fasta",
     run:
         import csv, os
@@ -77,9 +79,7 @@ rule pharokka:
                 comp = float(row.get("completeness", "0") or 0)
                 if comp >= float(params.min_comp):
                     hq_ids.append((row["contig_id"], comp))
-        # Sort by completeness descending, take top N
         hq_ids.sort(key=lambda x: x[1], reverse=True)
-        hq_ids = hq_ids[:int(params.max_n)]
         hq_set = {cid for cid, _ in hq_ids}
 
         # Extract sequences
@@ -425,16 +425,23 @@ rule extract_kegg_kos:
 
 rule genome_map_phage:
     """
-    Circular genome maps for HQ phages (PHROGS color scheme).
-    Reads Phold GBK (multi-record, one per phage), selects top-N genomes
-    by CheckV completeness, and generates one SVG+PDF map per phage.
-    Skipped if Phold GBK is empty (no HQ phages in sample).
+    Circular genome maps for confirmed phages (PHROGS color scheme).
+    Reads Phold GBK (multi-record, every sequence pharokka annotated) and the
+    Pharokka CDS TSV; a genome is only drawn as a phage if it has >=1 PHROGS
+    structural/packaging hallmark gene (head-and-packaging, connector, tail,
+    lysis) — this is what actually distinguishes phages from other high-
+    completeness viral sequences that happened to pass through pharokka.
+    The full confirmed-phage ID list (not just the displayed top-N) is written
+    to confirmed_phage_ids.txt, consumed by genome_map_virus below to exclude
+    real phages regardless of completeness ranking.
+    Skipped if Phold GBK is empty (no qualifying sequences in sample).
     """
     input:
-        phold_done = rules.phold.output.done,
-        phold_gbk  = rules.phold.output.gbk,
-        checkv     = rules.checkv.output.summary,
-        viral_nr   = rules.viral_nonredundant.output.fasta,
+        phold_done   = rules.phold.output.done,
+        phold_gbk    = rules.phold.output.gbk,
+        pharokka_tsv = rules.pharokka.output.tsv,
+        checkv       = rules.checkv.output.summary,
+        viral_nr     = rules.viral_nonredundant.output.fasta,
     output:
         done = f"{OUTDIR}/{{sample}}/annotation/genome_maps/phage_maps_done.txt",
     log:
@@ -455,6 +462,7 @@ rule genome_map_phage:
         python3 {params.scripts_dir}/genome_map_universal.py \
             --mode phage \
             --gbk {input.phold_gbk} \
+            --pharokka-tsv {input.pharokka_tsv} \
             --fasta {input.viral_nr} \
             --checkv {input.checkv} \
             --outdir {params.outdir} \
@@ -469,7 +477,12 @@ rule genome_map_virus:
     """
     Circular genome maps for non-phage viral sequences.
     Uses GeNomad gene predictions for gene positions and functional categories.
-    Excludes phage IDs (already mapped by genome_map_phage).
+    Excludes confirmed phages — the FULL set written by genome_map_phage to
+    confirmed_phage_ids.txt (every sequence with a PHROGS hallmark gene, not
+    just the top-N that got drawn), so a real phage ranked below the display
+    cutoff cannot leak into the virus map. Anything else >= min completeness
+    qualifies, including sequences with no taxonomy assignment — pharokka
+    already had the chance to find phage evidence and found none.
     Selects top-N viral genomes by CheckV completeness.
     """
     input:
@@ -500,15 +513,17 @@ rule genome_map_virus:
         os.makedirs(params.outdir, exist_ok=True)
         log_path = str(log[0])
 
-        # Build exclude-IDs file: phage IDs already mapped
+        # Exclude-IDs file: the FULL confirmed-phage list from genome_map_phage
+        # (confirmed_phage_ids.txt), not just the genomes it drew.
         exclude_file = os.path.join(params.outdir, "phage_ids_to_exclude.txt")
-        phage_svgs = [
-            f.stem.replace("_map", "")
-            for f in Path(params.phage_dir).glob("*_map.svg")
-        ] if os.path.isdir(params.phage_dir) else []
+        confirmed_file = os.path.join(params.phage_dir, "confirmed_phage_ids.txt")
+        confirmed_ids = []
+        if os.path.exists(confirmed_file):
+            with open(confirmed_file) as cf:
+                confirmed_ids = [line.strip() for line in cf if line.strip()]
 
         with open(exclude_file, "w") as ef:
-            ef.write("\n".join(phage_svgs) + "\n")
+            ef.write("\n".join(confirmed_ids) + ("\n" if confirmed_ids else ""))
 
         # Locate GeNomad gene summary TSV (genes in GFF-like format)
         genomad_genes = ""
