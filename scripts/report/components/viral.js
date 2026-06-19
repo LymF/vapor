@@ -295,19 +295,24 @@
       series: [{ type: 'pie', radius: ['35%', '60%'], data: srcPieData, label: { formatter: '{b}\n{d}%' } }],
     });
 
-    // Family/Genus bar (top 20) — only contigs with an actual assignment at that rank
+    // Order/Family/Genus bar (top 20) — only contigs with an assignment at that rank.
+    // Order is included because GeNomad-only fallback hits (no other tool found a
+    // match) typically only resolve to order/class level, never family or genus —
+    // without this level they'd silently disappear from every rank chart despite
+    // being a large share of "Source".
+    const RANK_FIELD = { order: 'final_order', family: 'final_family', genus: 'final_genus' };
+    const RANK_LABEL = { order: 'Orders', family: 'Families', genus: 'Genera' };
     function renderRankBar(level) {
-      const fields    = level === 'genus' ? ['final_genus', 'Genus'] : ['final_family', 'Family'];
-      const rankLabel = level === 'genus' ? 'Genera' : 'Families';
+      const field = RANK_FIELD[level] || 'final_family';
       const count = {};
       tax.forEach(r => {
-        const v = r[fields[0]] || r[fields[1]] || '';
+        const v = r[field] || '';
         if (!v) return;
         count[v] = (count[v] || 0) + 1;
       });
       const top = Object.entries(count).sort((a, b) => b[1] - a[1]).slice(0, 20);
       mkChart('vir-tax-family-chart', {
-        title: { text: `${label} — Top Viral ${rankLabel}` },
+        title: { text: `${label} — Top Viral ${RANK_LABEL[level] || 'Families'}` },
         tooltip: { trigger: 'axis' },
         xAxis: { type: 'value', name: 'Count', nameLocation: 'middle', nameGap: 28 },
         yAxis: { type: 'category', data: top.map(x => x[0]).reverse(), axisLabel: { width: 140, overflow: 'truncate' } },
@@ -316,16 +321,24 @@
       });
     }
 
-    const famBtn   = document.getElementById('vir-tax-family-btn');
-    const genusBtn = document.getElementById('vir-tax-genus-btn');
-    const currentLevel = (famBtn && famBtn.classList.contains('active')) || !genusBtn ? 'family'
-      : (genusBtn.classList.contains('active') ? 'genus' : 'family');
-    if (famBtn && genusBtn) {
-      famBtn.onclick = () => { famBtn.classList.add('active'); genusBtn.classList.remove('active'); renderRankBar('family'); };
-      genusBtn.onclick = () => { genusBtn.classList.add('active'); famBtn.classList.remove('active'); renderRankBar('genus'); };
-      if (!famBtn.classList.contains('active') && !genusBtn.classList.contains('active')) famBtn.classList.add('active');
+    const rankBtns = {
+      order:  document.getElementById('vir-tax-order-btn'),
+      family: document.getElementById('vir-tax-family-btn'),
+      genus:  document.getElementById('vir-tax-genus-btn'),
+    };
+    const activeLevel = Object.entries(rankBtns).find(([, btn]) => btn?.classList.contains('active'))?.[0] || 'family';
+    Object.entries(rankBtns).forEach(([level, btn]) => {
+      if (!btn) return;
+      btn.onclick = () => {
+        Object.values(rankBtns).forEach(b => b && b.classList.remove('active'));
+        btn.classList.add('active');
+        renderRankBar(level);
+      };
+    });
+    if (rankBtns.family && !Object.values(rankBtns).some(b => b?.classList.contains('active'))) {
+      rankBtns.family.classList.add('active');
     }
-    renderRankBar(currentLevel);
+    renderRankBar(activeLevel);
 
     // Taxonomy network — disabled for "All samples" (too dense)
     if (isAll) {
@@ -341,6 +354,7 @@
     if (!isAll) {
       makeTable('vir-tax-table', tax, [
         { key: 'Genome',         label: 'Contig' },
+        { key: 'final_order',    label: 'Order' },
         { key: 'final_family',   label: 'Family' },
         { key: 'final_genus',    label: 'Genus' },
         { key: 'Source',         label: 'Source' },
