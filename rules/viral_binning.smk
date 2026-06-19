@@ -227,10 +227,16 @@ rule skani_cluster:
     Greedy single-linkage vOTU clustering from the skani ANI matrix.
     Pure Python (stdlib only) — runs in Snakemake's interpreter, no container needed.
     ICTV / Roux 2019 definition: ANI >= VOTU_ANI AND max(af_q, af_r) >= VOTU_AF.
+    The cluster representative is the member with the highest CheckV
+    completeness (ties broken by FASTA order) — not simply the first contig
+    encountered, since that's an arbitrary assembly-order artifact and the
+    representative's sequence/length is what downstream genome maps and
+    vOTU abundance use.
     """
     input:
-        ani   = rules.skani_votu.output.ani,
-        fasta = rules.viral_nonredundant.output.fasta,
+        ani    = rules.skani_votu.output.ani,
+        fasta  = rules.viral_nonredundant.output.fasta,
+        checkv = rules.checkv.output.summary,
     output:
         clusters = f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv",
     log:
@@ -242,6 +248,7 @@ rule skani_cluster:
         af_min  = VOTU_AF,
         enabled = VOTU_CLUSTERING_ENABLED,
     run:
+        import csv
         import sys
         with open(log[0], "w") as _lf:
             if not params.enabled:
@@ -254,6 +261,14 @@ rule skani_cluster:
                     for line in f:
                         if line.startswith(">"):
                             ids.append(line[1:].strip().split()[0])
+
+                completeness = {}
+                with open(input.checkv) as f:
+                    for row in csv.DictReader(f, delimiter="\t"):
+                        try:
+                            completeness[row["contig_id"]] = float(row.get("completeness", "0") or 0)
+                        except (KeyError, ValueError):
+                            continue
 
                 neigh = {i: set() for i in ids}
                 try:
@@ -298,7 +313,8 @@ rule skani_cluster:
                 with open(output.clusters, "w") as f:
                     f.write("representative\tmember\n")
                     for comp in clusters:
-                        rep = comp[0]
+                        # Representative = highest CheckV completeness (ties -> FASTA order)
+                        rep = max(comp, key=lambda m: (completeness.get(m, 0.0), -comp.index(m)))
                         for m in comp:
                             f.write(f"{rep}\t{m}\n")
 

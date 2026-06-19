@@ -16,7 +16,7 @@ from .data_loaders import (
     parse_checkm2_phyla,
     load_vibrant, load_vcontact3, load_viral_taxonomy, load_viral_source_distribution, load_gtdbtk,
     load_custom_prok, load_phist,
-    enrich_taxonomy_with_checkv, merge_prok_taxonomy,
+    enrich_taxonomy_with_checkv, collapse_taxonomy_to_votu, merge_prok_taxonomy,
     load_alpha_diversity, load_pcoord, load_eggnog, load_phrogs,
     load_genome_maps,
     path_dict, collect_tool_versions,
@@ -150,6 +150,10 @@ def _build(snakemake):
             tax_genome_keys.add(key)
 
     tax_data = enrich_taxonomy_with_checkv(tax_data, checkv_data)
+    # Collapse rep_seq-level (MMseqs2, 95% identity) rows down to one per
+    # vOTU representative (skani, 95% ANI + 85% AF) so the same viral
+    # population isn't counted more than once in taxonomy charts/tables.
+    tax_data = collapse_taxonomy_to_votu(tax_data, outdir, samples)
 
     # ── vOTU table + lifestyle ────────────────────────────────────────────────
     votu_data = {}
@@ -173,6 +177,11 @@ def _build(snakemake):
     # ── Abundance ─────────────────────────────────────────────────────────────
     viral_abund = {s: load_tsv(os.path.join(outdir, s, "abundance", "viral_abundance.tsv")) for s in samples}
     prok_abund  = {s: load_tsv(os.path.join(outdir, s, "abundance", "prok_abundance.tsv"))  for s in samples}
+    # vOTU-level abundance (skani cluster representatives) — raw read counts
+    # summed across cluster members, RPKM/TPM/mean recomputed for the
+    # representative; see rules/abundance.smk votu_abundance for the maths.
+    votu_abund  = {s: load_tsv(os.path.join(outdir, s, "viral", "votu", f"{s}_vOTU_abundance.tsv"))
+                   for s in samples}
 
     # ── Diversity ─────────────────────────────────────────────────────────────
     div_base = os.path.join(outdir, "diversity")
@@ -326,6 +335,7 @@ def _build(snakemake):
         "VIRAL_LENGTHS":{s: viral_contig_lengths[s] for s in samples},
         "VIRAL_DEPTH":  viral_depth_data,
         "VIRAL_ABUND":  viral_abund,
+        "VOTU_ABUND":   votu_abund,
         "PROK_ABUND":   prok_abund,
         "TAX_DATA":     tax_data,
         "VIRAL_SOURCE_DIST": viral_source_dist,

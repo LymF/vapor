@@ -43,7 +43,7 @@ rule coverm_viral:
             --min-read-percent-identity 95 \
             --min-read-aligned-length 45 \
             --contig-end-exclusion 75 \
-            --methods {params.method} mean covered_fraction \
+            --methods {params.method} mean covered_fraction count \
             --threads {threads} \
             --output-file {output.tsv} \
             > {log} 2>&1
@@ -58,6 +58,142 @@ rule coverm_viral:
         mv "$FILTERED" {output.tsv}
         echo "[coverm_viral] $(( $(wc -l < {output.tsv}) - 1 )) vOTUs in table" | tee -a {log}
         """
+
+
+rule votu_abundance:
+    """
+    Aggregate per-contig viral abundance (CoverM) up to the vOTU level.
+
+    viral_nonredundant.fasta (MMseqs2, 95% identity, no aligned-fraction
+    requirement) can keep multiple contigs that the stricter ICTV/Roux 2019
+    vOTU definition (skani, 95% ANI + 85% AF — see skani_cluster) considers
+    the same viral population. Reporting/abundance at the MMseqs2 level can
+    therefore double-count a single vOTU. Collapsing to one row per vOTU
+    representative without losing signal requires summing raw read counts
+    across all cluster members (not the RPKM/TPM/mean values directly,
+    since each is already normalised by its own contig's length) and then
+    recomputing the configured CoverM metric for the representative.
+
+    The per-sample scale factor (~1e6/total_mapped_reads for RPKM/TPM, or
+    ~mean-read-length for "mean") is backed out empirically from existing
+    per-contig CoverM values, since this metric is intrinsically of the
+    form value_i = (count_i / length_i_kb) * scale — true for rpkm, tpm,
+    and mean depth, but NOT for covered_fraction (bounded [0,1], not
+    summable), which is instead reported as the representative's own value.
+
+    Gracefully degrades to a 1:1 identity mapping when vOTU clustering is
+    disabled (votu_clustering_enabled: false) or skani found no clusters
+    for a contig, so the table is always produced.
+    """
+    input:
+        clusters  = rules.skani_cluster.output.clusters,
+        abundance = rules.coverm_viral.output.tsv,
+        viral_nr  = rules.viral_nonredundant.output.fasta,
+    output:
+        tsv = f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_abundance.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/votu_abundance.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/votu_abundance.tsv"
+    params:
+        method = COVERM_METHOD,
+    run:
+        import csv
+        import statistics
+        from collections import OrderedDict
+
+        log_lines = []
+
+        # Contig lengths from FASTA (covers representatives AND members alike)
+        lengths = OrderedDict()
+        cur = None
+        with open(input.viral_nr) as f:
+            for line in f:
+                if line.startswith(">"):
+                    cur = line[1:].strip().split()[0]
+                    lengths[cur] = 0
+                elif cur is not None:
+                    lengths[cur] += len(line.strip())
+
+        # member -> representative; default to self (singleton) so disabled
+        # clustering or any contig missing from the clusters file still works.
+        member_to_rep = {cid: cid for cid in lengths}
+        with open(input.clusters) as f:
+            f.readline()  # header
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 2:
+                    continue
+                rep, member = parts[0], parts[1]
+                if member in member_to_rep:
+                    member_to_rep[member] = rep
+
+        def _metric(row, suffix):
+            suffix_l = suffix.lower()
+            for k, v in row.items():
+                if k.lower().endswith(suffix_l):
+                    try:
+                        return float(v)
+                    except (TypeError, ValueError):
+                        return 0.0
+            return 0.0
+
+        rows_by_contig = {}
+        with open(input.abundance) as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                contig = row.get("Contig", "")
+                if contig:
+                    rows_by_contig[contig] = row
+
+        # covered_fraction is bounded [0,1] and not of the count/length-scaled
+        # form below — fall back to the representative's own max covered
+        # fraction across members instead of trying to "recompute" it.
+        is_covered_fraction = params.method.strip().lower() in ("covered_fraction", "covered-fraction")
+
+        scale = 0.0
+        if not is_covered_fraction:
+            # Back out the per-sample scale factor for the configured metric:
+            # value_i = (count_i / (length_i/1000)) * scale  =>  scale = value_i / per_kb_i
+            scales = []
+            for contig, row in rows_by_contig.items():
+                length = lengths.get(contig, 0)
+                count  = _metric(row, "count")
+                value  = _metric(row, params.method)
+                if length > 0 and count > 0 and value > 0:
+                    per_kb = count / (length / 1000.0)
+                    if per_kb > 0:
+                        scales.append(value / per_kb)
+            scale = statistics.median(scales) if scales else 0.0
+            log_lines.append(f"[votu_abundance] metric={params.method} scale_factor={scale:.6g} "
+                              f"(from {len(scales)} contigs)")
+        else:
+            log_lines.append(f"[votu_abundance] metric={params.method} — using max(covered_fraction) "
+                              "across members, no scale-factor recompute")
+
+        # Aggregate by representative: sum counts, take max covered_fraction
+        agg = {}
+        for contig, row in rows_by_contig.items():
+            rep = member_to_rep.get(contig, contig)
+            a = agg.setdefault(rep, {"n_members": 0, "total_reads": 0.0, "covered_fraction": 0.0})
+            a["n_members"]       += 1
+            a["total_reads"]     += _metric(row, "count")
+            a["covered_fraction"] = max(a["covered_fraction"], _metric(row, "covered fraction"))
+
+        with open(str(output.tsv), "w") as out:
+            out.write(f"representative\tn_members\ttotal_reads\tcovered_fraction\t{params.method}\n")
+            for rep, a in agg.items():
+                length = lengths.get(rep, 0)
+                if is_covered_fraction:
+                    value = a["covered_fraction"]
+                else:
+                    value = (a["total_reads"] / (length / 1000.0)) * scale if length > 0 and scale > 0 else 0.0
+                out.write(f"{rep}\t{a['n_members']}\t{a['total_reads']:.1f}\t"
+                          f"{a['covered_fraction']:.4f}\t{value:.4f}\n")
+
+        log_lines.append(f"[votu_abundance] {len(rows_by_contig)} contigs -> {len(agg)} vOTUs")
+        with open(str(log[0]), "w") as lf:
+            lf.write("\n".join(log_lines) + "\n")
+        print("\n".join(log_lines))
 
 
 rule coverm_prok:

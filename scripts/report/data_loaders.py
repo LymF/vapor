@@ -609,6 +609,46 @@ def enrich_taxonomy_with_checkv(tax_records, checkv_dict):
     return tax_records
 
 
+def collapse_taxonomy_to_votu(tax_records, outdir, samples):
+    """One taxonomy row per vOTU representative, not per rep_seq contig.
+
+    viral_nonredundant.fasta (MMseqs2, 95% identity, no aligned-fraction
+    requirement) can keep multiple contigs that the stricter ICTV/Roux 2019
+    vOTU definition (skani, 95% ANI + 85% AF — see rules/viral_binning.smk
+    skani_cluster) considers the same viral population. Without collapsing,
+    taxonomy tables/charts would count a single vOTU more than once.
+
+    Groups records by (sample, representative) using vOTU_clusters.tsv, then
+    picks the representative's own row if it was itself classified; otherwise
+    falls back to the first classified member (the representative is chosen
+    by CheckV completeness, not by confidence of taxonomic assignment, so it
+    can occasionally be the one row in its cluster with no taxonomy hit).
+    """
+    membership = {}
+    for s in samples:
+        p = os.path.join(outdir, s, "viral", "votu", "vOTU_clusters.tsv")
+        member_to_rep = {}
+        for row in load_tsv(p):
+            rep, member = row.get('representative', ''), row.get('member', '')
+            if member:
+                member_to_rep[member] = rep or member
+        membership[s] = member_to_rep
+
+    by_cluster = defaultdict(list)
+    for rec in tax_records:
+        s, genome = rec.get('sample', ''), rec.get('Genome', '')
+        rep = membership.get(s, {}).get(genome, genome)
+        by_cluster[(s, rep)].append(rec)
+
+    collapsed = []
+    for (s, rep), recs in by_cluster.items():
+        chosen = next((r for r in recs if r.get('Genome') == rep), recs[0])
+        chosen = dict(chosen)
+        chosen['vOTU_members'] = len(recs)
+        collapsed.append(chosen)
+    return collapsed
+
+
 def merge_prok_taxonomy(gtdb_records, custom_prok_records, checkm2_dict):
     gtdb_bins   = {(r.get('sample', ''), r.get('Bin', '').replace('.fa', '')): r
                    for r in gtdb_records}

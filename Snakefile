@@ -372,6 +372,7 @@ rule all:
 
         # ── vOTU table ────────────────────────────────────────────────
         expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv",      sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_abundance.tsv",  sample=SAMPLES),
 
         # ── Taxonomy + host prediction ────────────────────────────────
         expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",           sample=SAMPLES),
