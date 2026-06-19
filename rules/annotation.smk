@@ -49,7 +49,10 @@ rule pharokka:
         outdir   = f"{OUTDIR}/{{sample}}/annotation/pharokka",
         db       = PHAROKKA_DB,
         min_comp = PHAROKKA_MIN_COMPLETENESS,
-        hq_fa    = f"{OUTDIR}/{{sample}}/annotation/pharokka/hq_phages.fasta",
+        # NOT inside outdir: pharokka.py --force deletes/recreates its own
+        # -o directory on startup, which would delete this -i input too if
+        # it lived underneath it.
+        hq_fa    = f"{OUTDIR}/{{sample}}/annotation/pharokka_hq_phages.fasta",
     run:
         import csv, os
         from pathlib import Path
