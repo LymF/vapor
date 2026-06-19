@@ -111,14 +111,23 @@ rule pharokka:
             touch_empty(output.tsv)
             return
 
+        # --meta/--meta_hmm are multi-FASTA only; pharokka.py refuses to run
+        # with --meta on a single-contig input ("ERROR: -m meta mode
+        # specified when the input file only contains 1 contig").
+        with open(str(params.hq_fa)) as f:
+            n_seqs = sum(1 for line in f if line.startswith(">"))
+        meta_flags = "--meta --meta_hmm" if n_seqs > 1 else ""
+        with open(log_path, "a") as lf:
+            lf.write(f"[pharokka] {n_seqs} sequence(s) in input — "
+                      f"{'meta' if n_seqs > 1 else 'single-genome'} mode\n")
+
         shell(
             "pharokka.py"
             " -i {params.hq_fa}"
             " -o {params.outdir}"
             " -d {params.db}"
             " -t {threads}"
-            " --meta"
-            " --meta_hmm"
+            " {meta_flags}"
             " --dnaapler"
             " --force"
             " >> {log} 2>&1"
