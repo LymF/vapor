@@ -581,9 +581,13 @@ docker run --rm -v "$DB_BASE/defensefinder_home/.macsyfinder:/root/.macsyfinder"
 > to it — the instant the command exits. Nothing is lost on your host because
 > nothing was ever written there; you just need to re-run with the mount above.
 
-**Docker — PADLOC:** PADLOC's database install path is not officially
-documented as a fixed, mountable location, so a reliable `docker run -v ...`
-pre-fetch can't be guaranteed here — use the conda method above instead.
+**Docker — PADLOC:** image tag confirmed via the Quay API is
+`quay.io/biocontainers/padloc:2.0.0--hdfd78af_1` (note: **no** `py` prefix on
+the build hash — PADLOC isn't a pure-Python package, unlike most other tools
+in this guide). Its database install path is still not officially documented
+as a fixed, mountable location though, so even with the right tag a reliable
+`docker run -v ...` pre-fetch can't be guaranteed to persist — use the conda
+method above instead.
 
 ---
 
@@ -606,8 +610,10 @@ conda deactivate
 **Docker:** not recommended for pre-fetching — the exact internal install path
 varies by image build, so there is no `-v` mount that's reliably correct across
 versions. If you must use Docker, inspect the image first
-(`docker run --rm --entrypoint sh quay.io/biocontainers/ncbi-amrfinderplus:4.2.7--h6e70893_0 -c 'amrfinder --database_path'`
+(`docker run --rm --entrypoint sh quay.io/biocontainers/ncbi-amrfinderplus:4.2.7--hf69ffd2_0 -c 'amrfinder --database_path'`
 or check its Dockerfile) to find the real path, then mount that directory.
+Exact tag confirmed via `https://quay.io/api/v1/repository/biocontainers/ncbi-amrfinderplus/tag/` —
+re-check there if this stops resolving (BioContainers rebuilds bump the hash suffix).
 
 ---
 
@@ -632,9 +638,11 @@ conda deactivate
 mkdir -p "$DB_BASE/card"
 curl -sL https://card.mcmaster.ca/latest/data -o "$DB_BASE/card/card_data.tar.bz2"
 tar -xjf "$DB_BASE/card/card_data.tar.bz2" -C "$DB_BASE/card" card.json
-docker run --rm -v "$DB_BASE/card:/dbs" quay.io/biocontainers/rgi:6.0.5--pyhdfd78af_0 \
+docker run --rm -v "$DB_BASE/card:/dbs" quay.io/biocontainers/rgi:6.0.5--pyh05cac1d_0 \
     rgi load --card_json /dbs/card.json --local
 ```
+Exact tag confirmed via `https://quay.io/api/v1/repository/biocontainers/rgi/tag/` —
+re-check there if this stops resolving (BioContainers rebuilds bump the hash suffix).
 
 Then set in `config.yaml`:
 
