@@ -332,7 +332,7 @@ rule rgi_card:
         card_db = CARD_DB,
         enabled = DEFENSE_AMR_ENABLED,
     run:
-        import os, shutil
+        import os
         from pathlib import Path
 
         os.makedirs(params.outdir, exist_ok=True)
@@ -380,10 +380,12 @@ rule rgi_card:
             "echo '[rgi] WARNING: rgi main failed' >> {log}"
         )
 
+        # 'rgi main -o rgi_results' inside params.outdir already writes
+        # directly to output.results (rgi_results.txt) -- same path, no
+        # copy needed (shutil.copy onto an identical path raises
+        # SameFileError).
         produced = os.path.join(params.outdir, "rgi_results.txt")
-        if os.path.exists(produced) and os.path.getsize(produced) > 0:
-            shutil.copy(produced, str(output.results))
-        else:
+        if not os.path.exists(produced) or os.path.getsize(produced) == 0:
             Path(str(output.results)).write_text("ORF_ID\tBest_Hit_ARO\n")
         Path(str(output.done)).touch()
 
