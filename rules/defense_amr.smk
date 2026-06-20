@@ -25,14 +25,15 @@
 #                 databases are flat BLASTN screens with no point-mutation
 #                 detection or SNP/variant models, a downgrade vs the 3
 #                 tools above if used for that purpose
-# hamronize_rgi — converts rgi_card's native output into the standardized
-#                 format argnorm_normalize needs (argNorm has no native
-#                 RGI parser, only AMRFinderPlus/DeepARG/hAMRonization ones)
-# argnorm_normalize — maps AMRFinderPlus/RGI(via hAMRonization)/DeepARG gene
-#                 calls onto the Antibiotic Resistance Ontology (ARO), so the
-#                 same gene reported under different names by the 3 tools can
-#                 be compared. Normalized tables stay separate per tool --
-#                 same "never merged" rule as the raw outputs.
+# argnorm_normalize — maps AMRFinderPlus/DeepARG gene calls onto the
+#                 Antibiotic Resistance Ontology (ARO), so they can be
+#                 compared with each other and with RGI (which already
+#                 speaks ARO natively via CARD -- not routed through argNorm;
+#                 a hAMRonization bridge was tried and dropped, argNorm
+#                 1.1.0 has no working RGI support despite the docs implying
+#                 otherwise, see argnorm_normalize docstring). Normalized
+#                 tables stay separate per tool -- same "never merged" rule
+#                 as the raw outputs.
 #
 # All tools soft-fail (header-only TSV + done.txt) when disabled
 # (defense_amr_enabled / abricate_enabled / argnorm_enabled: false) or no
@@ -203,8 +204,24 @@ rule defensefinder:
             write_empty("[defensefinder] Disabled or no genome units -- skipping")
             return
 
-        shell("defense-finder update >> {log} 2>&1 || "
-              "echo '[defensefinder] WARNING: model update failed (may already be cached)' >> {log}")
+        # defense-finder update always pings GitHub for the latest model
+        # release, even when models are already cached -- across a batch of
+        # many samples that means one GitHub API call per sample, which
+        # exhausts the unauthenticated 60-req/hour limit fast (confirmed on
+        # litrp4 2026-06-20: every sample after the first few failed with
+        # "maximum number of request per hour", leaving 0 systems for the
+        # rest of the batch since no models were ever installed). Only call
+        # update when the shared $HOME/.macsyfinder/data model cache is
+        # empty/missing -- once any one sample succeeds, every later sample
+        # in the same batch skips the network call entirely.
+        models_cache = os.path.expanduser("~/.macsyfinder/data")
+        if os.path.isdir(models_cache) and os.listdir(models_cache):
+            with open(str(log[0]), "a") as lf:
+                lf.write(f"[defensefinder] Models already cached in {models_cache} -- skipping update\n")
+        else:
+            shell("defense-finder update >> {log} 2>&1 || "
+                  "echo '[defensefinder] WARNING: model update failed -- "
+                  "GitHub rate limit? set GITHUB_TOKEN or retry later' >> {log}")
         # NOTE: env_defense.yaml/containers.yaml pin defense-finder=3.0.0, not
         # 2.0.0/2.0.1 -- those fail against current CasFinder releases with
         # "has not the right version" (macsypy.error.MacsypyError), see
@@ -578,88 +595,32 @@ rule abricate:
         Path(str(output.done)).touch()
 
 
-rule hamronize_rgi:
-    """
-    hAMRonization -- converts RGI's native output into the standardized
-    format argNorm can read. argNorm has no native RGI parser (only
-    AMRFinderPlus/DeepARG/hAMRonization subcommands), so this bridge rule
-    lets argnorm_normalize below treat RGI the same way as the other two.
-    """
-    input:
-        results = rules.rgi_card.output.results,
-        done    = rules.rgi_card.output.done,
-    output:
-        done       = f"{OUTDIR}/{{sample}}/bins/argnorm/hamronize_rgi_done.txt",
-        hamronized = f"{OUTDIR}/{{sample}}/bins/argnorm/rgi_hamronized.tsv",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/hamronize_rgi.log"
-    conda: "../envs/env_argnorm.yaml"
-    container:  CONTAINERS.get("hamronization")
-    threads: 1
-    params:
-        card_db = CARD_DB,
-        enabled = ARGNORM_ENABLED,
-    run:
-        import json, os
-        from pathlib import Path
-
-        os.makedirs(os.path.dirname(str(output.hamronized)), exist_ok=True)
-
-        def write_empty(msg):
-            with open(str(log[0]), "a") as lf:
-                lf.write(msg + "\n")
-            Path(str(output.hamronized)).write_text("gene_symbol\n")
-            Path(str(output.done)).touch()
-
-        if not params.enabled or not _has_data_rows(str(input.results)):
-            write_empty("[hamronize_rgi] Disabled or no RGI hits -- skipping")
-            return
-
-        # Same default location rgi_card falls back to when card_db is unset.
-        card_dir  = params.card_db or os.path.join(OUTDIR, wildcards.sample, "bins", "rgi", "card_db")
-        card_json = os.path.join(card_dir, "card.json")
-        card_version = "unknown"
-        if os.path.exists(card_json):
-            try:
-                with open(card_json) as f:
-                    card_version = json.load(f).get("_version", "unknown")
-            except (json.JSONDecodeError, OSError):
-                pass
-
-        shell(
-            "hamronize rgi --input_file_name rgi_{wildcards.sample} "
-            "--analysis_software_version 6.0.5 "
-            "--reference_database_version {card_version} "
-            "--format tsv --output {output.hamronized} {input.results} "
-            ">> {log} 2>&1 || echo '[hamronize_rgi] WARNING: hamronize failed' >> {log}"
-        )
-
-        if not os.path.exists(str(output.hamronized)) or os.path.getsize(str(output.hamronized)) == 0:
-            Path(str(output.hamronized)).write_text("gene_symbol\n")
-        Path(str(output.done)).touch()
-
-
 rule argnorm_normalize:
     """
-    argNorm -- maps AMRFinderPlus/RGI/DeepARG gene calls onto the
-    Antibiotic Resistance Ontology (ARO), so the same gene reported under
-    different names by different tools can be compared. RGI goes through
-    hamronize_rgi first; AMRFinderPlus and DeepARG are read directly via
-    their own argnorm subcommands. The 3 normalized tables stay separate
-    -- same "never merged" rule as the raw AMR outputs above, this only
-    adds a common ARO/drug-class vocabulary to each.
+    argNorm -- maps AMRFinderPlus/DeepARG gene calls onto the Antibiotic
+    Resistance Ontology (ARO), so the same gene reported under different
+    names by the two tools can be compared with each other and with RGI.
+    RGI is deliberately NOT routed through argNorm: it is built directly
+    on CARD, so its native output (Best_Hit_ARO) already speaks ARO --
+    there is nothing to normalize. A hAMRonization+argnorm bridge for RGI
+    was tried and dropped (confirmed in argNorm 1.1.0 source,
+    normalizers.py's input_id_lookup has no 'rgi' key at all -- the
+    documented hAMRonization pathway for RGI does not actually work,
+    confirmed on litrp4 2026-06-20 by a hamronized RGI file with a
+    correct analysis_software_name="rgi" still getting rejected as
+    "abricate is not a supported ARG annotation tool").
+    The 2 normalized tables stay separate -- same "never merged" rule as
+    the raw AMR outputs above, this only adds a common ARO/drug-class
+    vocabulary to each.
     """
     input:
         amrfinder      = rules.amrfinderplus.output.results,
         amrfinder_done = rules.amrfinderplus.output.done,
-        rgi_hamronized = rules.hamronize_rgi.output.hamronized,
-        rgi_done       = rules.hamronize_rgi.output.done,
         deeparg        = rules.deeparg.output.results,
         deeparg_done   = rules.deeparg.output.done,
     output:
         done             = f"{OUTDIR}/{{sample}}/bins/argnorm/done.txt",
         amrfinder_normed = f"{OUTDIR}/{{sample}}/bins/argnorm/amrfinderplus_normed.tsv",
-        rgi_normed       = f"{OUTDIR}/{{sample}}/bins/argnorm/rgi_normed.tsv",
         deeparg_normed   = f"{OUTDIR}/{{sample}}/bins/argnorm/deeparg_normed.tsv",
     log:
         f"{OUTDIR}/{{sample}}/logs/argnorm.log"
@@ -683,7 +644,6 @@ rule argnorm_normalize:
             with open(str(log[0]), "a") as lf:
                 lf.write(msg + "\n")
             stub(output.amrfinder_normed)
-            stub(output.rgi_normed)
             stub(output.deeparg_normed)
             Path(str(output.done)).touch()
 
@@ -698,15 +658,6 @@ rule argnorm_normalize:
             )
         if not os.path.exists(str(output.amrfinder_normed)) or os.path.getsize(str(output.amrfinder_normed)) == 0:
             stub(output.amrfinder_normed)
-
-        if _has_data_rows(str(input.rgi_hamronized)):
-            shell(
-                "argnorm hamronization -i {input.rgi_hamronized} -o {output.rgi_normed} "
-                "--hamronization_skip_unsupported_tool "
-                ">> {log} 2>&1 || echo '[argnorm] WARNING: rgi normalization failed' >> {log}"
-            )
-        if not os.path.exists(str(output.rgi_normed)) or os.path.getsize(str(output.rgi_normed)) == 0:
-            stub(output.rgi_normed)
 
         if _has_data_rows(str(input.deeparg)):
             shell(

@@ -223,10 +223,6 @@ argnorm:
   image: argnorm
   version: "1.1.0"
 
-hamronization:
-  image: hamronization
-  version: "1.2.1"
-
 # ── Abundance ───────────────────────────────────────────────────────────
 coverm:
   image: coverm

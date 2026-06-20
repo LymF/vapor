@@ -179,12 +179,13 @@ deeparg_db:                  "/media/nas1/LITRP.DBs/metagenDBs/deeparg"  # auto-
 # package itself -- no download step needed, just `abricate --setupdb`.
 abricate_enabled:            true
 
-# argNorm maps AMRFinderPlus/RGI/DeepARG gene calls onto the Antibiotic
-# Resistance Ontology (ARO) so the same gene reported under different
-# names by the 3 tools above can be compared. RGI has no native argNorm
-# parser, so it goes through hAMRonization first (hamronize_rgi rule) --
-# AMRFinderPlus and DeepARG are read directly. Normalized tables stay
-# separate per tool, same "never merged" rule as the raw AMR outputs.
+# argNorm maps AMRFinderPlus/DeepARG gene calls onto the Antibiotic
+# Resistance Ontology (ARO) so they can be compared with each other and
+# with RGI -- RGI is NOT routed through argNorm: it's built on CARD, so
+# its native output already speaks ARO (a hAMRonization bridge was tried
+# and dropped -- argNorm 1.1.0 has no working RGI support despite the
+# docs implying otherwise). Normalized tables stay separate per tool,
+# same "never merged" rule as the raw AMR outputs.
 argnorm_enabled:              true
 
 # ── Genome maps (annotation/genome_maps/) ──────────────────────────────
