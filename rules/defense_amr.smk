@@ -424,7 +424,9 @@ rule rgi_card:
         if not os.path.exists(card_json) or os.path.getsize(card_json) == 0:
             shell(
                 "curl -sL https://card.mcmaster.ca/latest/data -o {card_dir}/card_data.tar.bz2 "
-                ">> {log} 2>&1 && tar -xjf {card_dir}/card_data.tar.bz2 -C {card_dir} card.json "
+                ">> {log} 2>&1 && tar -xjf {card_dir}/card_data.tar.bz2 -C {card_dir} "
+                # archive members are stored as "./card.json" etc -- an exact
+                # "card.json" filter doesn't match, so extract everything.
                 ">> {log} 2>&1 || true"
             )
 

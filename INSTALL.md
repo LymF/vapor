@@ -627,7 +627,7 @@ pre-fetch it the same way:
 ```bash
 mkdir -p "$DB_BASE/card"
 curl -sL https://card.mcmaster.ca/latest/data -o "$DB_BASE/card/card_data.tar.bz2"
-tar -xjf "$DB_BASE/card/card_data.tar.bz2" -C "$DB_BASE/card" card.json
+tar -xjf "$DB_BASE/card/card_data.tar.bz2" -C "$DB_BASE/card"   # archive members are "./card.json" etc — extract everything
 conda activate env_rgi
 rgi load --card_json "$DB_BASE/card/card.json" --local
 conda deactivate
@@ -637,7 +637,7 @@ conda deactivate
 ```bash
 mkdir -p "$DB_BASE/card"
 curl -sL https://card.mcmaster.ca/latest/data -o "$DB_BASE/card/card_data.tar.bz2"
-tar -xjf "$DB_BASE/card/card_data.tar.bz2" -C "$DB_BASE/card" card.json
+tar -xjf "$DB_BASE/card/card_data.tar.bz2" -C "$DB_BASE/card"   # archive members are "./card.json" etc — extract everything
 docker run --rm -v "$DB_BASE/card:/dbs" quay.io/biocontainers/rgi:6.0.5--pyh05cac1d_0 \
     rgi load --card_json /dbs/card.json --local
 ```
