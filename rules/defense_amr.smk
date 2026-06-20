@@ -369,7 +369,11 @@ rule rgi_card:
             write_empty("[rgi] WARNING: CARD database unavailable -- skipping")
             return
 
-        shell("rgi load --card_json {card_json} --local >> {log} 2>&1")
+        # --local makes RGI create/read ./localDB relative to the CURRENT
+        # working directory, not the --card_json path -- 'load' and 'main'
+        # must run from the exact same directory or 'main' can't find the
+        # database 'load' just built.
+        shell("cd {params.outdir} && rgi load --card_json {card_json} --local >> {log} 2>&1")
         shell(
             "cd {params.outdir} && rgi main -i {all_faa} -t protein --include_loose --local "
             "-o rgi_results -n {threads} >> {log} 2>&1 || "
