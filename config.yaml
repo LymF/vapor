@@ -171,6 +171,22 @@ defense_amr_contig_fallback: true   # no bins (low depth) -> run on contigs inst
 card_db:                     "/media/nas1/LITRP.DBs/metagenDBs/card"  # auto-populated on first run
 deeparg_db:                  "/media/nas1/LITRP.DBs/metagenDBs/deeparg"  # auto-populated on first run (deeparg download_data)
 
+# ABRicate screens VFDB (virulence factors) + PlasmidFinder (plasmid
+# replicons) only -- NOT used for AMR: its bundled AMR databases are flat
+# BLASTN screens with no point-mutation detection (AMRFinderPlus) or
+# SNP/variant models (RGI/CARD), so they would be a downgrade if used to
+# replace either tool. Bundled DB files ship with the conda/container
+# package itself -- no download step needed, just `abricate --setupdb`.
+abricate_enabled:            true
+
+# argNorm maps AMRFinderPlus/RGI/DeepARG gene calls onto the Antibiotic
+# Resistance Ontology (ARO) so the same gene reported under different
+# names by the 3 tools above can be compared. RGI has no native argNorm
+# parser, so it goes through hAMRonization first (hamronize_rgi rule) --
+# AMRFinderPlus and DeepARG are read directly. Normalized tables stay
+# separate per tool, same "never merged" rule as the raw AMR outputs.
+argnorm_enabled:              true
+
 # ── Genome maps (annotation/genome_maps/) ──────────────────────────────
 genome_map_top_n:                   5     # max maps per category per sample
 genome_map_min_completeness_viral: 90.0  # % CheckV completeness (phage + virus modes)

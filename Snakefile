@@ -38,7 +38,7 @@
 #   prok_binning.smk    — BLOCK 8  : MetaBAT2, VAMB, SemiBin2, Binette, CheckM2, GTDB-Tk
 #   taxonomy.smk        — BLOCK 9  : Prodigal, Diamond, vConTACT3, viral_taxonomy
 #   host_prediction.smk — BLOCK 10 : PHIST
-#   defense_amr.smk     — BLOCK 10.5: DefenseFinder, AMRFinderPlus, RGI/CARD, DeepARG
+#   defense_amr.smk     — BLOCK 10.5: DefenseFinder, AMRFinderPlus, RGI/CARD, DeepARG, ABRicate, argNorm
 #   finalize.smk        — BLOCK 11 : organize_outputs
 #   report.smk          — BLOCK 12/13: generate_report, MultiQC
 # ══════════════════════════════════════════════════════════════════════
@@ -182,6 +182,8 @@ DEFENSE_AMR_ENABLED          = config.get("defense_amr_enabled", True)
 DEFENSE_AMR_CONTIG_FALLBACK  = config.get("defense_amr_contig_fallback", True)
 CARD_DB                      = _expand(config.get("card_db", "")) if config.get("card_db", "") else ""
 DEEPARG_DB                    = _expand(config.get("deeparg_db", "")) if config.get("deeparg_db", "") else ""
+ABRICATE_ENABLED            = config.get("abricate_enabled", True)
+ARGNORM_ENABLED             = config.get("argnorm_enabled", True)
 
 GENOME_MAP_TOP_N           = config.get("genome_map_top_n", 5)
 GENOME_MAP_MIN_COMP_VIRAL  = config.get("genome_map_min_completeness_viral", 90.0)
@@ -395,6 +397,8 @@ rule all:
         expand(f"{OUTDIR}/{{sample}}/bins/amrfinderplus/done.txt",       sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/rgi/done.txt",                 sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/deeparg/done.txt",             sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/abricate/done.txt",            sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/argnorm/done.txt",             sample=SAMPLES),
 
         # ── Abundance + Diversity ─────────────────────────────────────
         expand(f"{OUTDIR}/{{sample}}/abundance/viral_abundance.tsv",     sample=SAMPLES),

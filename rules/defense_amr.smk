@@ -20,10 +20,25 @@
 # deeparg       — deep-learning AMR genes; exploratory/sensitivity-oriented
 #                 complement to amrfinderplus+rgi's curated calls
 #                 (Serrana et al. 2026) -- reported separately, never merged
+# abricate      — BLASTN screen for VFDB (virulence factors) + PlasmidFinder
+#                 (plasmid replicons) only -- NOT AMR; its bundled AMR
+#                 databases are flat BLASTN screens with no point-mutation
+#                 detection or SNP/variant models, a downgrade vs the 3
+#                 tools above if used for that purpose
+# hamronize_rgi — converts rgi_card's native output into the standardized
+#                 format argnorm_normalize needs (argNorm has no native
+#                 RGI parser, only AMRFinderPlus/DeepARG/hAMRonization ones)
+# argnorm_normalize — maps AMRFinderPlus/RGI(via hAMRonization)/DeepARG gene
+#                 calls onto the Antibiotic Resistance Ontology (ARO), so the
+#                 same gene reported under different names by the 3 tools can
+#                 be compared. Normalized tables stay separate per tool --
+#                 same "never merged" rule as the raw outputs.
 #
-# All four tools soft-fail (header-only TSV + done.txt) when disabled
-# (defense_amr_enabled: false) or no genome units exist.
-# Config keys: defense_amr_enabled, defense_amr_contig_fallback, card_db
+# All tools soft-fail (header-only TSV + done.txt) when disabled
+# (defense_amr_enabled / abricate_enabled / argnorm_enabled: false) or no
+# genome units / upstream hits exist.
+# Config keys: defense_amr_enabled, defense_amr_contig_fallback, card_db,
+# abricate_enabled, argnorm_enabled
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -83,7 +98,7 @@ rule prok_bin_proteins:
                             ">> {log} 2>&1 || true"
                         )
                         if os.path.exists(faa) and os.path.getsize(faa) > 0:
-                            manifest_rows.append((name, "bins", faa, gff))
+                            manifest_rows.append((name, "bins", bin_fa, faa, gff))
                 elif (params.fallback and os.path.exists(str(input.contigs))
                       and os.path.getsize(str(input.contigs)) > 0):
                     lf.write("[prok_bin_proteins] No bins (low depth) -- "
@@ -97,14 +112,14 @@ rule prok_bin_proteins:
                         ">> {log} 2>&1 || true"
                     )
                     if os.path.exists(faa) and os.path.getsize(faa) > 0:
-                        manifest_rows.append((name, "contigs", faa, gff))
+                        manifest_rows.append((name, "contigs", contigs, faa, gff))
                 else:
                     lf.write("[prok_bin_proteins] No bins and fallback disabled/no contigs "
                              "-- skipping\n")
 
             with open(str(output.manifest), "w") as mf:
-                for name, mode, faa, gff in manifest_rows:
-                    mf.write(f"{name}\t{mode}\t{faa}\t{gff}\n")
+                for name, mode, fna, faa, gff in manifest_rows:
+                    mf.write(f"{name}\t{mode}\t{fna}\t{faa}\t{gff}\n")
 
             lf.write(f"[prok_bin_proteins] {len(manifest_rows)} genome unit(s) in manifest\n")
 
@@ -112,16 +127,16 @@ rule prok_bin_proteins:
 
 
 def _read_manifest(path):
-    """Yield (name, mode, faa, gff) tuples from a prok_bin_proteins manifest."""
+    """Yield (name, mode, fna, faa, gff) tuples from a prok_bin_proteins manifest."""
     import os
     if not os.path.exists(path):
         return
     with open(path) as f:
         for line in f:
             parts = line.rstrip("\n").split("\t")
-            if len(parts) < 4:
+            if len(parts) < 5:
                 continue
-            yield parts[0], parts[1], parts[2], parts[3]
+            yield parts[0], parts[1], parts[2], parts[3], parts[4]
 
 
 def _concat_proteins(manifest_path, out_faa):
@@ -131,7 +146,7 @@ def _concat_proteins(manifest_path, out_faa):
     import os
     wrote_any = False
     with open(out_faa, "w") as out_f:
-        for name, mode, faa, gff in _read_manifest(manifest_path):
+        for name, mode, fna, faa, gff in _read_manifest(manifest_path):
             if not os.path.exists(faa) or os.path.getsize(faa) == 0:
                 continue
             with open(faa) as f:
@@ -198,7 +213,7 @@ rule defensefinder:
         # on a fresh CasFinder release, the per-genome loop below already
         # degrades gracefully (warns + 0 rows, doesn't fail the rule).
 
-        for name, mode, faa, gff in _read_manifest(str(input.manifest)):
+        for name, mode, fna, faa, gff in _read_manifest(str(input.manifest)):
             if not os.path.exists(faa) or os.path.getsize(faa) == 0:
                 continue
             genome_out = os.path.join(params.outdir, name)
@@ -464,4 +479,243 @@ rule deeparg:
 
         if not os.path.exists(str(output.results)) or os.path.getsize(str(output.results)) == 0:
             Path(str(output.results)).write_text("#ARG\tquery-start\n")
+        Path(str(output.done)).touch()
+
+
+def _has_data_rows(path):
+    """True if a TSV has more than just a header line -- distinguishes a
+    real result set from the header-only stub files the soft-fail paths
+    above write when a tool was disabled or had nothing to call."""
+    import os
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return False
+    with open(path) as f:
+        next(f, None)
+        return next(f, None) is not None
+
+
+rule abricate:
+    """
+    ABRicate -- BLASTN mass screening of contigs/bins for gene presence.
+    Used here only for the two databases AMRFinderPlus/RGI/DeepARG do not
+    cover -- virulence factors (VFDB) and plasmid replicons (PlasmidFinder)
+    -- NOT for AMR gene calling: ABRicate's bundled AMR databases are
+    static flat-file BLASTN screens with no point-mutation detection
+    (AMRFinderPlus) or SNP/variant models (RGI/CARD), so they would be a
+    strict downgrade if used to replace either tool.
+    Runs per genome unit (manifest from prok_bin_proteins) on the
+    nucleotide sequence -- ABRicate works on DNA via BLASTN, unlike the
+    protein-level AMR/defense tools above.
+    """
+    input:
+        manifest = rules.prok_bin_proteins.output.manifest,
+        done     = rules.prok_bin_proteins.output.done,
+    output:
+        done          = f"{OUTDIR}/{{sample}}/bins/abricate/done.txt",
+        vfdb          = f"{OUTDIR}/{{sample}}/bins/abricate/vfdb_results.tsv",
+        plasmidfinder = f"{OUTDIR}/{{sample}}/bins/abricate/plasmidfinder_results.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/abricate.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/abricate.tsv"
+    conda: "../envs/env_abricate.yaml"
+    container:  CONTAINERS.get("abricate")
+    threads: THREADS
+    params:
+        outdir  = f"{OUTDIR}/{{sample}}/bins/abricate",
+        dbs     = ["vfdb", "plasmidfinder"],
+        enabled = ABRICATE_ENABLED,
+    run:
+        import csv, os
+        from pathlib import Path
+
+        os.makedirs(params.outdir, exist_ok=True)
+        out_paths = {"vfdb": str(output.vfdb), "plasmidfinder": str(output.plasmidfinder)}
+
+        def write_empty(msg):
+            with open(str(log[0]), "a") as lf:
+                lf.write(msg + "\n")
+            for db in params.dbs:
+                Path(out_paths[db]).write_text("genome\n")
+            Path(str(output.done)).touch()
+
+        if (not params.enabled or not os.path.exists(str(input.manifest))
+                or os.path.getsize(str(input.manifest)) == 0):
+            write_empty("[abricate] Disabled or no genome units -- skipping")
+            return
+
+        shell("abricate --setupdb >> {log} 2>&1 || "
+              "echo '[abricate] WARNING: setupdb failed (may already be set up)' >> {log}")
+
+        for db in params.dbs:
+            rows, header = [], None
+            for name, mode, fna, faa, gff in _read_manifest(str(input.manifest)):
+                if not os.path.exists(fna) or os.path.getsize(fna) == 0:
+                    continue
+                genome_tsv = os.path.join(params.outdir, f"{name}.{db}.tsv")
+                shell(
+                    "abricate --db {db} --quiet {fna} > {genome_tsv} "
+                    "2>> {log} || echo '[abricate] WARNING: failed on {name} ({db})' >> {log}"
+                )
+                if os.path.exists(genome_tsv) and os.path.getsize(genome_tsv) > 0:
+                    with open(genome_tsv) as f:
+                        r = csv.reader(f, delimiter="\t")
+                        h = next(r, None)
+                        if h is None:
+                            continue
+                        if header is None:
+                            header = h
+                        for row in r:
+                            rows.append([name] + row)
+
+            with open(out_paths[db], "w", newline="") as f:
+                w = csv.writer(f, delimiter="\t")
+                w.writerow(["genome"] + (header or []))
+                w.writerows(rows)
+
+        with open(str(log[0]), "a") as lf:
+            lf.write(f"[abricate] Done -- {len(params.dbs)} database(s) screened\n")
+        Path(str(output.done)).touch()
+
+
+rule hamronize_rgi:
+    """
+    hAMRonization -- converts RGI's native output into the standardized
+    format argNorm can read. argNorm has no native RGI parser (only
+    AMRFinderPlus/DeepARG/hAMRonization subcommands), so this bridge rule
+    lets argnorm_normalize below treat RGI the same way as the other two.
+    """
+    input:
+        results = rules.rgi_card.output.results,
+        done    = rules.rgi_card.output.done,
+    output:
+        done       = f"{OUTDIR}/{{sample}}/bins/argnorm/hamronize_rgi_done.txt",
+        hamronized = f"{OUTDIR}/{{sample}}/bins/argnorm/rgi_hamronized.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/hamronize_rgi.log"
+    conda: "../envs/env_argnorm.yaml"
+    container:  CONTAINERS.get("hamronization")
+    threads: 1
+    params:
+        card_db = CARD_DB,
+        enabled = ARGNORM_ENABLED,
+    run:
+        import json, os
+        from pathlib import Path
+
+        os.makedirs(os.path.dirname(str(output.hamronized)), exist_ok=True)
+
+        def write_empty(msg):
+            with open(str(log[0]), "a") as lf:
+                lf.write(msg + "\n")
+            Path(str(output.hamronized)).write_text("gene_symbol\n")
+            Path(str(output.done)).touch()
+
+        if not params.enabled or not _has_data_rows(str(input.results)):
+            write_empty("[hamronize_rgi] Disabled or no RGI hits -- skipping")
+            return
+
+        # Same default location rgi_card falls back to when card_db is unset.
+        card_dir  = params.card_db or os.path.join(OUTDIR, wildcards.sample, "bins", "rgi", "card_db")
+        card_json = os.path.join(card_dir, "card.json")
+        card_version = "unknown"
+        if os.path.exists(card_json):
+            try:
+                with open(card_json) as f:
+                    card_version = json.load(f).get("_version", "unknown")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        shell(
+            "hamronize rgi --input_file_name rgi_{wildcards.sample} "
+            "--analysis_software_version 6.0.5 "
+            "--reference_database_version {card_version} "
+            "--format tsv --output {output.hamronized} {input.results} "
+            ">> {log} 2>&1 || echo '[hamronize_rgi] WARNING: hamronize failed' >> {log}"
+        )
+
+        if not os.path.exists(str(output.hamronized)) or os.path.getsize(str(output.hamronized)) == 0:
+            Path(str(output.hamronized)).write_text("gene_symbol\n")
+        Path(str(output.done)).touch()
+
+
+rule argnorm_normalize:
+    """
+    argNorm -- maps AMRFinderPlus/RGI/DeepARG gene calls onto the
+    Antibiotic Resistance Ontology (ARO), so the same gene reported under
+    different names by different tools can be compared. RGI goes through
+    hamronize_rgi first; AMRFinderPlus and DeepARG are read directly via
+    their own argnorm subcommands. The 3 normalized tables stay separate
+    -- same "never merged" rule as the raw AMR outputs above, this only
+    adds a common ARO/drug-class vocabulary to each.
+    """
+    input:
+        amrfinder      = rules.amrfinderplus.output.results,
+        amrfinder_done = rules.amrfinderplus.output.done,
+        rgi_hamronized = rules.hamronize_rgi.output.hamronized,
+        rgi_done       = rules.hamronize_rgi.output.done,
+        deeparg        = rules.deeparg.output.results,
+        deeparg_done   = rules.deeparg.output.done,
+    output:
+        done             = f"{OUTDIR}/{{sample}}/bins/argnorm/done.txt",
+        amrfinder_normed = f"{OUTDIR}/{{sample}}/bins/argnorm/amrfinderplus_normed.tsv",
+        rgi_normed       = f"{OUTDIR}/{{sample}}/bins/argnorm/rgi_normed.tsv",
+        deeparg_normed   = f"{OUTDIR}/{{sample}}/bins/argnorm/deeparg_normed.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/argnorm.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/argnorm.tsv"
+    conda: "../envs/env_argnorm.yaml"
+    container:  CONTAINERS.get("argnorm")
+    threads: 1
+    params:
+        enabled = ARGNORM_ENABLED,
+    run:
+        import os
+        from pathlib import Path
+
+        os.makedirs(os.path.dirname(str(output.done)), exist_ok=True)
+
+        def stub(path):
+            Path(path).write_text("ARO\n")
+
+        def write_empty(msg):
+            with open(str(log[0]), "a") as lf:
+                lf.write(msg + "\n")
+            stub(output.amrfinder_normed)
+            stub(output.rgi_normed)
+            stub(output.deeparg_normed)
+            Path(str(output.done)).touch()
+
+        if not params.enabled:
+            write_empty("[argnorm] argnorm_enabled=False -- skipping")
+            return
+
+        if _has_data_rows(str(input.amrfinder)):
+            shell(
+                "argnorm amrfinderplus -i {input.amrfinder} -o {output.amrfinder_normed} "
+                ">> {log} 2>&1 || echo '[argnorm] WARNING: amrfinderplus normalization failed' >> {log}"
+            )
+        if not os.path.exists(str(output.amrfinder_normed)) or os.path.getsize(str(output.amrfinder_normed)) == 0:
+            stub(output.amrfinder_normed)
+
+        if _has_data_rows(str(input.rgi_hamronized)):
+            shell(
+                "argnorm hamronization -i {input.rgi_hamronized} -o {output.rgi_normed} "
+                "--hamronization_skip_unsupported_tool "
+                ">> {log} 2>&1 || echo '[argnorm] WARNING: rgi normalization failed' >> {log}"
+            )
+        if not os.path.exists(str(output.rgi_normed)) or os.path.getsize(str(output.rgi_normed)) == 0:
+            stub(output.rgi_normed)
+
+        if _has_data_rows(str(input.deeparg)):
+            shell(
+                "argnorm deeparg -i {input.deeparg} -o {output.deeparg_normed} "
+                ">> {log} 2>&1 || echo '[argnorm] WARNING: deeparg normalization failed' >> {log}"
+            )
+        if not os.path.exists(str(output.deeparg_normed)) or os.path.getsize(str(output.deeparg_normed)) == 0:
+            stub(output.deeparg_normed)
+
+        with open(str(log[0]), "a") as lf:
+            lf.write("[argnorm] Done\n")
         Path(str(output.done)).touch()

@@ -215,6 +215,18 @@ deeparg:
   image: deeparg
   version: "1.0.4"
 
+abricate:
+  image: abricate
+  version: "1.4.0"
+
+argnorm:
+  image: argnorm
+  version: "1.1.0"
+
+hamronization:
+  image: hamronization
+  version: "1.2.1"
+
 # ── Abundance ───────────────────────────────────────────────────────────
 coverm:
   image: coverm

@@ -1,0 +1,7 @@
+name: env_abricate
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - abricate=1.4.0

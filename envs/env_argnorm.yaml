@@ -1,0 +1,8 @@
+name: env_argnorm
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - argnorm=1.1.0
+  - hamronization=1.2.1
