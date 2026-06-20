@@ -559,18 +559,25 @@ them once on a login/head node.
 ```bash
 conda activate env_defense
 defense-finder update          # installs into $HOME/.macsyfinder
-macsydata install CasFinder==3.0.0   # pin to the version defense-finder=2.0.0 was tested against
 padloc --db-update              # installs into PADLOC's own package directory
 conda deactivate
 ```
-> **Known issue:** `defense-finder update` always grabs the *latest* CasFinder
-> release. `defense-finder=2.0.0` bundles `macsyfinder` v2.0rc4, which only
-> understands the older model-definition schema in CasFinder v3.0.0 (the pairing
-> DefenseFinder itself ships/tests against) — newer CasFinder releases (e.g.
-> 3.1.1) fail with `macsypy.error.MacsypyError: ... has not the right version`.
-> `rules/defense_amr.smk` already re-pins CasFinder to 3.0.0 after every
-> `update` call, but if you're running `defense-finder` manually outside the
-> pipeline, run the `macsydata install` line above too.
+> **Known unresolved upstream bug — CasFinder/macsyfinder version mismatch:**
+> `defense-finder update` fetches CasFinder 3.1.1, whose model XML declares a
+> definition-schema version that macsyfinder rejects with
+> `macsypy.error.MacsypyError: ... has not the right version. version
+> supported is '2.0'`. Reported with these exact versions (macsyfinder 2.1.4 +
+> CasFinder 3.1.1) in
+> [mdmparis/defense-finder#95](https://github.com/mdmparis/defense-finder/issues/95),
+> closed with no public fix; a maintainer attempt to pin CasFinder to 3.1.0
+> ([#101](https://github.com/mdmparis/defense-finder/issues/101)) was
+> abandoned, and `macsydata search CasFinder` currently only lists 3.1.1 — there
+> is no older release left in the registry to fall back to. This breaks only
+> DefenseFinder's CRISPR-Cas detection; every other defense system it covers,
+> plus PADLOC running independently, are unaffected. `rules/defense_amr.smk`
+> already degrades gracefully (warns per genome, doesn't fail the rule) — no
+> action needed until upstream ships a fix. Re-check the linked issues
+> periodically.
 
 This writes to your real `$HOME`, which is exactly what the pipeline's own
 `conda`-mode rule execution uses (and what Apptainer/Singularity container mode
