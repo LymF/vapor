@@ -690,40 +690,60 @@ def load_deeparg(paths, samples):
 
 # ── Host <-> Defense/AMR cross-link (Host & Defense report tab) ──────────────
 
-def build_host_defense_links(phist_data, defense_data, antidefense_data,
-                              amr_data, gtdb_data):
-    """One row per predicted virus-host pair (PHIST), enriched with the
-    host bin's GTDB-Tk taxonomy and every defense/antidefense/AMR hit found
-    in that same bin. AMR hits keep their curated (AMRFinderPlus+RGI) vs.
+def build_bin_annotation_summary(defense_data, antidefense_data, amr_data):
+    """Defense/antidefense/AMR hits grouped once per (sample, bin) -- used as
+    a small lookup table so the cross-link rows below don't have to embed
+    (and duplicate) a host bin's full system/gene list in every row that
+    references it. AMR hits keep their curated (AMRFinderPlus+RGI) vs.
     exploratory (DeepARG) split so the report never merges the two."""
+    def _add(target, key_field, records, list_field, filter_fn=None):
+        for r in records:
+            if filter_fn and not filter_fn(r):
+                continue
+            value = r.get(key_field)
+            if not value:
+                continue
+            target.setdefault((r['sample'], r['Bin']), set()).add(value)
+
+    defense_sets, antidefense_sets = {}, {}
+    amr_curated_sets, amr_exploratory_sets = {}, {}
+    _add(defense_sets, 'System', defense_data, 'Defense_systems')
+    _add(antidefense_sets, 'System', antidefense_data, 'Antidefense_systems')
+    _add(amr_curated_sets, 'Gene', amr_data, 'AMR_curated', lambda r: r.get('Tier') == 'curated')
+    _add(amr_exploratory_sets, 'Gene', amr_data, 'AMR_exploratory', lambda r: r.get('Tier') == 'exploratory')
+
+    keys = set(defense_sets) | set(antidefense_sets) | set(amr_curated_sets) | set(amr_exploratory_sets)
+    summary = {}
+    for sample, bin_name in keys:
+        k = (sample, bin_name)
+        summary[f"{sample}::{bin_name}"] = {
+            'Defense_systems': sorted(defense_sets.get(k, ())),
+            'Antidefense_systems': sorted(antidefense_sets.get(k, ())),
+            'AMR_curated': sorted(amr_curated_sets.get(k, ())),
+            'AMR_exploratory': sorted(amr_exploratory_sets.get(k, ())),
+        }
+    return summary
+
+
+def build_host_defense_links(phist_data, gtdb_data):
+    """One row per predicted virus-host pair (PHIST), enriched with the
+    host bin's GTDB-Tk taxonomy. Defense/antidefense/AMR detail is looked
+    up client-side from BIN_ANNOTATIONS (build_bin_annotation_summary) by
+    'sample::Host' instead of being embedded per row -- a host predicted
+    for hundreds of viruses would otherwise duplicate its full system/gene
+    list once per virus, which is what blew up report size 80MB -> 250MB."""
     gtdb_by_bin = {(r['sample'], r['Bin']): r for r in gtdb_data}
-
-    def _systems(records, sample, bin_name):
-        return sorted({r['System'] for r in records
-                       if r['sample'] == sample and r['Bin'] == bin_name})
-
-    def _genes(records, sample, bin_name):
-        return sorted({r['Gene'] for r in records
-                       if r['sample'] == sample and r['Bin'] == bin_name and r.get('Gene')})
 
     links = []
     for row in phist_data:
         s, host = row['sample'], row.get('Host', '')
         if not host: continue
         tax = gtdb_by_bin.get((s, host), {})
-        defense_systems = _systems(defense_data, s, host)
-        antidefense_systems = _systems(antidefense_data, s, host)
-        amr_curated     = _genes([g for g in amr_data if g.get('Tier') == 'curated'], s, host)
-        amr_exploratory = _genes([g for g in amr_data if g.get('Tier') == 'exploratory'], s, host)
         links.append({
             'sample': s, 'Virus': row.get('Virus', ''), 'Host': host,
             'Host_taxonomy': tax.get('Full_classification', ''),
             'Host_genus': tax.get('Genus', ''), 'Host_species': tax.get('Species', ''),
             'Score': row.get('Score', ''), 'P_value': row.get('P_value', ''),
-            'Defense_systems': defense_systems,
-            'Antidefense_systems': antidefense_systems,
-            'AMR_curated': amr_curated,
-            'AMR_exploratory': amr_exploratory,
         })
     return links
 

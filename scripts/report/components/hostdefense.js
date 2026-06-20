@@ -199,17 +199,26 @@
   }
 
   // ── Host <-> Virus <-> Defense <-> AMR matrix ────────────────────────────
+  // Defense/antidefense/AMR detail lives in BIN_ANNOTATIONS, keyed by
+  // 'sample::Host' -- looked up per row here instead of being pre-embedded
+  // on every HOST_DEFENSE_LINKS row (a host predicted for hundreds of
+  // viruses would otherwise duplicate its full system/gene list hundreds
+  // of times in the page's JSON payload).
   function _renderMatrix(sample) {
-    const all = typeof HOST_DEFENSE_LINKS !== 'undefined' ? HOST_DEFENSE_LINKS : [];
+    const all  = typeof HOST_DEFENSE_LINKS !== 'undefined' ? HOST_DEFENSE_LINKS : [];
+    const bins = typeof BIN_ANNOTATIONS !== 'undefined' ? BIN_ANNOTATIONS : {};
     const isAll = sample === '__all__';
-    const rows = (isAll ? all : all.filter(r => r.sample === sample)).map(r => ({
-      ...r,
-      Host_taxonomy_display: r.Host_genus || r.Host_species || r.Host_taxonomy || '—',
-      Defense_display:       (r.Defense_systems || []).join(', ') || '—',
-      Antidefense_display:   (r.Antidefense_systems || []).join(', ') || '—',
-      AMR_curated_display:   (r.AMR_curated || []).join(', ') || '—',
-      AMR_exploratory_display: (r.AMR_exploratory || []).join(', ') || '—',
-    }));
+    const rows = (isAll ? all : all.filter(r => r.sample === sample)).map(r => {
+      const ann = bins[`${r.sample}::${r.Host}`] || {};
+      return {
+        ...r,
+        Host_taxonomy_display: r.Host_genus || r.Host_species || r.Host_taxonomy || '—',
+        Defense_display:       (ann.Defense_systems || []).join(', ') || '—',
+        Antidefense_display:   (ann.Antidefense_systems || []).join(', ') || '—',
+        AMR_curated_display:   (ann.AMR_curated || []).join(', ') || '—',
+        AMR_exploratory_display: (ann.AMR_exploratory || []).join(', ') || '—',
+      };
+    });
 
     makeTable('hostdefense-matrix-table', rows, [
       { key: 'sample',  label: 'Sample' },
