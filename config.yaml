@@ -156,15 +156,15 @@ bakta_max_contamination:  10.0   # % CheckM2 contamination threshold for MAG ann
 eggnog_db:                "/media/nas1/LITRP.DBs/metagenDBs/eggnog"
 
 # ── Defense systems + AMR (prokaryotic bins) ────────────────────────────
-# DefenseFinder (+ built-in AntiDefenseFinder) and PADLOC run per-genome
-# (MAG or, in low-depth fallback, the whole contig set) — both need gene
-# order within a replicon. AMRFinderPlus, RGI/CARD and DeepARG run once on
-# the concatenated protein set (gene-level, no operon context needed).
+# DefenseFinder (+ built-in AntiDefenseFinder) runs per-genome (MAG or, in
+# low-depth fallback, the whole contig set) -- needs gene order within a
+# replicon. AMRFinderPlus, RGI/CARD and DeepARG run once on the concatenated
+# protein set (gene-level, no operon context needed).
 # DeepARG = exploratory/sensitivity-oriented (deep learning, more divergent
 # hits, no accuracy benchmark); AMRFinderPlus+RGI = curated/specificity-
 # oriented. The report keeps these labelled separately, never merged.
-# DefenseFinder/PADLOC/AMRFinderPlus/DeepARG databases are small and
-# self-managed (auto-downloaded on first run); only CARD needs a path.
+# DefenseFinder/AMRFinderPlus/DeepARG databases are small and self-managed
+# (auto-downloaded on first run); only CARD needs a path.
 defense_amr_enabled:         true
 defense_amr_contig_fallback: true   # no bins (low depth) -> run on contigs instead of skipping
 card_db:                     "/media/nas1/LITRP.DBs/metagenDBs/card"  # auto-populated on first run

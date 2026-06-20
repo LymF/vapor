@@ -138,9 +138,13 @@ mamba create -n env_gtdbtk -c conda-forge -c bioconda \
 mamba create -n env_phist -c conda-forge -c bioconda \
     phist -y
 
-# Defense systems: DefenseFinder (+ built-in AntiDefenseFinder) + PADLOC
-mamba create -n env_defense -c conda-forge -c bioconda -c padlocbio \
-    "defense-finder=3.0.0" "padloc=2.0.0" hmmer -y
+# Defense systems: DefenseFinder (+ built-in AntiDefenseFinder)
+# PADLOC was evaluated as a 2nd complementary detector but dropped -- its
+# biocontainers image ships a broken BusyBox `rm` that can never build the
+# database inside a container (confirmed on litrp4), and every tool in this
+# pipeline must work via Docker/Apptainer, not conda-only.
+mamba create -n env_defense -c conda-forge -c bioconda \
+    "defense-finder=3.0.0" hmmer -y
 
 # RGI / CARD (curated AMR) — isolated env, RGI's pins are finicky alongside others
 mamba create -n env_rgi -c conda-forge -c bioconda \
@@ -547,19 +551,25 @@ docker run --rm -v "$DB_BASE:/dbs" \
 
 ---
 
-### DefenseFinder + PADLOC (defense systems / anti-defense)
+### DefenseFinder (defense systems / anti-defense)
 
 Required only when `defense_amr_enabled: true` in `config.yaml` (default).
-Both databases are small (HMM models, a few hundred MB) and are auto-downloaded
-by `rules/defense_amr.smk` on first run — **no `config.yaml` path is needed**.
+The database is small (HMM models, a few hundred MB) and auto-downloaded by
+`rules/defense_amr.smk` on first run — **no `config.yaml` path is needed**.
 If your compute nodes have no internet access (common on HPC clusters), pre-fetch
-them once on a login/head node.
+it once on a login/head node.
 
-**Conda (recommended for both tools):**
+> PADLOC was evaluated as a complementary 2nd defense-system detector (catches
+> some systems DefenseFinder misses) but was dropped: its biocontainers image
+> ships a BusyBox `rm` that lacks the `-d` flag PADLOC's own `--db-update`
+> script needs, so the database can never be built inside that container
+> (confirmed broken on litrp4 2026-06-19). It runs fine via conda, but every
+> tool in this pipeline must work via Docker/Apptainer, not conda-only.
+
+**Conda:**
 ```bash
 conda activate env_defense
 defense-finder update          # installs into $HOME/.macsyfinder
-padloc --db-update              # installs into PADLOC's own package directory
 conda deactivate
 ```
 > **Pin `defense-finder=3.0.0`, not `2.0.0`.** Earlier `defense-finder` releases
@@ -577,7 +587,7 @@ This writes to your real `$HOME`, which is exactly what the pipeline's own
 `conda`-mode rule execution uses (and what Apptainer/Singularity container mode
 auto-mounts by default), so a single pre-fetch covers every later pipeline run.
 
-**Docker — DefenseFinder only:**
+**Docker:**
 DefenseFinder's models install to a fixed path (`/root/.macsyfinder` inside the
 image), so the download only survives a `--rm` container if you mount a host
 directory there:
@@ -591,14 +601,6 @@ docker run --rm -v "$DB_BASE/defensefinder_home/.macsyfinder:/root/.macsyfinder"
 > ephemeral container, and `--rm` deletes the container — and everything written
 > to it — the instant the command exits. Nothing is lost on your host because
 > nothing was ever written there; you just need to re-run with the mount above.
-
-**Docker — PADLOC:** image tag confirmed via the Quay API is
-`quay.io/biocontainers/padloc:2.0.0--hdfd78af_1` (note: **no** `py` prefix on
-the build hash — PADLOC isn't a pure-Python package, unlike most other tools
-in this guide). Its database install path is still not officially documented
-as a fixed, mountable location though, so even with the right tag a reliable
-`docker run -v ...` pre-fetch can't be guaranteed to persist — use the conda
-method above instead.
 
 ---
 
@@ -723,7 +725,7 @@ phold_db:      "/path/to/phold_db"
 bakta_db:      "/path/to/bakta/db"
 eggnog_db:     "/path/to/eggnog"
 
-# Defense systems + AMR (DefenseFinder/PADLOC/AMRFinderPlus/DeepARG self-manage
+# Defense systems + AMR (DefenseFinder/AMRFinderPlus/DeepARG self-manage
 # their own small DBs — only CARD needs a path)
 defense_amr_enabled:         true
 defense_amr_contig_fallback: true   # no bins (low depth) -> run on contigs instead of skipping
@@ -786,7 +788,7 @@ done
 | Bakta (full) | 30 GB |
 | EggNOG-mapper | 50 GB |
 | GUNC progenomes_2.1 | 13 GB |
-| DefenseFinder + PADLOC models (auto) | <1 GB |
+| DefenseFinder models (auto) | <1 GB |
 | AMRFinderPlus DB (auto) | <1 GB |
 | CARD (RGI) | ~1 GB |
 | DeepARG model + DB (auto) | ~2 GB |

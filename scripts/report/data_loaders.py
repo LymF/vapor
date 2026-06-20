@@ -595,7 +595,7 @@ def load_phist(paths, samples):
     return records
 
 
-# ── Defense / anti-defense systems (DefenseFinder + PADLOC) ──────────────────
+# ── Defense / anti-defense systems (DefenseFinder) ───────────────────────────
 
 def load_defensefinder(paths, samples):
     """DefenseFinder per-genome systems, merged with a 'genome' column by
@@ -626,21 +626,6 @@ def load_antidefensefinder(paths, samples):
             records.append({'sample': s, 'Bin': genome, 'System': sys_type,
                              'System_id': row.get('sys_id', sys_type),
                              'Genes': row.get('genes_count', '')})
-    return records
-
-
-def load_padloc(paths, samples):
-    """PADLOC per-genome systems. Reported separately from DefenseFinder —
-    system nomenclature differs between the two tools."""
-    records = []
-    for p, s in zip(paths, samples):
-        for row in load_tsv(p):
-            genome = row.get('genome', '')
-            system = row.get('system', row.get('protein.name', ''))
-            if not genome or not system: continue
-            records.append({'sample': s, 'Bin': genome, 'System': system,
-                             'System_id': row.get('system.number', ''),
-                             'Gene': row.get('protein.name', '')})
     return records
 
 
@@ -706,7 +691,7 @@ def load_deeparg(paths, samples):
 # ── Host <-> Defense/AMR cross-link (Host & Defense report tab) ──────────────
 
 def build_host_defense_links(phist_data, defense_data, antidefense_data,
-                              padloc_data, amr_data, gtdb_data):
+                              amr_data, gtdb_data):
     """One row per predicted virus-host pair (PHIST), enriched with the
     host bin's GTDB-Tk taxonomy and every defense/antidefense/AMR hit found
     in that same bin. AMR hits keep their curated (AMRFinderPlus+RGI) vs.
@@ -726,8 +711,7 @@ def build_host_defense_links(phist_data, defense_data, antidefense_data,
         s, host = row['sample'], row.get('Host', '')
         if not host: continue
         tax = gtdb_by_bin.get((s, host), {})
-        defense_systems = sorted(set(_systems(defense_data, s, host)) |
-                                  set(_systems(padloc_data, s, host)))
+        defense_systems = _systems(defense_data, s, host)
         antidefense_systems = _systems(antidefense_data, s, host)
         amr_curated     = _genes([g for g in amr_data if g.get('Tier') == 'curated'], s, host)
         amr_exploratory = _genes([g for g in amr_data if g.get('Tier') == 'exploratory'], s, host)

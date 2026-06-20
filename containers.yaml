@@ -203,10 +203,6 @@ defense_finder:
   version: "3.0.0"   # bumped from 2.0.0 -- fixes the CasFinder/macsyfinder model-version
                       # mismatch (mdmparis/defense-finder#95), confirmed working on litrp4
 
-padloc:
-  image: padloc
-  version: "2.0.0"
-
 ncbi-amrfinderplus:
   image: ncbi-amrfinderplus
   version: "4.2.7"   # matches the version already pinned in env_annotation.yaml

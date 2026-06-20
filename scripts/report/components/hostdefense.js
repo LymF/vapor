@@ -1,6 +1,7 @@
 /* hostdefense.js — Host Prediction (PHIST), Defense/Anti-Defense systems
-   (DefenseFinder + PADLOC), AMR (AMRFinderPlus+RGI curated vs. DeepARG
-   exploratory), and the Host<->Virus<->Defense<->AMR cross-link matrix. */
+   (DefenseFinder, with built-in AntiDefenseFinder), AMR (AMRFinderPlus+RGI
+   curated vs. DeepARG exploratory), and the Host<->Virus<->Defense<->AMR
+   cross-link matrix. */
 (function () {
   'use strict';
 
@@ -133,19 +134,17 @@
 
   // ── Defense & Anti-Defense ───────────────────────────────────────────────
   function _renderDefenseBar(samples) {
-    const def    = typeof DEFENSE_DATA !== 'undefined' ? DEFENSE_DATA : [];
-    const anti   = typeof ANTIDEFENSE_DATA !== 'undefined' ? ANTIDEFENSE_DATA : [];
-    const padloc = typeof PADLOC_DATA !== 'undefined' ? PADLOC_DATA : [];
+    const def  = typeof DEFENSE_DATA !== 'undefined' ? DEFENSE_DATA : [];
+    const anti = typeof ANTIDEFENSE_DATA !== 'undefined' ? ANTIDEFENSE_DATA : [];
 
     mkChart('defense-bar-chart', {
-      title: { text: 'Defense Systems per Sample (DefenseFinder vs. PADLOC)' },
+      title: { text: 'Defense Systems per Sample (DefenseFinder)' },
       tooltip: { trigger: 'axis' },
-      legend: { data: ['DefenseFinder', 'PADLOC', 'AntiDefenseFinder'] },
+      legend: { data: ['DefenseFinder', 'AntiDefenseFinder'] },
       xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
       yAxis: { type: 'value', name: 'Systems' },
       series: [
         { name: 'DefenseFinder',      type: 'bar', color: '#0d9488', data: _byCount(def, 'System', samples) },
-        { name: 'PADLOC',             type: 'bar', color: '#d97706', data: _byCount(padloc, 'System', samples) },
         { name: 'AntiDefenseFinder',  type: 'bar', color: '#7c3aed', data: _byCount(anti, 'System', samples) },
       ],
       grid: { bottom: 70 },
@@ -154,7 +153,6 @@
     const allRows = [
       ...def.map(r => ({ ...r, Tool: 'DefenseFinder', Kind: 'Defense' })),
       ...anti.map(r => ({ ...r, Tool: 'DefenseFinder', Kind: 'Anti-defense' })),
-      ...padloc.map(r => ({ ...r, Tool: 'PADLOC', Kind: 'Defense' })),
     ];
     makeTable('defense-table', allRows, [
       { key: 'sample', label: 'Sample' },

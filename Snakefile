@@ -38,7 +38,7 @@
 #   prok_binning.smk    — BLOCK 8  : MetaBAT2, VAMB, SemiBin2, Binette, CheckM2, GTDB-Tk
 #   taxonomy.smk        — BLOCK 9  : Prodigal, Diamond, vConTACT3, viral_taxonomy
 #   host_prediction.smk — BLOCK 10 : PHIST
-#   defense_amr.smk     — BLOCK 10.5: DefenseFinder, PADLOC, AMRFinderPlus, RGI/CARD, DeepARG
+#   defense_amr.smk     — BLOCK 10.5: DefenseFinder, AMRFinderPlus, RGI/CARD, DeepARG
 #   finalize.smk        — BLOCK 11 : organize_outputs
 #   report.smk          — BLOCK 12/13: generate_report, MultiQC
 # ══════════════════════════════════════════════════════════════════════
@@ -391,7 +391,6 @@ rule all:
         # ── Defense systems + AMR (prokaryotic bins) ──────────────────
         expand(f"{OUTDIR}/{{sample}}/bins/proteins/done.txt",            sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/done.txt",       sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/padloc/done.txt",              sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/amrfinderplus/done.txt",       sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/rgi/done.txt",                 sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/deeparg/done.txt",             sample=SAMPLES),

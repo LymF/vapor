@@ -16,7 +16,7 @@ from .data_loaders import (
     parse_checkm2_phyla,
     load_vibrant, load_vcontact3, load_viral_taxonomy, load_viral_source_distribution, load_gtdbtk,
     load_custom_prok, load_phist,
-    load_defensefinder, load_antidefensefinder, load_padloc,
+    load_defensefinder, load_antidefensefinder,
     load_amrfinder, load_rgi_card, load_deeparg, build_host_defense_links,
     enrich_taxonomy_with_checkv, collapse_taxonomy_to_votu, merge_prok_taxonomy,
     load_alpha_diversity, load_pcoord, load_eggnog, load_phrogs,
@@ -74,7 +74,6 @@ def _build(snakemake):
     phist_paths_l    = [path_dict(_inp('phist'), samples).get(s, '') for s in samples]
     defensefinder_paths_l     = [path_dict(_inp('defensefinder'), samples).get(s, '') for s in samples]
     antidefensefinder_paths_l = [path_dict(_inp('antidefensefinder'), samples).get(s, '') for s in samples]
-    padloc_paths_l            = [path_dict(_inp('padloc'), samples).get(s, '') for s in samples]
     amrfinder_paths_l         = [path_dict(_inp('amrfinder'), samples).get(s, '') for s in samples]
     rgi_paths_l               = [path_dict(_inp('rgi'), samples).get(s, '') for s in samples]
     deeparg_paths_l           = [path_dict(_inp('deeparg'), samples).get(s, '') for s in samples]
@@ -117,11 +116,10 @@ def _build(snakemake):
     phist_data   = load_phist(phist_paths_l, samples)
     defensefinder_data     = load_defensefinder(defensefinder_paths_l, samples)
     antidefensefinder_data = load_antidefensefinder(antidefensefinder_paths_l, samples)
-    padloc_data             = load_padloc(padloc_paths_l, samples)
     amr_data     = load_amrfinder(amrfinder_paths_l, samples) + load_rgi_card(rgi_paths_l, samples)
     deeparg_data = load_deeparg(deeparg_paths_l, samples)
     host_defense_links = build_host_defense_links(
-        phist_data, defensefinder_data, antidefensefinder_data, padloc_data,
+        phist_data, defensefinder_data, antidefensefinder_data,
         amr_data + deeparg_data, gtdb_data)
     vibrant_data, vibrant_amg = load_vibrant(outdir, samples)
     custom_prok_data = load_custom_prok(
@@ -362,7 +360,6 @@ def _build(snakemake):
         "PHIST_DATA":   phist_data,
         "DEFENSE_DATA": defensefinder_data,
         "ANTIDEFENSE_DATA": antidefensefinder_data,
-        "PADLOC_DATA":  padloc_data,
         "AMR_DATA":     amr_data,
         "DEEPARG_DATA": deeparg_data,
         "HOST_DEFENSE_LINKS": host_defense_links,

@@ -1,15 +1,19 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/defense_amr.smk — BLOCK 10.5: Defense Systems + AMR (prok bins)
 #
-# prok_bin_proteins — shared per-genome Prodigal proteins, feeds all 5
+# prok_bin_proteins — shared per-genome Prodigal proteins, feeds all 4
 #                      tools below. Falls back to the whole (viral-
 #                      filtered) contig set as a single pseudo-genome
 #                      when a sample has no bins (low depth/coverage).
 #
 # defensefinder — MacSyFinder anti-phage defense systems + built-in
 #                 AntiDefenseFinder (-a flag); per-genome (architecture-aware)
-# padloc        — complementary defense-system detection (own HMM models);
-#                 per-genome, reported separately (different nomenclature)
+#                 PADLOC was evaluated as a complementary 2nd detector but
+#                 dropped: its biocontainers image ships a BusyBox `rm`
+#                 lacking `-d`, which the bundled --db-update script needs,
+#                 so the database can never be (re)built inside the container
+#                 (confirmed broken on litrp4 2026-06-19) -- conda works fine,
+#                 but every other tool in this pipeline must work via Docker.
 # amrfinderplus — curated AMR genes/point mutations (NCBI); gene-level,
 #                 single batch call on the concatenated protein set
 # rgi_card      — curated AMR genes (CARD); gene-level, single batch call
@@ -17,7 +21,7 @@
 #                 complement to amrfinderplus+rgi's curated calls
 #                 (Serrana et al. 2026) -- reported separately, never merged
 #
-# All five tools soft-fail (header-only TSV + done.txt) when disabled
+# All four tools soft-fail (header-only TSV + done.txt) when disabled
 # (defense_amr_enabled: false) or no genome units exist.
 # Config keys: defense_amr_enabled, defense_amr_contig_fallback, card_db
 # ══════════════════════════════════════════════════════════════════════
@@ -192,8 +196,7 @@ rule defensefinder:
         # https://github.com/mdmparis/defense-finder/issues/95. 3.0.0 resolves
         # a compatible CasFinder (3.1.0) automatically. If this still errors
         # on a fresh CasFinder release, the per-genome loop below already
-        # degrades gracefully (warns + 0 rows, doesn't fail the rule), and
-        # PADLOC runs independently as a second defense-system detector.
+        # degrades gracefully (warns + 0 rows, doesn't fail the rule).
 
         for name, mode, faa, gff in _read_manifest(str(input.manifest)):
             if not os.path.exists(faa) or os.path.getsize(faa) == 0:
@@ -244,88 +247,12 @@ rule defensefinder:
         Path(str(output.done)).touch()
 
 
-rule padloc:
-    """
-    PADLOC -- complementary defense-system detection (own HMM models +
-    MacSyFinder-style architecture rules). Reported separately from
-    DefenseFinder rather than merged: system nomenclature differs between
-    the two tools, and each catches systems the other misses.
-    """
-    input:
-        manifest = rules.prok_bin_proteins.output.manifest,
-        done     = rules.prok_bin_proteins.output.done,
-    output:
-        done    = f"{OUTDIR}/{{sample}}/bins/padloc/done.txt",
-        systems = f"{OUTDIR}/{{sample}}/bins/padloc/padloc_systems.tsv",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/padloc.log"
-    benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/padloc.tsv"
-    conda: "../envs/env_defense.yaml"
-    container:  CONTAINERS.get("padloc")
-    threads: THREADS
-    params:
-        outdir  = f"{OUTDIR}/{{sample}}/bins/padloc",
-        enabled = DEFENSE_AMR_ENABLED,
-    run:
-        import csv, glob, os
-        from pathlib import Path
-
-        os.makedirs(params.outdir, exist_ok=True)
-
-        def write_empty(msg):
-            with open(str(log[0]), "a") as lf:
-                lf.write(msg + "\n")
-            Path(str(output.systems)).write_text("genome\n")
-            Path(str(output.done)).touch()
-
-        if (not params.enabled or not os.path.exists(str(input.manifest))
-                or os.path.getsize(str(input.manifest)) == 0):
-            write_empty("[padloc] Disabled or no genome units -- skipping")
-            return
-
-        shell("padloc --db-update >> {log} 2>&1 || "
-              "echo '[padloc] WARNING: db update failed (may already be cached)' >> {log}")
-
-        for name, mode, faa, gff in _read_manifest(str(input.manifest)):
-            if not os.path.exists(faa) or os.path.getsize(faa) == 0:
-                continue
-            genome_out = os.path.join(params.outdir, name)
-            os.makedirs(genome_out, exist_ok=True)
-            shell(
-                "padloc --faa {faa} --gff {gff} --outdir {genome_out} --cpu {threads} "
-                ">> {log} 2>&1 || echo '[padloc] WARNING: failed on {name}' >> {log}"
-            )
-
-        rows, header = [], None
-        for csv_f in sorted(glob.glob(os.path.join(params.outdir, "*", "*_padloc.csv"))):
-            genome = os.path.basename(os.path.dirname(csv_f))
-            with open(csv_f) as f:
-                r = csv.reader(f)
-                h = next(r, None)
-                if h is None:
-                    continue
-                if header is None:
-                    header = h
-                for row in r:
-                    rows.append([genome] + row)
-
-        with open(str(output.systems), "w", newline="") as f:
-            w = csv.writer(f, delimiter="\t")
-            w.writerow(["genome"] + (header or []))
-            w.writerows(rows)
-
-        with open(str(log[0]), "a") as lf:
-            lf.write(f"[padloc] Done -- {len(rows)} system rows\n")
-        Path(str(output.done)).touch()
-
-
 rule amrfinderplus:
     """
     AMRFinderPlus -- curated, alignment-based AMR gene + point-mutation
     detection (NCBI Reference Gene/Point Mutation databases).
     Gene-level: runs once on the concatenated protein set (all genome
-    units from prok_bin_proteins), unlike DefenseFinder/PADLOC.
+    units from prok_bin_proteins), unlike DefenseFinder.
     Reuses env_annotation.yaml, which already pins ncbi-amrfinderplus.
     """
     input:

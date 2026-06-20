@@ -31,7 +31,6 @@ rule generate_report:
         phist             = expand(f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv",                   sample=SAMPLES),
         defensefinder     = expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/defensefinder_systems.tsv",     sample=SAMPLES),
         antidefensefinder = expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/antidefensefinder_systems.tsv",  sample=SAMPLES),
-        padloc            = expand(f"{OUTDIR}/{{sample}}/bins/padloc/padloc_systems.tsv",                   sample=SAMPLES),
         amrfinder         = expand(f"{OUTDIR}/{{sample}}/bins/amrfinderplus/amrfinder_results.tsv",         sample=SAMPLES),
         rgi               = expand(f"{OUTDIR}/{{sample}}/bins/rgi/rgi_results.txt",                         sample=SAMPLES),
         deeparg           = expand(f"{OUTDIR}/{{sample}}/bins/deeparg/deeparg_results.mapping.ARG",         sample=SAMPLES),
