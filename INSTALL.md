@@ -553,40 +553,61 @@ Required only when `defense_amr_enabled: true` in `config.yaml` (default).
 Both databases are small (HMM models, a few hundred MB) and are auto-downloaded
 by `rules/defense_amr.smk` on first run — **no `config.yaml` path is needed**.
 If your compute nodes have no internet access (common on HPC clusters), pre-fetch
-them once on a login/head node:
+them once on a login/head node.
 
-**Conda:**
+**Conda (recommended for both tools):**
 ```bash
 conda activate env_defense
-defense-finder update          # DefenseFinder + AntiDefenseFinder models
-padloc --db-update              # PADLOC-DB
+defense-finder update          # installs into $HOME/.macsyfinder
+padloc --db-update              # installs into PADLOC's own package directory
 conda deactivate
 ```
+This writes to your real `$HOME`, which is exactly what the pipeline's own
+`conda`-mode rule execution uses (and what Apptainer/Singularity container mode
+auto-mounts by default), so a single pre-fetch covers every later pipeline run.
 
-**Docker:**
+**Docker — DefenseFinder only:**
+DefenseFinder's models install to a fixed path (`/root/.macsyfinder` inside the
+image), so the download only survives a `--rm` container if you mount a host
+directory there:
 ```bash
-docker run --rm quay.io/biocontainers/defense-finder:2.0.0--pyhdfd78af_0 defense-finder update
-docker run --rm quay.io/biocontainers/padloc:2.0.0--pyhdfd78af_0 padloc --db-update
+mkdir -p "$DB_BASE/defensefinder_home/.macsyfinder"
+docker run --rm -v "$DB_BASE/defensefinder_home/.macsyfinder:/root/.macsyfinder" \
+    quay.io/biocontainers/defense-finder:2.0.0--pyhdfd78af_0 defense-finder update
 ```
+> **Common mistake** (this is what happened if you ran `docker run --rm <image>
+> defense-finder update` with no `-v`): the models download *inside* the
+> ephemeral container, and `--rm` deletes the container — and everything written
+> to it — the instant the command exits. Nothing is lost on your host because
+> nothing was ever written there; you just need to re-run with the mount above.
+
+**Docker — PADLOC:** PADLOC's database install path is not officially
+documented as a fixed, mountable location, so a reliable `docker run -v ...`
+pre-fetch can't be guaranteed here — use the conda method above instead.
 
 ---
 
 ### AMRFinderPlus (curated AMR)
 
 Self-managed: `rules/defense_amr.smk` runs `amrfinder -u` automatically on first
-use. To pre-fetch on an offline-compute HPC node:
+use. AMRFinderPlus installs its database under the conda environment's own
+install prefix (e.g. `$CONDA_PREFIX/share/amrfinderplus/data/`), not `$HOME` —
+so, like DefenseFinder above, a bare `docker run --rm <image> amrfinder -u`
+with no volume mount downloads it into a throwaway container and loses it the
+instant the container exits. Use conda to pre-fetch on an offline-compute node:
 
-**Conda:**
+**Conda (recommended):**
 ```bash
 conda activate env_annotation
 amrfinder -u
 conda deactivate
 ```
 
-**Docker:**
-```bash
-docker run --rm quay.io/biocontainers/ncbi-amrfinderplus:4.2.7--h6e70893_0 amrfinder -u
-```
+**Docker:** not recommended for pre-fetching — the exact internal install path
+varies by image build, so there is no `-v` mount that's reliably correct across
+versions. If you must use Docker, inspect the image first
+(`docker run --rm --entrypoint sh quay.io/biocontainers/ncbi-amrfinderplus:4.2.7--h6e70893_0 -c 'amrfinder --database_path'`
+or check its Dockerfile) to find the real path, then mount that directory.
 
 ---
 
