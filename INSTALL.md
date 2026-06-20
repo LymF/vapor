@@ -150,7 +150,7 @@ mamba create -n env_defense -c conda-forge -c bioconda \
 mamba create -n env_rgi -c conda-forge -c bioconda \
     "rgi=6.0.5" -y
 
-# DeepARG (exploratory/deep-learning AMR) — isolated env, own PyTorch stack
+# DeepARG (exploratory/deep-learning AMR) — isolated env, legacy Python2/Theano stack
 mamba create -n env_deeparg -c conda-forge -c bioconda \
     "deeparg=1.0.4" -y
 
@@ -667,9 +667,32 @@ card_db: "/path/to/your/databases/card"
 
 ### DeepARG (exploratory/deep-learning AMR)
 
-Self-managed: model weights + DIAMOND DB are downloaded from Hugging Face into
-the `env_deeparg` cache on first use — no `config.yaml` path needed. Requires
-internet access on the node that runs the `deeparg` rule at least once.
+> bioconda's `deeparg=1.0.4` is the classic Python2/Theano codebase, not the
+> newer PyTorch/HuggingFace rewrite some docs describe — confirmed live on
+> litrp4 (`--threads` doesn't exist on `deeparg predict`, and `-d/--data-path`
+> is a required argument, not auto-managed). Data must be fetched once via
+> `deeparg download_data` into a directory set by `deeparg_db` in `config.yaml`.
+
+**Conda:**
+```bash
+mkdir -p "$DB_BASE/deeparg"
+conda activate env_deeparg
+deeparg download_data -o "$DB_BASE/deeparg"
+conda deactivate
+```
+
+**Docker:**
+```bash
+mkdir -p "$DB_BASE/deeparg"
+docker run --rm -v "$DB_BASE/deeparg:/dbs" \
+    quay.io/biocontainers/deeparg:1.0.4--pyhdfd78af_0 \
+    deeparg download_data -o /dbs
+```
+
+Then set in `config.yaml`:
+```yaml
+deeparg_db: "/path/to/your/databases/deeparg"
+```
 
 ---
 
@@ -725,11 +748,12 @@ phold_db:      "/path/to/phold_db"
 bakta_db:      "/path/to/bakta/db"
 eggnog_db:     "/path/to/eggnog"
 
-# Defense systems + AMR (DefenseFinder/AMRFinderPlus/DeepARG self-manage
-# their own small DBs — only CARD needs a path)
+# Defense systems + AMR (DefenseFinder/AMRFinderPlus self-manage their own
+# small DBs — CARD and DeepARG need an explicit path)
 defense_amr_enabled:         true
 defense_amr_contig_fallback: true   # no bins (low depth) -> run on contigs instead of skipping
 card_db:       "/path/to/card"
+deeparg_db:    "/path/to/deeparg"
 
 # Custom databases — leave "" to skip
 custom_viral_dmnd: ""

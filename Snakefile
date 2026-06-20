@@ -181,6 +181,7 @@ EGGNOG_DB                 = config.get("eggnog_db", "")
 DEFENSE_AMR_ENABLED          = config.get("defense_amr_enabled", True)
 DEFENSE_AMR_CONTIG_FALLBACK  = config.get("defense_amr_contig_fallback", True)
 CARD_DB                      = _expand(config.get("card_db", "")) if config.get("card_db", "") else ""
+DEEPARG_DB                    = _expand(config.get("deeparg_db", "")) if config.get("deeparg_db", "") else ""
 
 GENOME_MAP_TOP_N           = config.get("genome_map_top_n", 5)
 GENOME_MAP_MIN_COMP_VIRAL  = config.get("genome_map_min_completeness_viral", 90.0)

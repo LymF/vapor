@@ -163,11 +163,13 @@ eggnog_db:                "/media/nas1/LITRP.DBs/metagenDBs/eggnog"
 # DeepARG = exploratory/sensitivity-oriented (deep learning, more divergent
 # hits, no accuracy benchmark); AMRFinderPlus+RGI = curated/specificity-
 # oriented. The report keeps these labelled separately, never merged.
-# DefenseFinder/AMRFinderPlus/DeepARG databases are small and self-managed
-# (auto-downloaded on first run); only CARD needs a path.
+# DefenseFinder/AMRFinderPlus databases are small and self-managed (auto-
+# downloaded on first run); CARD and DeepARG (legacy Python2/Theano build --
+# no auto-download, no --threads) need an explicit path.
 defense_amr_enabled:         true
 defense_amr_contig_fallback: true   # no bins (low depth) -> run on contigs instead of skipping
 card_db:                     "/media/nas1/LITRP.DBs/metagenDBs/card"  # auto-populated on first run
+deeparg_db:                  "/media/nas1/LITRP.DBs/metagenDBs/deeparg"  # auto-populated on first run (deeparg download_data)
 
 # ── Genome maps (annotation/genome_maps/) ──────────────────────────────
 genome_map_top_n:                   5     # max maps per category per sample

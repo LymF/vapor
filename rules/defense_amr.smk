@@ -398,6 +398,11 @@ rule deeparg:
     kept and reported separately, never merged into the curated AMR count.
     Same concatenated batch input as AMRFinderPlus/RGI, so it automatically
     inherits the low-depth contig fallback from prok_bin_proteins.
+
+    NOTE: bioconda's deeparg=1.0.4 is the classic Python2/Theano codebase,
+    not the newer PyTorch/HuggingFace rewrite some docs describe -- there is
+    no auto-download and no --threads flag. `deeparg predict` requires an
+    explicit --data-path (fetched once via `deeparg download_data`).
     """
     input:
         manifest = rules.prok_bin_proteins.output.manifest,
@@ -413,8 +418,9 @@ rule deeparg:
     container:  CONTAINERS.get("deeparg")
     threads: THREADS
     params:
-        outdir  = f"{OUTDIR}/{{sample}}/bins/deeparg",
-        enabled = DEFENSE_AMR_ENABLED,
+        outdir   = f"{OUTDIR}/{{sample}}/bins/deeparg",
+        data_dir = DEEPARG_DB,
+        enabled  = DEFENSE_AMR_ENABLED,
     run:
         import os
         from pathlib import Path
@@ -437,12 +443,20 @@ rule deeparg:
             write_empty("[deeparg] No proteins -- skipping")
             return
 
+        data_dir = params.data_dir or os.path.join(params.outdir, "deeparg_data")
+        os.makedirs(data_dir, exist_ok=True)
+        if not os.listdir(data_dir):
+            shell("deeparg download_data -o {data_dir} >> {log} 2>&1 || "
+                  "echo '[deeparg] WARNING: download_data failed' >> {log}")
+
+        if not os.listdir(data_dir):
+            write_empty("[deeparg] WARNING: deeparg data unavailable -- skipping")
+            return
+
         out_prefix = os.path.join(params.outdir, "deeparg_results")
-        # First run auto-downloads model + DIAMOND DB from Hugging Face into the
-        # env's HF cache -- no config path required.
         shell(
             "deeparg predict --model LS --type prot -i {all_faa} -o {out_prefix} "
-            "--threads {threads} >> {log} 2>&1 || "
+            "-d {data_dir} >> {log} 2>&1 || "
             "echo '[deeparg] WARNING: deeparg predict failed' >> {log}"
         )
 
