@@ -184,8 +184,9 @@ rule defensefinder:
     container:  CONTAINERS.get("defense_finder")
     threads: THREADS
     params:
-        outdir  = f"{OUTDIR}/{{sample}}/bins/defensefinder",
-        enabled = DEFENSE_AMR_ENABLED,
+        outdir     = f"{OUTDIR}/{{sample}}/bins/defensefinder",
+        models_dir = DEFENSE_FINDER_MODELS_DB,
+        enabled    = DEFENSE_AMR_ENABLED,
     run:
         import csv, glob, os
         from pathlib import Path
@@ -204,22 +205,35 @@ rule defensefinder:
             write_empty("[defensefinder] Disabled or no genome units -- skipping")
             return
 
+        # Without --models-dir, defense-finder caches models under
+        # $HOME/.macsyfinder/models -- but $HOME isn't stable across how
+        # this rule gets invoked (conda vs apptainer vs whatever sets the
+        # working directory), so different runs ended up with different,
+        # sometimes only-partially-populated caches. Confirmed on litrp4
+        # 2026-06-20: a batch run left every sample with 0 systems despite
+        # macsyfinder completing its HMMER passes (DefenseFinder/RM tmp
+        # dirs were fully populated) -- the final consolidated
+        # *_defense_finder_systems.tsv was never written, while the exact
+        # same command against an explicit models dir, run standalone,
+        # worked and produced it immediately. Pinning --models-dir removes
+        # the ambiguity: one shared, always-consistent location, same as
+        # card_db/deeparg_db below.
+        models_dir = params.models_dir or os.path.join(params.outdir, "models")
+        os.makedirs(models_dir, exist_ok=True)
+
         # defense-finder update always pings GitHub for the latest model
         # release, even when models are already cached -- across a batch of
         # many samples that means one GitHub API call per sample, which
         # exhausts the unauthenticated 60-req/hour limit fast (confirmed on
         # litrp4 2026-06-20: every sample after the first few failed with
-        # "maximum number of request per hour", leaving 0 systems for the
-        # rest of the batch since no models were ever installed). Only call
-        # update when the shared $HOME/.macsyfinder/data model cache is
-        # empty/missing -- once any one sample succeeds, every later sample
-        # in the same batch skips the network call entirely.
-        models_cache = os.path.expanduser("~/.macsyfinder/data")
-        if os.path.isdir(models_cache) and os.listdir(models_cache):
+        # "maximum number of request per hour"). Only call update when this
+        # models dir is empty -- once any one sample populates it, every
+        # later sample (in this or any future batch) skips the network call.
+        if os.listdir(models_dir):
             with open(str(log[0]), "a") as lf:
-                lf.write(f"[defensefinder] Models already cached in {models_cache} -- skipping update\n")
+                lf.write(f"[defensefinder] Models already cached in {models_dir} -- skipping update\n")
         else:
-            shell("defense-finder update >> {log} 2>&1 || "
+            shell("defense-finder update --models-dir {models_dir} >> {log} 2>&1 || "
                   "echo '[defensefinder] WARNING: model update failed -- "
                   "GitHub rate limit? set GITHUB_TOKEN or retry later' >> {log}")
         # NOTE: env_defense.yaml/containers.yaml pin defense-finder=3.0.0, not
@@ -236,42 +250,41 @@ rule defensefinder:
             genome_out = os.path.join(params.outdir, name)
             os.makedirs(genome_out, exist_ok=True)
             shell(
-                "defense-finder run -o {genome_out} --antidefensefinder {faa} "
+                "defense-finder run -o {genome_out} --models-dir {models_dir} "
+                "--antidefensefinder {faa} "
                 ">> {log} 2>&1 || echo '[defensefinder] WARNING: failed on {name}' >> {log}"
             )
 
-        def merge(pattern, exclude_substr=None):
-            rows, header = [], None
-            for tsv in sorted(glob.glob(pattern)):
-                if exclude_substr and exclude_substr in os.path.basename(tsv).lower():
+        # defense-finder 3.0.0 (--antidefensefinder) writes ONE file per
+        # genome -- {name}_defense_finder_systems.tsv -- with defense AND
+        # anti-defense systems both in it, distinguished by the "activity"
+        # column ("Defense" vs "Anti-defense"), not by a separate filename
+        # (confirmed on litrp4 2026-06-20: no *anti*systems.tsv file is ever
+        # produced). Split rows by that column instead of by filename.
+        def_rows, anti_rows, header = [], [], None
+        for tsv in sorted(glob.glob(os.path.join(params.outdir, "*", "*_defense_finder_systems.tsv"))):
+            genome = os.path.basename(os.path.dirname(tsv))
+            with open(tsv) as f:
+                r = csv.reader(f, delimiter="\t")
+                h = next(r, None)
+                if h is None:
                     continue
-                genome = os.path.basename(os.path.dirname(tsv))
-                with open(tsv) as f:
-                    r = csv.reader(f, delimiter="\t")
-                    h = next(r, None)
-                    if h is None:
-                        continue
-                    if header is None:
-                        header = h
-                    for row in r:
-                        rows.append([genome] + row)
-            return header, rows
+                if header is None:
+                    header = h
+                activity_idx = h.index("activity") if "activity" in h else None
+                for row in r:
+                    is_anti = (activity_idx is not None and len(row) > activity_idx
+                               and "anti" in row[activity_idx].lower())
+                    (anti_rows if is_anti else def_rows).append([genome] + row)
 
-        def write(path, header, rows):
+        def write(path, rows):
             with open(path, "w", newline="") as f:
                 w = csv.writer(f, delimiter="\t")
                 w.writerow(["genome"] + (header or []))
                 w.writerows(rows)
 
-        # AntiDefenseFinder (--antidefensefinder) output files are distinguished
-        # from defense-system tables by filename; if the installed tool version
-        # names them differently, the antidefense table comes back header-only --
-        # check {params.outdir}/<genome>/ directly for the actual filenames.
-        def_h, def_rows   = merge(os.path.join(params.outdir, "*", "*systems.tsv"),
-                                   exclude_substr="anti")
-        anti_h, anti_rows = merge(os.path.join(params.outdir, "*", "*anti*systems.tsv"))
-        write(str(output.systems), def_h, def_rows)
-        write(str(output.antisystems), anti_h, anti_rows)
+        write(str(output.systems), def_rows)
+        write(str(output.antisystems), anti_rows)
 
         with open(str(log[0]), "a") as lf:
             lf.write(f"[defensefinder] Done -- {len(def_rows)} defense, "

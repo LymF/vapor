@@ -170,6 +170,12 @@ defense_amr_enabled:         true
 defense_amr_contig_fallback: true   # no bins (low depth) -> run on contigs instead of skipping
 card_db:                     "/media/nas1/LITRP.DBs/metagenDBs/card"  # auto-populated on first run
 deeparg_db:                  "/media/nas1/LITRP.DBs/metagenDBs/deeparg"  # auto-populated on first run (deeparg download_data)
+defense_finder_models_db:    "/media/nas1/LITRP.DBs/metagenDBs/defense_finder_models"  # auto-populated on first run
+# ^ explicit --models-dir for defense-finder -- without it, the model cache
+# location depends on $HOME, which isn't stable across conda/apptainer/cwd
+# (confirmed on litrp4 2026-06-20: a batch left every sample with 0 systems
+# because of this). Pinning a shared path makes the cache reliable across
+# every run/sample.
 
 # ABRicate screens VFDB (virulence factors) + PlasmidFinder (plasmid
 # replicons) only -- NOT used for AMR: its bundled AMR databases are flat
