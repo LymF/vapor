@@ -6,5 +6,5 @@ channels:
 dependencies:
   - python=3.12
   - hmmer=3.4
-  - defense-finder=2.0.0
+  - defense-finder=3.0.0
   - padloc=2.0.0

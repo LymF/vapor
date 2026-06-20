@@ -186,22 +186,14 @@ rule defensefinder:
 
         shell("defense-finder update >> {log} 2>&1 || "
               "echo '[defensefinder] WARNING: model update failed (may already be cached)' >> {log}")
-        # KNOWN UPSTREAM BUG (unresolved as of writing): 'defense-finder update'
-        # fetches CasFinder 3.1.1, whose model XML declares a definition-schema
-        # version the installed macsyfinder rejects with "has not the right
-        # version. version supported is '2.0'" -- reported with these exact
-        # versions (macsyfinder 2.1.4 + CasFinder 3.1.1) in
-        # https://github.com/mdmparis/defense-finder/issues/95, closed with no
-        # public fix; a maintainer attempt to pin CasFinder to 3.1.0
-        # (https://github.com/mdmparis/defense-finder/issues/101) was abandoned,
-        # and macsydata's registry no longer offers any older CasFinder release
-        # to fall back to. Each per-genome 'defense-finder run' call below
-        # already degrades gracefully (warns + 0 rows, doesn't fail the rule),
-        # and PADLOC runs independently as a second defense-system detector, so
-        # this currently suppresses only CRISPR-Cas hits from DefenseFinder
-        # specifically -- not the whole defense/AMR stage. Re-check the issues
-        # above periodically; once upstream ships a fix, no pipeline change
-        # should be needed here.
+        # NOTE: env_defense.yaml/containers.yaml pin defense-finder=3.0.0, not
+        # 2.0.0/2.0.1 -- those fail against current CasFinder releases with
+        # "has not the right version" (macsypy.error.MacsypyError), see
+        # https://github.com/mdmparis/defense-finder/issues/95. 3.0.0 resolves
+        # a compatible CasFinder (3.1.0) automatically. If this still errors
+        # on a fresh CasFinder release, the per-genome loop below already
+        # degrades gracefully (warns + 0 rows, doesn't fail the rule), and
+        # PADLOC runs independently as a second defense-system detector.
 
         for name, mode, faa, gff in _read_manifest(str(input.manifest)):
             if not os.path.exists(faa) or os.path.getsize(faa) == 0:

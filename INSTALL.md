@@ -140,7 +140,7 @@ mamba create -n env_phist -c conda-forge -c bioconda \
 
 # Defense systems: DefenseFinder (+ built-in AntiDefenseFinder) + PADLOC
 mamba create -n env_defense -c conda-forge -c bioconda -c padlocbio \
-    "defense-finder=2.0.0" "padloc=2.0.0" hmmer -y
+    "defense-finder=3.0.0" "padloc=2.0.0" hmmer -y
 
 # RGI / CARD (curated AMR) — isolated env, RGI's pins are finicky alongside others
 mamba create -n env_rgi -c conda-forge -c bioconda \
@@ -562,22 +562,16 @@ defense-finder update          # installs into $HOME/.macsyfinder
 padloc --db-update              # installs into PADLOC's own package directory
 conda deactivate
 ```
-> **Known unresolved upstream bug — CasFinder/macsyfinder version mismatch:**
-> `defense-finder update` fetches CasFinder 3.1.1, whose model XML declares a
-> definition-schema version that macsyfinder rejects with
+> **Pin `defense-finder=3.0.0`, not `2.0.0`.** Earlier `defense-finder` releases
+> (2.0.0/2.0.1) fail against current CasFinder releases with
 > `macsypy.error.MacsypyError: ... has not the right version. version
-> supported is '2.0'`. Reported with these exact versions (macsyfinder 2.1.4 +
-> CasFinder 3.1.1) in
-> [mdmparis/defense-finder#95](https://github.com/mdmparis/defense-finder/issues/95),
-> closed with no public fix; a maintainer attempt to pin CasFinder to 3.1.0
-> ([#101](https://github.com/mdmparis/defense-finder/issues/101)) was
-> abandoned, and `macsydata search CasFinder` currently only lists 3.1.1 — there
-> is no older release left in the registry to fall back to. This breaks only
-> DefenseFinder's CRISPR-Cas detection; every other defense system it covers,
-> plus PADLOC running independently, are unaffected. `rules/defense_amr.smk`
-> already degrades gracefully (warns per genome, doesn't fail the rule) — no
-> action needed until upstream ships a fix. Re-check the linked issues
-> periodically.
+> supported is '2.0'` — reported in
+> [mdmparis/defense-finder#95](https://github.com/mdmparis/defense-finder/issues/95)
+> (same macsyfinder 2.1.4 + CasFinder 3.1.1 combo), with a maintainer attempt to
+> pin CasFinder to a compatible version abandoned in
+> [#101](https://github.com/mdmparis/defense-finder/issues/101). `3.0.0` resolves
+> a compatible CasFinder (3.1.0) automatically and runs clean — confirmed live
+> on litrp4 2026-06-19. The env/container pins in this repo already use `3.0.0`.
 
 This writes to your real `$HOME`, which is exactly what the pipeline's own
 `conda`-mode rule execution uses (and what Apptainer/Singularity container mode
@@ -590,7 +584,7 @@ directory there:
 ```bash
 mkdir -p "$DB_BASE/defensefinder_home/.macsyfinder"
 docker run --rm -v "$DB_BASE/defensefinder_home/.macsyfinder:/root/.macsyfinder" \
-    quay.io/biocontainers/defense-finder:2.0.0--pyhdfd78af_0 defense-finder update
+    quay.io/biocontainers/defense-finder:3.0.0--pyhdfd78af_0 defense-finder update
 ```
 > **Common mistake** (this is what happened if you ran `docker run --rm <image>
 > defense-finder update` with no `-v`): the models download *inside* the

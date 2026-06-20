@@ -200,7 +200,8 @@ genome_map:
 # ── Defense systems + AMR (prokaryotic bins) ────────────────────────────
 defense_finder:
   image: defense-finder
-  version: "2.0.0"
+  version: "3.0.0"   # bumped from 2.0.0 -- fixes the CasFinder/macsyfinder model-version
+                      # mismatch (mdmparis/defense-finder#95), confirmed working on litrp4
 
 padloc:
   image: padloc
