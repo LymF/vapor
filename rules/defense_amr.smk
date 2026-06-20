@@ -186,6 +186,15 @@ rule defensefinder:
 
         shell("defense-finder update >> {log} 2>&1 || "
               "echo '[defensefinder] WARNING: model update failed (may already be cached)' >> {log}")
+        # 'defense-finder update' always grabs the LATEST CasFinder release,
+        # but defense-finder=2.0.0 bundles macsyfinder v2.0rc4, which only
+        # parses the older model-definition schema shipped in CasFinder
+        # v3.0.0 (the pairing DefenseFinder itself was built/tested against).
+        # Newer CasFinder releases (e.g. 3.1.1) declare a schema version the
+        # old macsyfinder rejects with "has not the right version" -- pin
+        # back to the compatible release every run so 'update' can't drift.
+        shell("macsydata install CasFinder==3.0.0 >> {log} 2>&1 || "
+              "echo '[defensefinder] WARNING: CasFinder pin failed' >> {log}")
 
         for name, mode, faa, gff in _read_manifest(str(input.manifest)):
             if not os.path.exists(faa) or os.path.getsize(faa) == 0:

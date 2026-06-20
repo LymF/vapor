@@ -559,9 +559,19 @@ them once on a login/head node.
 ```bash
 conda activate env_defense
 defense-finder update          # installs into $HOME/.macsyfinder
+macsydata install CasFinder==3.0.0   # pin to the version defense-finder=2.0.0 was tested against
 padloc --db-update              # installs into PADLOC's own package directory
 conda deactivate
 ```
+> **Known issue:** `defense-finder update` always grabs the *latest* CasFinder
+> release. `defense-finder=2.0.0` bundles `macsyfinder` v2.0rc4, which only
+> understands the older model-definition schema in CasFinder v3.0.0 (the pairing
+> DefenseFinder itself ships/tests against) — newer CasFinder releases (e.g.
+> 3.1.1) fail with `macsypy.error.MacsypyError: ... has not the right version`.
+> `rules/defense_amr.smk` already re-pins CasFinder to 3.0.0 after every
+> `update` call, but if you're running `defense-finder` manually outside the
+> pipeline, run the `macsydata install` line above too.
+
 This writes to your real `$HOME`, which is exactly what the pipeline's own
 `conda`-mode rule execution uses (and what Apptainer/Singularity container mode
 auto-mounts by default), so a single pre-fetch covers every later pipeline run.
