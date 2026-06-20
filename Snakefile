@@ -37,7 +37,8 @@
 #   viral_binning.smk   — BLOCK 7  : vRhyme, CheckV (×2)
 #   prok_binning.smk    — BLOCK 8  : MetaBAT2, VAMB, SemiBin2, Binette, CheckM2, GTDB-Tk
 #   taxonomy.smk        — BLOCK 9  : Prodigal, Diamond, vConTACT3, viral_taxonomy
-#   host_prediction.smk — BLOCK 10 : PHIST, iPHoP
+#   host_prediction.smk — BLOCK 10 : PHIST
+#   defense_amr.smk     — BLOCK 10.5: DefenseFinder, PADLOC, AMRFinderPlus, RGI/CARD, DeepARG
 #   finalize.smk        — BLOCK 11 : organize_outputs
 #   report.smk          — BLOCK 12/13: generate_report, MultiQC
 # ══════════════════════════════════════════════════════════════════════
@@ -176,6 +177,11 @@ BAKTA_MIN_COMPLETENESS    = config.get("bakta_min_completeness", 70.0)
 BAKTA_MAX_CONTAMINATION   = config.get("bakta_max_contamination", 10.0)
 EGGNOG_DB                 = config.get("eggnog_db", "")
 
+# ── Defense systems + AMR (prokaryotic bins) ───────────────────────────
+DEFENSE_AMR_ENABLED          = config.get("defense_amr_enabled", True)
+DEFENSE_AMR_CONTIG_FALLBACK  = config.get("defense_amr_contig_fallback", True)
+CARD_DB                      = _expand(config.get("card_db", "")) if config.get("card_db", "") else ""
+
 GENOME_MAP_TOP_N           = config.get("genome_map_top_n", 5)
 GENOME_MAP_MIN_COMP_VIRAL  = config.get("genome_map_min_completeness_viral", 90.0)
 GENOME_MAP_MIN_COMP_PROK   = config.get("genome_map_min_completeness_prok", 90.0)
@@ -295,6 +301,7 @@ include: "rules/taxonomy.smk"
 include: "rules/host_prediction.smk"
 include: "rules/abundance.smk"
 include: "rules/annotation.smk"
+include: "rules/defense_amr.smk"
 include: "rules/finalize.smk"
 include: "rules/report.smk"
 
@@ -380,6 +387,14 @@ rule all:
         expand(f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/done.txt",          sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/done.txt",                   sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/viral/phist/done.txt",                       sample=SAMPLES),
+
+        # ── Defense systems + AMR (prokaryotic bins) ──────────────────
+        expand(f"{OUTDIR}/{{sample}}/bins/proteins/done.txt",            sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/done.txt",       sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/padloc/done.txt",              sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/amrfinderplus/done.txt",       sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/rgi/done.txt",                 sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/deeparg/done.txt",             sample=SAMPLES),
 
         # ── Abundance + Diversity ─────────────────────────────────────
         expand(f"{OUTDIR}/{{sample}}/abundance/viral_abundance.tsv",     sample=SAMPLES),

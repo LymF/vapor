@@ -197,6 +197,27 @@ genome_map:
   version: "1.0"
   custom: true
 
+# ── Defense systems + AMR (prokaryotic bins) ────────────────────────────
+defense_finder:
+  image: defense-finder
+  version: "2.0.0"
+
+padloc:
+  image: padloc
+  version: "2.0.0"
+
+ncbi-amrfinderplus:
+  image: ncbi-amrfinderplus
+  version: "4.2.7"   # matches the version already pinned in env_annotation.yaml
+
+rgi:
+  image: rgi
+  version: "6.0.5"
+
+deeparg:
+  image: deeparg
+  version: "1.0.4"
+
 # ── Abundance ───────────────────────────────────────────────────────────
 coverm:
   image: coverm

@@ -29,6 +29,12 @@ rule generate_report:
         gtdbtk_bac        = expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.bac120.summary.tsv", sample=SAMPLES),
         gtdbtk_arc        = expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.ar53.summary.tsv",   sample=SAMPLES),
         phist             = expand(f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv",                   sample=SAMPLES),
+        defensefinder     = expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/defensefinder_systems.tsv",     sample=SAMPLES),
+        antidefensefinder = expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/antidefensefinder_systems.tsv",  sample=SAMPLES),
+        padloc            = expand(f"{OUTDIR}/{{sample}}/bins/padloc/padloc_systems.tsv",                   sample=SAMPLES),
+        amrfinder         = expand(f"{OUTDIR}/{{sample}}/bins/amrfinderplus/amrfinder_results.tsv",         sample=SAMPLES),
+        rgi               = expand(f"{OUTDIR}/{{sample}}/bins/rgi/rgi_results.txt",                         sample=SAMPLES),
+        deeparg           = expand(f"{OUTDIR}/{{sample}}/bins/deeparg/deeparg_results.mapping.ARG",         sample=SAMPLES),
         org               = expand(f"{OUTDIR}/{{sample}}/final/done.txt",                                  sample=SAMPLES),
         benchmark_summary = f"{OUTDIR}/benchmarks/pipeline_timing_summary.tsv",
         # New: diversity + annotation outputs

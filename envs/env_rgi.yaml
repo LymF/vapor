@@ -1,0 +1,7 @@
+name: env_rgi
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - rgi=6.0.5

@@ -595,6 +595,155 @@ def load_phist(paths, samples):
     return records
 
 
+# ── Defense / anti-defense systems (DefenseFinder + PADLOC) ──────────────────
+
+def load_defensefinder(paths, samples):
+    """DefenseFinder per-genome systems, merged with a 'genome' column by
+    rules/defense_amr.smk (genome = bin name, or 'contigs_pseudogenome' in
+    the low-depth fallback)."""
+    records = []
+    for p, s in zip(paths, samples):
+        for row in load_tsv(p):
+            genome = row.get('genome', '')
+            sys_type = row.get('type', row.get('subtype', ''))
+            if not genome or not sys_type: continue
+            records.append({'sample': s, 'Bin': genome, 'System': sys_type,
+                             'System_id': row.get('sys_id', sys_type),
+                             'Genes': row.get('genes_count', '')})
+    return records
+
+
+def load_antidefensefinder(paths, samples):
+    """AntiDefenseFinder systems (DefenseFinder --antidefensefinder pass) —
+    same table shape as load_defensefinder, kept in a separate file/loader
+    so defense and anti-defense counts are never accidentally merged."""
+    records = []
+    for p, s in zip(paths, samples):
+        for row in load_tsv(p):
+            genome = row.get('genome', '')
+            sys_type = row.get('type', row.get('subtype', ''))
+            if not genome or not sys_type: continue
+            records.append({'sample': s, 'Bin': genome, 'System': sys_type,
+                             'System_id': row.get('sys_id', sys_type),
+                             'Genes': row.get('genes_count', '')})
+    return records
+
+
+def load_padloc(paths, samples):
+    """PADLOC per-genome systems. Reported separately from DefenseFinder —
+    system nomenclature differs between the two tools."""
+    records = []
+    for p, s in zip(paths, samples):
+        for row in load_tsv(p):
+            genome = row.get('genome', '')
+            system = row.get('system', row.get('protein.name', ''))
+            if not genome or not system: continue
+            records.append({'sample': s, 'Bin': genome, 'System': system,
+                             'System_id': row.get('system.number', ''),
+                             'Gene': row.get('protein.name', '')})
+    return records
+
+
+# ── AMR: curated (AMRFinderPlus + RGI/CARD) vs. exploratory (DeepARG) ────────
+# Per Serrana et al. 2026 (iMetaOmics): deep-learning AMR calls are more
+# sensitive to divergent/novel environmental ARGs but have no accuracy
+# benchmark, so they carry Tier='exploratory' and must stay visually and
+# numerically separate from the curated alignment-based calls.
+
+def _split_genome_prefix(value, sep="__"):
+    """Split a '{genome}__{protein_id}' identifier produced by the
+    defense_amr.smk protein-concatenation step into (genome, protein_id)."""
+    if value and sep in value:
+        genome, rest = value.split(sep, 1)
+        return genome, rest
+    return "", value or ""
+
+
+def load_amrfinder(paths, samples):
+    records = []
+    for p, s in zip(paths, samples):
+        for row in load_tsv(p):
+            prot = row.get('Protein identifier', row.get('Protein id', ''))
+            genome, _ = _split_genome_prefix(prot)
+            gene = row.get('Gene symbol', row.get('Element symbol', ''))
+            if not gene: continue
+            records.append({'sample': s, 'Bin': genome, 'Gene': gene,
+                             'Class': row.get('Class', ''),
+                             'Subclass': row.get('Subclass', ''),
+                             'Source': 'AMRFinderPlus', 'Tier': 'curated'})
+    return records
+
+
+def load_rgi_card(paths, samples):
+    records = []
+    for p, s in zip(paths, samples):
+        for row in load_tsv(p):
+            orf = row.get('ORF_ID', row.get('Contig', ''))
+            genome, _ = _split_genome_prefix(orf)
+            gene = row.get('Best_Hit_ARO', row.get('ARO', ''))
+            if not gene: continue
+            records.append({'sample': s, 'Bin': genome, 'Gene': gene,
+                             'Class': row.get('Drug Class', row.get('AMR Gene Family', '')),
+                             'Subclass': '', 'Source': 'RGI/CARD', 'Tier': 'curated'})
+    return records
+
+
+def load_deeparg(paths, samples):
+    records = []
+    for p, s in zip(paths, samples):
+        for row in load_tsv(p):
+            query = row.get('#ARG', row.get('query-name', row.get('read_id', '')))
+            genome, _ = _split_genome_prefix(query)
+            gene = row.get('ARG-name', row.get('best-hit', ''))
+            arg_class = row.get('ARG-group', row.get('predicted_ARG-class', ''))
+            if not gene and not arg_class: continue
+            records.append({'sample': s, 'Bin': genome, 'Gene': gene or arg_class,
+                             'Class': arg_class, 'Subclass': '',
+                             'Source': 'DeepARG', 'Tier': 'exploratory'})
+    return records
+
+
+# ── Host <-> Defense/AMR cross-link (Host & Defense report tab) ──────────────
+
+def build_host_defense_links(phist_data, defense_data, antidefense_data,
+                              padloc_data, amr_data, gtdb_data):
+    """One row per predicted virus-host pair (PHIST), enriched with the
+    host bin's GTDB-Tk taxonomy and every defense/antidefense/AMR hit found
+    in that same bin. AMR hits keep their curated (AMRFinderPlus+RGI) vs.
+    exploratory (DeepARG) split so the report never merges the two."""
+    gtdb_by_bin = {(r['sample'], r['Bin']): r for r in gtdb_data}
+
+    def _systems(records, sample, bin_name):
+        return sorted({r['System'] for r in records
+                       if r['sample'] == sample and r['Bin'] == bin_name})
+
+    def _genes(records, sample, bin_name):
+        return sorted({r['Gene'] for r in records
+                       if r['sample'] == sample and r['Bin'] == bin_name and r.get('Gene')})
+
+    links = []
+    for row in phist_data:
+        s, host = row['sample'], row.get('Host', '')
+        if not host: continue
+        tax = gtdb_by_bin.get((s, host), {})
+        defense_systems = sorted(set(_systems(defense_data, s, host)) |
+                                  set(_systems(padloc_data, s, host)))
+        antidefense_systems = _systems(antidefense_data, s, host)
+        amr_curated     = _genes([g for g in amr_data if g.get('Tier') == 'curated'], s, host)
+        amr_exploratory = _genes([g for g in amr_data if g.get('Tier') == 'exploratory'], s, host)
+        links.append({
+            'sample': s, 'Virus': row.get('Virus', ''), 'Host': host,
+            'Host_taxonomy': tax.get('Full_classification', ''),
+            'Host_genus': tax.get('Genus', ''), 'Host_species': tax.get('Species', ''),
+            'Score': row.get('Score', ''), 'P_value': row.get('P_value', ''),
+            'Defense_systems': defense_systems,
+            'Antidefense_systems': antidefense_systems,
+            'AMR_curated': amr_curated,
+            'AMR_exploratory': amr_exploratory,
+        })
+    return links
+
+
 # ── Taxonomy enrichment / merge ───────────────────────────────────────────────
 
 def enrich_taxonomy_with_checkv(tax_records, checkv_dict):

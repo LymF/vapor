@@ -258,7 +258,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     showTab('overview');
     [renderOverview, renderSequencing, renderViral, renderProkaryotic,
-     renderDiversity, renderAnnotation, renderAbout].forEach(fn => {
+     renderHostDefense, renderDiversity, renderAnnotation, renderAbout].forEach(fn => {
       if (typeof fn !== 'function') return;
       try {
         fn();

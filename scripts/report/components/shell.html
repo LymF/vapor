@@ -19,6 +19,7 @@
       <button role="tab" class="nav-tab" data-tab="sequencing"   aria-selected="false" tabindex="-1">Sequencing</button>
       <button role="tab" class="nav-tab" data-tab="viral"        aria-selected="false" tabindex="-1">Viral</button>
       <button role="tab" class="nav-tab" data-tab="prokaryotic"  aria-selected="false" tabindex="-1">Prokaryotic</button>
+      <button role="tab" class="nav-tab" data-tab="hostdefense"  aria-selected="false" tabindex="-1">Host &amp; Defense</button>
       <button role="tab" class="nav-tab" data-tab="diversity"    aria-selected="false" tabindex="-1">Diversity</button>
       <button role="tab" class="nav-tab" data-tab="annotation"   aria-selected="false" tabindex="-1">Annotation</button>
       <button role="tab" class="nav-tab" data-tab="about"        aria-selected="false" tabindex="-1">About</button>
@@ -210,6 +211,59 @@
           <h3 class="section-title">MAG Taxonomy Table</h3>
           <div class="toolbar"><input id="prok-tax-search" type="search" placeholder="Filter…" class="search-input"></div>
           <div id="prok-tax-table" class="table-wrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Host & Defense -->
+    <section id="tab-hostdefense" class="tab-panel" role="tabpanel" aria-labelledby="nav-hostdefense" hidden>
+      <div class="sub-nav" role="tablist">
+        <button class="sub-tab active" data-sub="hd-hostpred">Host Prediction</button>
+        <button class="sub-tab" data-sub="hd-defense">Defense &amp; Anti-Defense</button>
+        <button class="sub-tab" data-sub="hd-amr">AMR</button>
+        <button class="sub-tab" data-sub="hd-matrix">Host–Virus–Defense–AMR Matrix</button>
+      </div>
+      <div id="sub-hd-hostpred" class="sub-panel active">
+        <div class="toolbar">
+          <label>Sample: <select id="sample-sel-hostpred"></select></label>
+          <button id="hostpred-zoom-in"  class="btn-sm" type="button">Zoom +</button>
+          <button id="hostpred-zoom-out" class="btn-sm" type="button">Zoom −</button>
+          <button id="hostpred-zoom-fit" class="btn-sm" type="button">Fit / Reset</button>
+        </div>
+        <div class="chart-card">
+          <h3 class="section-title">PHIST Virus &harr; Host Network</h3>
+          <div id="hostpred-network-svg" style="height:520px;overflow:hidden"></div>
+        </div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">PHIST Results</h3>
+          <div class="toolbar"><input id="phist-search" type="search" placeholder="Filter…" class="search-input"></div>
+          <div id="phist-table" class="table-wrap"></div>
+        </div>
+      </div>
+      <div id="sub-hd-defense" class="sub-panel" style="display:none">
+        <div class="chart-card"><div id="defense-bar-chart" class="echarts-box"></div></div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">Defense / Anti-Defense Systems</h3>
+          <div class="toolbar"><input id="defense-search" type="search" placeholder="Filter…" class="search-input"></div>
+          <div id="defense-table" class="table-wrap"></div>
+        </div>
+      </div>
+      <div id="sub-hd-amr" class="sub-panel" style="display:none">
+        <div class="chart-card"><div id="amr-bar-chart" class="echarts-box"></div></div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">AMR Genes — Curated (AMRFinderPlus + RGI/CARD) vs. Exploratory (DeepARG)</h3>
+          <div class="toolbar"><input id="amr-search" type="search" placeholder="Filter…" class="search-input"></div>
+          <div id="amr-table" class="table-wrap"></div>
+        </div>
+      </div>
+      <div id="sub-hd-matrix" class="sub-panel" style="display:none">
+        <div class="toolbar">
+          <label>Sample: <select id="sample-sel-hostdefense-matrix"></select></label>
+        </div>
+        <div class="chart-card">
+          <h3 class="section-title">Host &harr; Virus, cross-linked with Defense / Anti-Defense / AMR</h3>
+          <div class="toolbar"><input id="hostdefense-matrix-search" type="search" placeholder="Filter…" class="search-input"></div>
+          <div id="hostdefense-matrix-table" class="table-wrap"></div>
         </div>
       </div>
     </section>

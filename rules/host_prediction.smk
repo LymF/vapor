@@ -5,6 +5,9 @@
 #
 # phist uses split_viral_fastas.py to create per-genome FASTA files
 # because kmer-db assigns one result row per input file.
+#
+# Host-side defense/antidefense/AMR annotation lives in defense_amr.smk
+# (BLOCK 10.5) and is cross-linked to these PHIST results in the report.
 # ══════════════════════════════════════════════════════════════════════
 
 

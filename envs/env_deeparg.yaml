@@ -1,0 +1,7 @@
+name: env_deeparg
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - deeparg=1.0.4

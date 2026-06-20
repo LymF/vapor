@@ -138,9 +138,23 @@ mamba create -n env_gtdbtk -c conda-forge -c bioconda \
 mamba create -n env_phist -c conda-forge -c bioconda \
     phist -y
 
+# Defense systems: DefenseFinder (+ built-in AntiDefenseFinder) + PADLOC
+mamba create -n env_defense -c conda-forge -c bioconda -c padlocbio \
+    "defense-finder=2.0.0" "padloc=2.0.0" hmmer -y
+
+# RGI / CARD (curated AMR) — isolated env, RGI's pins are finicky alongside others
+mamba create -n env_rgi -c conda-forge -c bioconda \
+    "rgi=6.0.5" -y
+
+# DeepARG (exploratory/deep-learning AMR) — isolated env, own PyTorch stack
+mamba create -n env_deeparg -c conda-forge -c bioconda \
+    "deeparg=1.0.4" -y
+
 # Annotation (Pharokka + Phold + Bakta + EggNOG + circular genome maps)
+# AMRFinderPlus (ncbi-amrfinderplus) is already pinned here too — curated AMR
+# reuses this env instead of a dedicated one.
 mamba create -n env_annotation -c conda-forge -c bioconda \
-    pharokka phold bakta eggnog-mapper pycirclize matplotlib biopython -y
+    pharokka phold bakta eggnog-mapper ncbi-amrfinderplus pycirclize matplotlib biopython -y
 
 # vConTACT3
 mamba create -n env_vcontact3 -c conda-forge -c bioconda \
@@ -533,6 +547,90 @@ docker run --rm -v "$DB_BASE:/dbs" \
 
 ---
 
+### DefenseFinder + PADLOC (defense systems / anti-defense)
+
+Required only when `defense_amr_enabled: true` in `config.yaml` (default).
+Both databases are small (HMM models, a few hundred MB) and are auto-downloaded
+by `rules/defense_amr.smk` on first run — **no `config.yaml` path is needed**.
+If your compute nodes have no internet access (common on HPC clusters), pre-fetch
+them once on a login/head node:
+
+**Conda:**
+```bash
+conda activate env_defense
+defense-finder update          # DefenseFinder + AntiDefenseFinder models
+padloc --db-update              # PADLOC-DB
+conda deactivate
+```
+
+**Docker:**
+```bash
+docker run --rm quay.io/biocontainers/defense-finder:2.0.0--pyhdfd78af_0 defense-finder update
+docker run --rm quay.io/biocontainers/padloc:2.0.0--pyhdfd78af_0 padloc --db-update
+```
+
+---
+
+### AMRFinderPlus (curated AMR)
+
+Self-managed: `rules/defense_amr.smk` runs `amrfinder -u` automatically on first
+use. To pre-fetch on an offline-compute HPC node:
+
+**Conda:**
+```bash
+conda activate env_annotation
+amrfinder -u
+conda deactivate
+```
+
+**Docker:**
+```bash
+docker run --rm quay.io/biocontainers/ncbi-amrfinderplus:4.2.7--h6e70893_0 amrfinder -u
+```
+
+---
+
+### RGI / CARD (curated AMR)
+
+Unlike the tools above, CARD has no built-in auto-update — `rules/defense_amr.smk`
+downloads and loads it automatically into `card_db` on first run, but you can
+pre-fetch it the same way:
+
+**Conda:**
+```bash
+mkdir -p "$DB_BASE/card"
+curl -sL https://card.mcmaster.ca/latest/data -o "$DB_BASE/card/card_data.tar.bz2"
+tar -xjf "$DB_BASE/card/card_data.tar.bz2" -C "$DB_BASE/card" card.json
+conda activate env_rgi
+rgi load --card_json "$DB_BASE/card/card.json" --local
+conda deactivate
+```
+
+**Docker:**
+```bash
+mkdir -p "$DB_BASE/card"
+curl -sL https://card.mcmaster.ca/latest/data -o "$DB_BASE/card/card_data.tar.bz2"
+tar -xjf "$DB_BASE/card/card_data.tar.bz2" -C "$DB_BASE/card" card.json
+docker run --rm -v "$DB_BASE/card:/dbs" quay.io/biocontainers/rgi:6.0.5--pyhdfd78af_0 \
+    rgi load --card_json /dbs/card.json --local
+```
+
+Then set in `config.yaml`:
+
+```yaml
+card_db: "/path/to/your/databases/card"
+```
+
+---
+
+### DeepARG (exploratory/deep-learning AMR)
+
+Self-managed: model weights + DIAMOND DB are downloaded from Hugging Face into
+the `env_deeparg` cache on first use — no `config.yaml` path needed. Requires
+internet access on the node that runs the `deeparg` rule at least once.
+
+---
+
 ## 7. Optional: custom Diamond databases
 
 Custom databases allow classifying contigs and bins not covered by primary databases.
@@ -585,6 +683,12 @@ phold_db:      "/path/to/phold_db"
 bakta_db:      "/path/to/bakta/db"
 eggnog_db:     "/path/to/eggnog"
 
+# Defense systems + AMR (DefenseFinder/PADLOC/AMRFinderPlus/DeepARG self-manage
+# their own small DBs — only CARD needs a path)
+defense_amr_enabled:         true
+defense_amr_contig_fallback: true   # no bins (low depth) -> run on contigs instead of skipping
+card_db:       "/path/to/card"
+
 # Custom databases — leave "" to skip
 custom_viral_dmnd: ""
 custom_viral_meta: ""
@@ -617,7 +721,7 @@ for env in env_qc env_assembly env_flye env_medaka env_lr_utils \
            env_mapping env_viral env_genomad phage_vibrant env_vrhyme \
            env_cobra env_binning env_comebin env_binette env_checkm2 \
            env_gtdbtk env_phist env_annotation env_vcontact3 env_coverm \
-           env_gunc env_derep; do
+           env_gunc env_derep env_defense env_rgi env_deeparg; do
     echo -n "$env: "
     conda run -n "$env" python --version 2>/dev/null || echo "MISSING"
 done
@@ -642,9 +746,13 @@ done
 | Bakta (full) | 30 GB |
 | EggNOG-mapper | 50 GB |
 | GUNC progenomes_2.1 | 13 GB |
+| DefenseFinder + PADLOC models (auto) | <1 GB |
+| AMRFinderPlus DB (auto) | <1 GB |
+| CARD (RGI) | ~1 GB |
+| DeepARG model + DB (auto) | ~2 GB |
 | IMG viral (optional) | 5–20 GB |
 | IMG prokaryote (optional) | 50–200 GB |
-| **Total (without custom)** | **~231 GB** |
+| **Total (without custom)** | **~235 GB** |
 
 ---
 
