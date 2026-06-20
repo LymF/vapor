@@ -523,10 +523,18 @@ rule genome_map_virus:
         tax_dir     = f"{OUTDIR}/{{sample}}/viral/taxonomy",
         min_comp    = GENOME_MAP_MIN_COMP_VIRAL,
         top_n       = GENOME_MAP_TOP_N,
+        scripts_dir = SCRIPTS_DIR,
     run:
-        import os
+        import os, shutil
         from pathlib import Path
 
+        # Wipe stale output: with a relative script path this rule used to fail
+        # silently whenever Snakemake's cwd wasn't the pipeline directory (see
+        # genome_map_virus.log), leaving old SVGs from a prior run/classification
+        # logic (e.g. before the PHROGS-hallmark phage/virus split) sitting here
+        # forever -- a contig later confirmed as a phage would still show its
+        # outdated "Virus" map. Always start from a clean directory.
+        shutil.rmtree(params.outdir, ignore_errors=True)
         os.makedirs(params.outdir, exist_ok=True)
         log_path = str(log[0])
 
@@ -552,7 +560,7 @@ rule genome_map_virus:
         tax_tsv = os.path.join(params.tax_dir, "viral_taxonomy_merged.tsv")
 
         shell(
-            "python3 scripts/genome_map_universal.py"
+            "python3 {params.scripts_dir}/genome_map_universal.py"
             " --mode virus"
             " --fasta {input.viral_nr}"
             + (f" --genomad-genes {genomad_genes}" if genomad_genes else "") +
