@@ -566,10 +566,23 @@ it once on a login/head node.
 > (confirmed broken on litrp4 2026-06-19). It runs fine via conda, but every
 > tool in this pipeline must work via Docker/Apptainer, not conda-only.
 
+`rules/defense_amr.smk` passes an explicit `--models-dir` to both `defense-finder
+update` and `defense-finder run`, set via `defense_finder_models_db` in
+`config.yaml` — **do not rely on the tool's own default**
+(`$HOME/.macsyfinder`). Which `$HOME` that resolves to is not stable across
+conda/Apptainer/cwd, and a batch run can silently end up split across two
+different, each only-partially-populated caches: confirmed on litrp4
+2026-06-20, where a multi-sample run left every sample with 0 systems even
+though MacSyFinder itself finished cleanly (its own tmp output was fully
+populated) — the run was reading/writing `$HOME/vapor/.macsyfinder` in one
+context and `$HOME/.macsyfinder` in another. Pre-fetch into the *same* path
+you put in `defense_finder_models_db`:
+
 **Conda:**
 ```bash
+mkdir -p "$DB_BASE/defense_finder_models"
 conda activate env_defense
-defense-finder update          # installs into $HOME/.macsyfinder
+defense-finder update --models-dir "$DB_BASE/defense_finder_models"
 conda deactivate
 ```
 > **Pin `defense-finder=3.0.0`, not `2.0.0`.** Earlier `defense-finder` releases
@@ -583,24 +596,53 @@ conda deactivate
 > a compatible CasFinder (3.1.0) automatically and runs clean — confirmed live
 > on litrp4 2026-06-19. The env/container pins in this repo already use `3.0.0`.
 
-This writes to your real `$HOME`, which is exactly what the pipeline's own
-`conda`-mode rule execution uses (and what Apptainer/Singularity container mode
-auto-mounts by default), so a single pre-fetch covers every later pipeline run.
-
 **Docker:**
-DefenseFinder's models install to a fixed path (`/root/.macsyfinder` inside the
-image), so the download only survives a `--rm` container if you mount a host
-directory there:
 ```bash
-mkdir -p "$DB_BASE/defensefinder_home/.macsyfinder"
-docker run --rm -v "$DB_BASE/defensefinder_home/.macsyfinder:/root/.macsyfinder" \
-    quay.io/biocontainers/defense-finder:3.0.0--pyhdfd78af_0 defense-finder update
+mkdir -p "$DB_BASE/defense_finder_models"
+docker run --rm -v "$DB_BASE/defense_finder_models:/models" \
+    quay.io/biocontainers/defense-finder:3.0.0--pyhdfd78af_0 \
+    defense-finder update --models-dir /models
 ```
-> **Common mistake** (this is what happened if you ran `docker run --rm <image>
-> defense-finder update` with no `-v`): the models download *inside* the
-> ephemeral container, and `--rm` deletes the container — and everything written
-> to it — the instant the command exits. Nothing is lost on your host because
-> nothing was ever written there; you just need to re-run with the mount above.
+
+Then set in `config.yaml`:
+```yaml
+defense_finder_models_db: "/path/to/your/databases/defense_finder_models"
+```
+
+> **GitHub rate limit.** `defense-finder update` calls GitHub's API even when
+> models are already cached, which exhausts the unauthenticated 60-req/hour
+> limit fast across a multi-sample batch (confirmed on litrp4 2026-06-20: every
+> sample after the first few failed with `"maximum number of request per
+> hour"`). `rules/defense_amr.smk` already skips the call once
+> `defense_finder_models_db` is non-empty on disk, so this only matters for the
+> very first run — set `GITHUB_TOKEN` in the environment beforehand if you hit
+> it anyway.
+
+---
+
+### ABRicate (VFDB + PlasmidFinder screening)
+
+Self-contained: every database ABRicate supports ships bundled with the
+conda/container package itself — no separate download step. `rules/defense_amr.smk`
+only screens **VFDB** (virulence factors) and **PlasmidFinder** (plasmid
+replicons), the two databases not already covered by AMRFinderPlus/RGI/DeepARG
+above; it is not used for AMR calling (ABRicate's bundled AMR databases are
+flat BLASTN screens with no point-mutation or SNP/variant models, a downgrade
+vs. the curated/ML tools already in the pipeline). Nothing to configure beyond
+`abricate_enabled: true` in `config.yaml` (default).
+
+---
+
+### argNorm (AMR → ARO normalization)
+
+Also self-contained — no database to pre-fetch, it ships its own ARO mapping
+tables. `rules/defense_amr.smk` normalizes AMRFinderPlus and DeepARG gene
+calls onto the Antibiotic Resistance Ontology (ARO) so they can be compared
+with each other and with RGI (RGI already speaks ARO natively via CARD, so
+it is **not** routed through argNorm — a hAMRonization bridge for this was
+tried and dropped: argNorm 1.1.0 has no working RGI support despite the docs
+implying otherwise, confirmed on litrp4 2026-06-20). Nothing to configure
+beyond `argnorm_enabled: true` in `config.yaml` (default).
 
 ---
 
@@ -748,12 +790,15 @@ phold_db:      "/path/to/phold_db"
 bakta_db:      "/path/to/bakta/db"
 eggnog_db:     "/path/to/eggnog"
 
-# Defense systems + AMR (DefenseFinder/AMRFinderPlus self-manage their own
-# small DBs — CARD and DeepARG need an explicit path)
+# Defense systems + AMR (AMRFinderPlus self-manages its own small DB —
+# CARD, DeepARG and DefenseFinder's models need an explicit path each)
 defense_amr_enabled:         true
 defense_amr_contig_fallback: true   # no bins (low depth) -> run on contigs instead of skipping
-card_db:       "/path/to/card"
-deeparg_db:    "/path/to/deeparg"
+card_db:                   "/path/to/card"
+deeparg_db:                "/path/to/deeparg"
+defense_finder_models_db:  "/path/to/defense_finder_models"
+abricate_enabled:            true   # VFDB + PlasmidFinder only, self-contained
+argnorm_enabled:              true   # AMRFinderPlus + DeepARG -> ARO, self-contained
 
 # Custom databases — leave "" to skip
 custom_viral_dmnd: ""

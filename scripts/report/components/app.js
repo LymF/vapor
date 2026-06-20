@@ -201,22 +201,63 @@
   });
 
   // ── Generic table builder ─────────────────────────────────────────────────
+  // Renders in pages instead of dumping every row into the DOM at once --
+  // cross-linked tables (host<->virus<->defense<->AMR) can reach thousands
+  // of rows across a multi-sample run and freeze the tab on first paint
+  // otherwise. Search re-filters the full row set (not just the rendered
+  // page) and restarts pagination from page 1.
   window.makeTable = function (containerId, rows, cols, opts = {}) {
     const el = document.getElementById(containerId);
-    if (!el || !rows.length) { if (el) el.innerHTML = '<p style="color:var(--text-muted);font-size:.8rem;padding:.5rem">No data</p>'; return; }
-    const thead = cols.map(c => `<th>${c.label || c.key}</th>`).join('');
-    const tbody = rows.map(r =>
-      `<tr>${cols.map(c => `<td>${opts.format?.[c.key]?.(r[c.key], r) ?? (r[c.key] ?? '')}</td>`).join('')}</tr>`
-    ).join('');
-    el.innerHTML = `<table class="vapor-table"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`;
-    // Search
-    if (opts.searchId) {
-      document.getElementById(opts.searchId)?.addEventListener('input', function () {
-        const q = this.value.toLowerCase();
-        el.querySelectorAll('tbody tr').forEach(tr => {
-          tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
-        });
+    if (!el) return;
+    const pageSize = opts.pageSize || 100;
+    const rowText = r => cols.map(c => String(r[c.key] ?? '')).join(' ').toLowerCase();
+    const state = { all: rows || [], filtered: rows || [], shown: 0 };
+
+    function renderRows(start, end) {
+      return state.filtered.slice(start, end).map(r =>
+        `<tr>${cols.map(c => `<td>${opts.format?.[c.key]?.(r[c.key], r) ?? (r[c.key] ?? '')}</td>`).join('')}</tr>`
+      ).join('');
+    }
+
+    function renderMoreButton() {
+      el.querySelector(':scope > .vapor-table-more')?.remove();
+      if (state.shown >= state.filtered.length) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'vapor-table-more';
+      btn.textContent = `Load more (${state.shown} of ${state.filtered.length})`;
+      btn.addEventListener('click', () => {
+        const start = state.shown;
+        state.shown = Math.min(state.filtered.length, state.shown + pageSize);
+        el.querySelector('tbody')?.insertAdjacentHTML('beforeend', renderRows(start, state.shown));
+        renderMoreButton();
       });
+      el.appendChild(btn);
+    }
+
+    function renderFromScratch() {
+      if (!state.filtered.length) {
+        el.innerHTML = '<p style="color:var(--text-muted);font-size:.8rem;padding:.5rem">No data</p>';
+        return;
+      }
+      state.shown = Math.min(state.filtered.length, pageSize);
+      const thead = cols.map(c => `<th>${c.label || c.key}</th>`).join('');
+      el.innerHTML = `<table class="vapor-table"><thead><tr>${thead}</tr></thead>`
+        + `<tbody>${renderRows(0, state.shown)}</tbody></table>`;
+      renderMoreButton();
+    }
+
+    renderFromScratch();
+
+    if (opts.searchId) {
+      const input = document.getElementById(opts.searchId);
+      if (input) {
+        input.oninput = function () {
+          const q = this.value.toLowerCase();
+          state.filtered = q ? state.all.filter(r => rowText(r).includes(q)) : state.all;
+          renderFromScratch();
+        };
+      }
     }
   };
 

@@ -257,7 +257,11 @@
     try {
       if (fmt === 'TSV') {
         if (target.type === 'table') {
-          downloadBlob(new Blob([tableToTSV(target.el)], { type: 'text/tab-separated-values' }), `${name}.tsv`);
+          // Leading BOM so Excel detects UTF-8 instead of guessing the
+          // system codepage -- without it, any non-ASCII char (e.g. the
+          // '—' placeholder used for missing values) comes out as
+          // mojibake ("â€”") when opened in Excel on Windows.
+          downloadBlob(new Blob(['﻿' + tableToTSV(target.el)], { type: 'text/tab-separated-values' }), `${name}.tsv`);
         }
         return;
       }
