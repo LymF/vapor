@@ -303,7 +303,7 @@
       return;
     }
     mkChart('defense-cooccur-chart', {
-      tooltip: { position: 'top', formatter: p => `${top[p.value[1]]} &harr; ${top[p.value[0]]}<br/>Co-occurring bins: ${p.value[2]}` },
+      tooltip: { trigger: 'item', position: 'top', formatter: p => `${top[p.value[1]]} &harr; ${top[p.value[0]]}<br/>Co-occurring bins: ${p.value[2]}` },
       grid: { left: 110, right: 20, top: 10, bottom: 80 },
       xAxis: { type: 'category', data: top, axisLabel: { rotate: 60, fontSize: 10 }, splitArea: { show: true } },
       yAxis: { type: 'category', data: top, axisLabel: { fontSize: 10 }, splitArea: { show: true } },
@@ -403,7 +403,7 @@
       'Negative r is consistent with Li et al. 2025 (aquifer metagenomes): bins investing more in anti-phage defense tend to carry fewer AMR genes.');
 
     mkChart('defense-amr-scatter', {
-      tooltip: { formatter: p => `${p.data[3]} (${p.data[2]})<br/>Defense systems: ${p.data[0]}<br/>AMR genes (curated): ${p.data[1]}` },
+      tooltip: { trigger: 'item', formatter: p => `${p.data[3]} (${p.data[2]})<br/>Defense systems: ${p.data[0]}<br/>AMR genes (curated): ${p.data[1]}` },
       legend: { data: Object.keys(domainColor) },
       xAxis: { type: 'value', name: 'Defense systems / bin', minInterval: 1 },
       yAxis: { type: 'value', name: 'AMR genes (curated) / bin', minInterval: 1 },
@@ -430,7 +430,7 @@
       'A negative trend would suggest bins with richer defense repertoires are predicted as hosts for fewer distinct phages.');
 
     mkChart('defense-hostload-scatter', {
-      tooltip: { formatter: p => `${p.data[3]} (${p.data[2]})<br/>Defense systems: ${p.data[0]}<br/>Predicted phages: ${p.data[1]}` },
+      tooltip: { trigger: 'item', formatter: p => `${p.data[3]} (${p.data[2]})<br/>Defense systems: ${p.data[0]}<br/>Predicted phages: ${p.data[1]}` },
       legend: { data: Object.keys(domainColor) },
       xAxis: { type: 'value', name: 'Defense systems / bin', minInterval: 1 },
       yAxis: { type: 'value', name: 'Distinct phages predicted (PHIST)', minInterval: 1 },
