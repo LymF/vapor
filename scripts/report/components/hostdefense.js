@@ -400,7 +400,7 @@
     const r1 = _pearson(withAmr.map(r => r.n_defense), withAmr.map(r => r.n_amr_curated));
     _renderCorrBanner('cross-corr-defense-amr', r1,
       'defense systems', 'curated AMR genes', withAmr.length,
-      'Negative r is consistent with Li et al. 2025 (aquifer metagenomes): bins investing more in anti-phage defense tend to carry fewer AMR genes.');
+      'A negative trend would suggest bins investing more in anti-phage defense tend to carry fewer AMR genes.');
 
     mkChart('defense-amr-scatter', {
       tooltip: { trigger: 'item', formatter: p => `${p.data[3]} (${p.data[2]})<br/>Defense systems: ${p.data[0]}<br/>AMR genes (curated): ${p.data[1]}` },

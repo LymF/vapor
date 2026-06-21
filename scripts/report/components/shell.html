@@ -227,7 +227,7 @@
         <div class="grid-2 mt-md">
           <div class="chart-card">
             <h3 class="section-title">Defense Systems by Phylum</h3>
-            <p class="section-sub">DefenseFinder hits joined to GTDB-Tk taxonomy per bin — cf. Beavogui et al. 2024 (Nat Commun)</p>
+            <p class="section-sub">DefenseFinder hits joined to GTDB-Tk taxonomy per bin</p>
             <div id="defense-phylum-chart" class="echarts-box" style="height:300px"></div>
           </div>
           <div class="chart-card">
@@ -252,7 +252,7 @@
           </div>
           <div class="chart-card">
             <h3 class="section-title">AMR by Contig Origin</h3>
-            <p class="section-sub">Viral genome vs. binned prokaryotic MAG vs. unbinned/mixed contigs — cf. Kant et al. 2026 (GBE)</p>
+            <p class="section-sub">Viral genome vs. binned prokaryotic MAG vs. unbinned/mixed contigs</p>
             <div id="amr-origin-chart" class="echarts-box" style="height:320px"></div>
           </div>
         </div>
@@ -266,7 +266,7 @@
         <div class="mason-grid">
           <div class="chart-card">
             <h3 class="section-title">Defense Load vs. AMR Load per Bin</h3>
-            <p class="section-sub">Each point is one prokaryotic bin. Tests the inverse defense&ndash;AMR relationship reported by Li et al. 2025 (Nat Commun, aquifers).</p>
+            <p class="section-sub">Each point is one prokaryotic bin. Tests whether bins investing more in anti-phage defense carry fewer AMR genes.</p>
             <div id="cross-corr-defense-amr" class="insight-banner"></div>
             <div id="defense-amr-scatter" class="echarts-box" style="height:380px"></div>
           </div>
@@ -279,7 +279,7 @@
         </div>
       </div>
       <div id="sub-hd-viral-antidefense" class="sub-panel" style="display:none">
-        <p class="section-sub">Anti-defense genes on viral contigs — DefenseFinder (--antidefensefinder, reused on viral ORFs) vs. dbAPIS (Yan et al. 2023, NAR), kept separate. Today this is the only source of viral-side anti-defense; cf. Han et al. 2026 (Nat Commun) Fig 6b.</p>
+        <p class="section-sub">Anti-defense genes on viral contigs — DefenseFinder (--antidefensefinder, reused on viral ORFs) vs. dbAPIS, kept separate. Today this is the only source of viral-side anti-defense.</p>
         <div class="chart-card"><div id="viral-antidefense-chart" class="echarts-box"></div></div>
         <div class="chart-card mt-md">
           <h3 class="section-title">Viral Anti-Defense Hits</h3>
@@ -288,7 +288,7 @@
         </div>
       </div>
       <div id="sub-hd-islands" class="sub-panel" style="display:none">
-        <p class="section-sub">Arrays of defense genes separated by no more than 10 genes, with ≥5 genes from ≥3 different systems (Beavogui et al. 2024 / Han et al. 2026 definition). <strong><span id="defense-islands-count">0</span></strong> found. Click a card to expand its gene map.</p>
+        <p class="section-sub">Arrays of defense genes separated by no more than 10 genes, with ≥5 genes from ≥3 different systems. <strong><span id="defense-islands-count">0</span></strong> found. Click a card to expand its gene map.</p>
         <div id="defense-islands-list"></div>
       </div>
       <div id="sub-hd-matrix" class="sub-panel" style="display:none">
