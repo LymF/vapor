@@ -52,12 +52,13 @@ semibin_env: "ocean"    # soil | ocean | gut | wastewater | global
 # Low-depth mode: skip binning entirely (MetaBAT2/VAMB/SemiBin2/COMEBin +
 # Binette all write empty output) and route gene-level prokaryotic analyses
 # (DefenseFinder/AMRFinderPlus/RGI/DeepARG/ABRicate, diamond_custom_prok)
-# through the same single-pseudo-genome fallback already used for samples
-# with zero bins (see defense_amr_contig_fallback). A user-set flag, not
-# auto-detected from bin quality -- a sample can produce bins that pass the
-# "exists" check but are too low-quality to trust (GTDB-Tk/CheckM2/etc would
-# still run on them and look confident); set this when you've already
-# decided binning isn't worth trusting for this sample/run.
+# through a single-pseudo-genome path instead (whole contig set as one
+# Prodigal -p meta call). This is the ONLY way to reach that path -- there
+# is no automatic "zero bins -> fall back to contigs" behavior, on purpose:
+# a sample can produce bins that exist but are too low-quality to trust,
+# and an automatic check can't tell that apart from "no bins, contigs are
+# all we have" (GTDB-Tk/CheckM2/etc would still run on low-quality bins and
+# look confident). You decide, explicitly, per run.
 # Genome-level analyses that need a complete genome (GTDB-Tk, CheckM2,
 # GUNC, galah dereplication, Bakta, CoverM genome-mode abundance) are
 # skipped -- there is no meaningful fallback for those on a single contig
@@ -182,7 +183,6 @@ eggnog_db:                "/media/nas1/LITRP.DBs/metagenDBs/eggnog"
 # downloaded on first run); CARD and DeepARG (legacy Python2/Theano build --
 # no auto-download, no --threads) need an explicit path.
 defense_amr_enabled:         true
-defense_amr_contig_fallback: true   # no bins (low depth) -> run on contigs instead of skipping
 card_db:                     "/media/nas1/LITRP.DBs/metagenDBs/card"  # auto-populated on first run
 deeparg_db:                  "/media/nas1/LITRP.DBs/metagenDBs/deeparg"  # auto-populated on first run (deeparg download_data)
 defense_finder_models_db:    "/media/nas1/LITRP.DBs/metagenDBs/defense_finder_models"  # auto-populated on first run

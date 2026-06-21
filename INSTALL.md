@@ -844,7 +844,6 @@ eggnog_db:     "/path/to/eggnog"
 # Defense systems + AMR (AMRFinderPlus self-manages its own small DB —
 # CARD, DeepARG and DefenseFinder's models need an explicit path each)
 defense_amr_enabled:         true
-defense_amr_contig_fallback: true   # no bins (low depth) -> run on contigs instead of skipping
 card_db:                   "/path/to/card"
 deeparg_db:                "/path/to/deeparg"
 defense_finder_models_db:  "/path/to/defense_finder_models"

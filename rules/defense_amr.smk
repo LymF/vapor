@@ -39,7 +39,7 @@
 # All tools soft-fail (header-only TSV + done.txt) when disabled
 # (defense_amr_enabled / abricate_enabled / argnorm_enabled: false) or no
 # genome units / upstream hits exist.
-# Config keys: defense_amr_enabled, defense_amr_contig_fallback, card_db,
+# Config keys: defense_amr_enabled, low_depth_mode, card_db,
 # abricate_enabled, argnorm_enabled
 # ══════════════════════════════════════════════════════════════════════
 

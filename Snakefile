@@ -179,7 +179,6 @@ EGGNOG_DB                 = config.get("eggnog_db", "")
 
 # ── Defense systems + AMR (prokaryotic bins) ───────────────────────────
 DEFENSE_AMR_ENABLED          = config.get("defense_amr_enabled", True)
-DEFENSE_AMR_CONTIG_FALLBACK  = config.get("defense_amr_contig_fallback", True)
 CARD_DB                      = _expand(config.get("card_db", "")) if config.get("card_db", "") else ""
 DEEPARG_DB                    = _expand(config.get("deeparg_db", "")) if config.get("deeparg_db", "") else ""
 DEFENSE_FINDER_MODELS_DB     = _expand(config.get("defense_finder_models_db", "")) if config.get("defense_finder_models_db", "") else ""
