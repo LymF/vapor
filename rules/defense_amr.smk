@@ -1,10 +1,11 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/defense_amr.smk — BLOCK 10.5: Defense Systems + AMR (prok bins)
 #
-# prok_bin_proteins — shared per-genome Prodigal proteins, feeds all 4
-#                      tools below. Falls back to the whole (viral-
-#                      filtered) contig set as a single pseudo-genome
-#                      when a sample has no bins (low depth/coverage).
+# prok_bin_proteins (shared per-genome Prodigal proteins, feeds all 4 tools
+# below + diamond_custom_prok in taxonomy.smk) now lives in
+# rules/prok_binning.smk -- it must be defined before BOTH taxonomy.smk and
+# this file in the Snakefile's include: order, since both reference
+# rules.prok_bin_proteins. _read_manifest/_concat_proteins moved with it.
 #
 # defensefinder — MacSyFinder anti-phage defense systems + built-in
 #                 AntiDefenseFinder (-a flag); per-genome (architecture-aware)
@@ -41,130 +42,6 @@
 # Config keys: defense_amr_enabled, defense_amr_contig_fallback, card_db,
 # abricate_enabled, argnorm_enabled
 # ══════════════════════════════════════════════════════════════════════
-
-
-rule prok_bin_proteins:
-    """
-    Per-genome protein prediction (Prodigal) shared by every defense/AMR
-    annotation tool below -- runs once regardless of how many downstream
-    tools consume it (same reuse pattern as rules.prodigal_viral.output.faa
-    for viral taxonomy).
-
-    Normal path: one Prodigal call per Binette final bin (single mode).
-    Low-depth fallback (no bins -- e.g. shallow/low-coverage samples where
-    binning produced nothing): one Prodigal call (meta mode) on the whole
-    viral-filtered contig set used as binning input, treated as a single
-    pseudo-genome. Gated by defense_amr_contig_fallback (config.yaml);
-    every downstream rule just iterates whatever the manifest contains,
-    with no separate low-depth codepath of its own.
-    """
-    input:
-        contigs = _prok_input_contigs,
-        done    = rules.binette.output.done,
-    output:
-        manifest = f"{OUTDIR}/{{sample}}/bins/proteins/manifest.txt",
-        done     = f"{OUTDIR}/{{sample}}/bins/proteins/done.txt",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/prok_bin_proteins.log"
-    benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/prok_bin_proteins.tsv"
-    conda: "../envs/env_viral.yaml"
-    container:  CONTAINERS.get("prodigal")
-    threads: 1
-    params:
-        bins_dir   = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
-        outdir     = f"{OUTDIR}/{{sample}}/bins/proteins",
-        fallback   = DEFENSE_AMR_CONTIG_FALLBACK,
-        low_depth  = LOW_DEPTH_MODE,
-        enabled    = DEFENSE_AMR_ENABLED,
-    run:
-        import glob, os
-        from pathlib import Path
-
-        os.makedirs(params.outdir, exist_ok=True)
-        manifest_rows = []
-
-        with open(str(log[0]), "w") as lf:
-            if not params.enabled:
-                lf.write("[prok_bin_proteins] defense_amr_enabled=False -- skipping\n")
-            else:
-                # low_depth_mode forces the single-pseudo-genome path regardless
-                # of whether bins exist -- the binners themselves are already
-                # skipped (prok_binning.smk) when this flag is set, but checking
-                # it explicitly here documents the intent rather than relying on
-                # bins_dir happening to be empty.
-                bins = ([] if params.low_depth else
-                        sorted(glob.glob(os.path.join(params.bins_dir, "*.fa"))))
-                if bins:
-                    lf.write(f"[prok_bin_proteins] {len(bins)} bins -- per-genome protein prediction\n")
-                    for bin_fa in bins:
-                        name = os.path.splitext(os.path.basename(bin_fa))[0]
-                        faa  = os.path.join(params.outdir, f"{name}.faa")
-                        gff  = os.path.join(params.outdir, f"{name}.gff")
-                        shell(
-                            "prodigal -i {bin_fa} -a {faa} -f gff -o {gff} -p single -q "
-                            ">> {log} 2>&1 || true"
-                        )
-                        if os.path.exists(faa) and os.path.getsize(faa) > 0:
-                            manifest_rows.append((name, "bins", bin_fa, faa, gff))
-                elif ((params.fallback or params.low_depth) and os.path.exists(str(input.contigs))
-                      and os.path.getsize(str(input.contigs)) > 0):
-                    lf.write("[prok_bin_proteins] No bins (low depth) -- "
-                             "fallback: contigs as pseudo-genome\n")
-                    name = "contigs_pseudogenome"
-                    faa  = os.path.join(params.outdir, f"{name}.faa")
-                    gff  = os.path.join(params.outdir, f"{name}.gff")
-                    contigs = str(input.contigs)
-                    shell(
-                        "prodigal -i {contigs} -a {faa} -f gff -o {gff} -p meta -q "
-                        ">> {log} 2>&1 || true"
-                    )
-                    if os.path.exists(faa) and os.path.getsize(faa) > 0:
-                        manifest_rows.append((name, "contigs", contigs, faa, gff))
-                else:
-                    lf.write("[prok_bin_proteins] No bins and fallback disabled/no contigs "
-                             "-- skipping\n")
-
-            with open(str(output.manifest), "w") as mf:
-                for name, mode, fna, faa, gff in manifest_rows:
-                    mf.write(f"{name}\t{mode}\t{fna}\t{faa}\t{gff}\n")
-
-            lf.write(f"[prok_bin_proteins] {len(manifest_rows)} genome unit(s) in manifest\n")
-
-        Path(str(output.done)).touch()
-
-
-def _read_manifest(path):
-    """Yield (name, mode, fna, faa, gff) tuples from a prok_bin_proteins manifest."""
-    import os
-    if not os.path.exists(path):
-        return
-    with open(path) as f:
-        for line in f:
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) < 5:
-                continue
-            yield parts[0], parts[1], parts[2], parts[3], parts[4]
-
-
-def _concat_proteins(manifest_path, out_faa):
-    """Concatenate every genome unit's proteins into one FASTA, prefixing
-    each header with its genome/bin name so gene-level hits (AMRFinderPlus,
-    RGI, DeepARG) can be attributed back to a bin or the contig fallback."""
-    import os
-    wrote_any = False
-    with open(out_faa, "w") as out_f:
-        for name, mode, fna, faa, gff in _read_manifest(manifest_path):
-            if not os.path.exists(faa) or os.path.getsize(faa) == 0:
-                continue
-            with open(faa) as f:
-                for line in f:
-                    if line.startswith(">"):
-                        out_f.write(f">{name}__{line[1:]}")
-                    else:
-                        out_f.write(line)
-            wrote_any = True
-    return wrote_any
 
 
 rule defensefinder:
