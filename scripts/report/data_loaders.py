@@ -545,7 +545,11 @@ def load_custom_prok(paths_d, samples, meta_path=''):
         sscinames = defaultdict(list)
         sskingdoms = {}
         for row in load_tsv(p):
-            bin_name = row.get('qseqid', '').rsplit('_', 1)[0]
+            # qseqid is '{genome}__{protein_id}' (rule diamond_custom_prok
+            # now uses _concat_proteins, same convention as the AMR loaders
+            # below) -- split on '__' for the real bin/genome-unit name,
+            # not the trailing '_<gene_index>' of the raw protein id.
+            bin_name, _ = _split_genome_prefix(row.get('qseqid', ''))
             if not bin_name: continue
             h = row.get('sseqid', '')
             acc = '_'.join(h.split('_')[:-1]) or h

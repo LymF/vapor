@@ -153,38 +153,40 @@ rule diamond_custom_prok:
         db       = CUSTOM_PROK_DMND,
         prok_faa = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/all_bins.faa",
         outdir   = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok",
-    shell:
-        """
-        if [ -z "{params.db}" ] || [ ! -f "{params.db}" ]; then
-            echo "[diamond_custom_prok] No custom DB configured — skipping" | tee {log}
-            printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" > {output.hits}
-            touch {output.done}; exit 0
-        fi
+    run:
+        import os
+        from pathlib import Path
 
-        mkdir -p {params.outdir}
+        os.makedirs(params.outdir, exist_ok=True)
+        header = "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n"
+
+        def write_empty(msg):
+            with open(str(log[0]), "a") as lf:
+                lf.write(msg + "\n")
+            Path(str(output.hits)).write_text(header)
+            Path(str(output.done)).touch()
+
+        if not params.db or not os.path.exists(str(params.db)):
+            write_empty("[diamond_custom_prok] No custom DB configured -- skipping")
+            return
 
         # Concatenate proteins for every genome unit in the manifest (bins,
-        # or the single contigs_pseudogenome entry when there are no bins).
-        : > {params.prok_faa}
-        while IFS=$'\t' read -r name mode fna faa gff; do
-            [ -s "$faa" ] && cat "$faa" >> {params.prok_faa}
-        done < {input.manifest}
+        # or the single contigs_pseudogenome entry when there are no bins) --
+        # _concat_proteins is the same helper amrfinderplus/rgi_card/deeparg
+        # use, defined alongside prok_bin_proteins in prok_binning.smk.
+        if not _concat_proteins(str(input.manifest), params.prok_faa):
+            write_empty("[diamond_custom_prok] No genome-unit proteins found")
+            return
 
-        if [ ! -s {params.prok_faa} ]; then
-            echo "[diamond_custom_prok] No genome-unit proteins found" | tee -a {log}
-            printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" > {output.hits}
-            touch {output.done}; exit 0
-        fi
-        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" \
-            > {output.hits}
-        diamond blastp \
-            --query {params.prok_faa} --db {params.db} --out /dev/stdout \
-            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
-            --max-target-seqs 1 --evalue 1e-5 --id 50 --query-cover 70 \
-            --threads {threads} --sensitive --tmpdir /tmp \
-            >> {output.hits} 2>> {log}
-        touch {output.done}
-        """
+        Path(str(output.hits)).write_text(header)
+        shell(
+            "diamond blastp --query {params.prok_faa} --db {params.db} "
+            "--outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore "
+            "--max-target-seqs 1 --evalue 1e-5 --id 50 --query-cover 70 "
+            "--threads {threads} --sensitive --tmpdir /tmp "
+            ">> {output.hits} 2>> {log}"
+        )
+        Path(str(output.done)).touch()
 
 
 rule vcontact3:
