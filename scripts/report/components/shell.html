@@ -224,7 +224,7 @@
       </div>
       <div id="sub-hd-defense" class="sub-panel" style="display:none">
         <div class="chart-card"><div id="defense-bar-chart" class="echarts-box"></div></div>
-        <div class="grid-2 mt-md">
+        <div class="grid-3 mt-md">
           <div class="chart-card">
             <h3 class="section-title">Defense Systems by Phylum</h3>
             <p class="section-sub">DefenseFinder hits joined to GTDB-Tk taxonomy per bin</p>
@@ -235,6 +235,22 @@
             <p class="section-sub">How often pairs of systems are found in the same bin — top systems by frequency</p>
             <div id="defense-cooccur-chart" class="echarts-box" style="height:300px"></div>
           </div>
+          <div class="chart-card">
+            <h3 class="section-title">Defense Density by Phylum</h3>
+            <p class="section-sub">Mean defense systems per Mb of genome (CheckM2 Genome_Size) — normalizes for genome size, not just raw counts</p>
+            <div id="defense-density-chart" class="echarts-box" style="height:300px"></div>
+          </div>
+        </div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">Defense Systems by Mechanism</h3>
+          <p class="section-sub">Conservative classification — only systems with an explicitly confirmed mechanism are categorized (RM/CRISPR-Cas: nucleic acid degradation; CBASS/Retron/Abi*: abortive infection; Viperin/dCTP deaminase: inhibition of replication); everything else stays "Unknown / unclassified" rather than guessed.</p>
+          <div id="defense-mechanism-chart" class="echarts-box"></div>
+        </div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">Defense System Correlation (gene-count proxy)</h3>
+          <p class="section-sub">Pearson r per system pair across every bin, FDR-corrected (Benjamini-Hochberg) — closer to a real correlation than the co-occurrence heatmap above. Approximation: uses DefenseFinder's per-system gene count as the abundance proxy (no per-gene read quantification run), so it's not sequencing-depth-normalized.</p>
+          <p class="section-sub" id="defense-correlation-note"></p>
+          <div id="defense-correlation-chart" class="echarts-box" style="height:380px"></div>
         </div>
         <div class="chart-card mt-md">
           <h3 class="section-title">Defense / Anti-Defense Systems</h3>

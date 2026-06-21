@@ -685,11 +685,17 @@ def load_antidefensefinder_viral(paths, samples):
 def load_dbapis_viral(paths, samples):
     """dbAPIS (Yan et al. 2023, NAR) DIAMOND blastp hits on viral proteins
     (rule dbapis_viral). Keeps only the best (lowest e-value) hit per query
-    protein. 'Hit' is the dbAPIS representative protein ID (sseqid) — the
-    family/inhibited-defense-type label needs the dbAPIS family mapping file
-    (family_member_infor.tsv, downloaded by the rule but not yet joined here
-    pending confirmation of its exact columns against a real download —
-    don't guess the schema, see [[project_defensome_han2026_implementation_plan]])."""
+    protein. sseqid is pipe-delimited: '{family_or_gene_id}|{IMGVR_UViG_id}|
+    {genome_id}|{locus_with_coords}' (confirmed against a real run on
+    litrp4, e.g. 'AcrIIA7|IMGVR_UViG_3300037418_004174|3300037418|
+    Ga0395900_0000476_40112_40693') -- the first field alone is already a
+    real, informative name (a dbAPIS family ID like 'APIS331', or a known
+    gene name like 'AcrIIA7' for characterized Acr families), so 'Family'
+    is usable without the separate family_member_infor.tsv mapping file.
+    That file would still add the *inhibited defense-type* label (e.g.
+    'APIS331' -> 'CRISPR-Cas') but its exact column schema is still
+    unconfirmed against a real download -- not joined here, see
+    [[project_defensome_han2026_implementation_plan]]."""
     records = []
     for p, s in zip(paths, samples):
         best = {}
@@ -703,8 +709,10 @@ def load_dbapis_viral(paths, samples):
         for qseqid, (evalue, row) in best.items():
             virus = _contig_from_protein_id(qseqid)
             if not virus: continue
+            sseqid = row.get('sseqid', '')
+            family = sseqid.split('|', 1)[0] if sseqid else ''
             records.append({'sample': s, 'Virus': virus, 'Protein': qseqid,
-                             'Hit': row.get('sseqid', ''), 'Pident': row.get('pident', ''),
+                             'Family': family or sseqid, 'Hit': sseqid, 'Pident': row.get('pident', ''),
                              'Evalue': row.get('evalue', ''), 'Bitscore': row.get('bitscore', ''),
                              'Source': 'dbAPIS'})
     return records

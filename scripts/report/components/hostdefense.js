@@ -10,6 +10,9 @@
     _renderDefenseBar(samples);
     _renderAmrBar(samples);
     _renderDefensePhylum();
+    _renderDefenseDensity();
+    _renderDefenseMechanism(samples);
+    _renderDefenseCorrelation();
     _renderDefenseCooccurrence();
     _renderAmrClasses();
     _renderAmrOrigin();
@@ -42,6 +45,43 @@
     return sxy / Math.sqrt(sxx * syy);
   }
 
+  // Abramowitz-Stegun 7.1.26 erf approximation (max error 1.5e-7) -- used
+  // to get a standard normal CDF without a stats library (this report is a
+  // single offline HTML file, no bundling/imports).
+  function _erf(x) {
+    const sign = x < 0 ? -1 : 1; x = Math.abs(x);
+    const a1=0.254829592, a2=-0.284496736, a3=1.421413741, a4=-1.453152027, a5=1.061405429, p=0.3275911;
+    const t = 1 / (1 + p * x);
+    const y = 1 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t*Math.exp(-x*x);
+    return sign * y;
+  }
+  function _normalCDF(z) { return 0.5 * (1 + _erf(z / Math.SQRT2)); }
+
+  // Two-sided p-value for a Pearson r via Fisher z-transform + normal
+  // approximation -- the standard large-sample test (exact for n -> large;
+  // close enough here since we're correlating across dozens-hundreds of
+  // bins, not a handful).
+  function _pearsonPValue(r, n) {
+    if (n < 4 || Math.abs(r) >= 1) return n < 4 ? 1 : 0;
+    const z = 0.5 * Math.log((1 + r) / (1 - r));
+    const se = 1 / Math.sqrt(n - 3);
+    return Math.max(0, Math.min(1, 2 * (1 - _normalCDF(Math.abs(z / se)))));
+  }
+
+  // Benjamini-Hochberg FDR correction (step-up procedure).
+  function _fdrBH(pvals) {
+    const m = pvals.length;
+    const order = pvals.map((_, i) => i).sort((a, b) => pvals[a] - pvals[b]);
+    const q = new Array(m);
+    let prevQ = 1;
+    for (let rank = m; rank >= 1; rank--) {
+      const i = order[rank - 1];
+      prevQ = Math.min(prevQ, pvals[i] * m / rank);
+      q[i] = prevQ;
+    }
+    return q;
+  }
+
   // One row per (sample, Bin) with defense/anti-defense/AMR counts + GTDB-Tk
   // taxonomy — built client-side from BIN_ANNOTATIONS + GTDB_DATA so no new
   // Snakemake/Python plumbing is needed for the cross-analysis charts below.
@@ -50,18 +90,32 @@
     const gtdb = typeof GTDB_DATA !== 'undefined' ? GTDB_DATA : [];
     const gtdbByKey = new Map();
     gtdb.forEach(r => gtdbByKey.set(`${r.sample}::${r.Bin}`, r));
+    // CheckM2's own Genome_Size column (bp) -- keyed the same way
+    // merge_prok_taxonomy (data_loaders.py) keys it, .fa-suffix stripped.
+    const checkm2 = typeof CHECKM2 !== 'undefined' ? CHECKM2 : {};
+    const sizeByKey = new Map();
+    Object.entries(checkm2).forEach(([sample, rows]) => (rows || []).forEach(r => {
+      const name = (r.Name || r.name || '').replace(/\.fa$/, '');
+      if (!name) return;
+      const size = parseFloat(r.Genome_Size || r.genome_size || 0);
+      if (size > 0) sizeByKey.set(`${sample}::${name}`, size);
+    }));
     return Object.entries(bins).map(([key, ann]) => {
       const sep = key.indexOf('::');
       const sample = key.slice(0, sep), Bin = key.slice(sep + 2);
       const tax = gtdbByKey.get(key) || {};
+      const n_defense = (ann.Defense_systems || []).length;
+      const genomeSizeMb = (sizeByKey.get(key) || 0) / 1e6;
       return {
         sample, Bin,
         Domain: tax.Domain || 'Unclassified',
         Phylum: tax.Phylum || 'Unclassified',
-        n_defense:        (ann.Defense_systems || []).length,
+        n_defense,
         n_antidefense:    (ann.Antidefense_systems || []).length,
         n_amr_curated:    (ann.AMR_curated || []).length,
         n_amr_exploratory:(ann.AMR_exploratory || []).length,
+        genome_size_mb:        genomeSizeMb,
+        defense_density_per_mb: genomeSizeMb > 0 ? n_defense / genomeSizeMb : null,
       };
     });
   }
@@ -268,6 +322,81 @@
     });
   }
 
+  // ── Defense Density by Phylum (systems per Mb, CheckM2 Genome_Size) ───────
+  function _renderDefenseDensity() {
+    const rows = _buildBinMatrix().filter(r => r.defense_density_per_mb !== null);
+    const byPhylum = new Map();
+    rows.forEach(r => {
+      const e = byPhylum.get(r.Phylum) || { sum: 0, bins: 0 };
+      e.sum += r.defense_density_per_mb; e.bins += 1;
+      byPhylum.set(r.Phylum, e);
+    });
+    const sorted = Array.from(byPhylum.entries())
+      .map(([phylum, e]) => [phylum, e.sum / e.bins, e.bins])
+      .sort((a, b) => b[1] - a[1]).slice(0, 12);
+
+    if (!sorted.length) {
+      mkChart('defense-density-chart', { title: { text: 'No bins with both defense hits and CheckM2 genome size', textStyle: { fontSize: 12 } } });
+      return;
+    }
+    mkChart('defense-density-chart', {
+      tooltip: { trigger: 'item', formatter: p => `${p.name}<br/>Mean density: ${p.value.toFixed(2)} systems/Mb<br/>Bins: ${sorted.find(d => d[0] === p.name)[2]}` },
+      grid: { bottom: 90, left: 50, right: 20, top: 20 },
+      xAxis: { type: 'category', data: sorted.map(d => d[0]), axisLabel: { rotate: 40 } },
+      yAxis: { type: 'value', name: 'Systems / Mb' },
+      series: [{ type: 'bar', color: '#7c3aed', data: sorted.map(d => +d[1].toFixed(3)) }],
+    });
+  }
+
+  // ── Defense Systems by Mechanism ──────────────────────────────────────────
+  // Deliberately conservative: only systems whose mechanism is explicitly
+  // confirmed are classified -- RM/CRISPR-Cas (nucleic acid degradation),
+  // CBASS/Retron/Abi*-family/Toxin-Antitoxin (abortive infection -- "Abi" is
+  // literally named for the mechanism), Viperin/dCTP deaminase (inhibition
+  // of replication). Everything else is "Unknown / unclassified" rather
+  // than guessed -- most DefenseFinder system types don't have a published
+  // mechanism assignment we've verified, and a substantial share of real
+  // defense systems genuinely have no characterized mechanism yet.
+  function _mechanismFor(systemName) {
+    const s = (systemName || '').toLowerCase();
+    if (s === 'rm' || s.startsWith('rm_') || s.startsWith('rm type') || s.includes('crispr')) {
+      return 'Nucleic acid degradation';
+    }
+    if (s === 'cbass' || s === 'retron' || s.startsWith('abi') || s.includes('toxin-antitoxin') || s === 'ta') {
+      return 'Abortive infection';
+    }
+    if (s.includes('viperin') || s.includes('dctp deaminase') || s.includes('dctp_deaminase') || s.includes('dxtpase')) {
+      return 'Inhibition of replication';
+    }
+    return 'Unknown / unclassified';
+  }
+
+  function _renderDefenseMechanism(samples) {
+    const def = typeof DEFENSE_DATA !== 'undefined' ? DEFENSE_DATA : [];
+    const order = ['Nucleic acid degradation', 'Abortive infection', 'Inhibition of replication', 'Unknown / unclassified'];
+    const colors = { 'Nucleic acid degradation': '#0d9488', 'Abortive infection': '#d97706',
+      'Inhibition of replication': '#2563eb', 'Unknown / unclassified': '#94a3b8' };
+    const bySampleMech = new Map();
+    def.forEach(r => {
+      const mech = _mechanismFor(r.System);
+      const key = r.sample;
+      if (!bySampleMech.has(key)) bySampleMech.set(key, Object.fromEntries(order.map(o => [o, 0])));
+      bySampleMech.get(key)[mech] += 1;
+    });
+
+    mkChart('defense-mechanism-chart', {
+      tooltip: { trigger: 'axis' },
+      legend: { data: order, top: 0 },
+      grid: { bottom: 70, left: 50, right: 20, top: 50 },
+      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
+      yAxis: { type: 'value', name: 'Defense systems' },
+      series: order.map(mech => ({
+        name: mech, type: 'bar', stack: 'mech', color: colors[mech],
+        data: samples.map(s => (bySampleMech.get(s) || {})[mech] || 0),
+      })),
+    });
+  }
+
   // ── Defense System Co-occurrence (top systems by frequency) ──────────────
   function _renderDefenseCooccurrence() {
     const bins = typeof BIN_ANNOTATIONS !== 'undefined' ? BIN_ANNOTATIONS : {};
@@ -309,6 +438,71 @@
       yAxis: { type: 'category', data: top, axisLabel: { fontSize: 10 }, splitArea: { show: true } },
       visualMap: { min: 0, max: maxV, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
         inRange: { color: ['#f1f5f9', '#0d9488'] } },
+      series: [{ type: 'heatmap', data, label: { show: false } }],
+    });
+  }
+
+  // ── Defense System Correlation (gene-count proxy, FDR-corrected) ─────────
+  // Closer to Han et al. 2026 Fig 4a than the presence/absence co-occurrence
+  // heatmap above: a real Pearson r per system pair across every bin (not
+  // just "found in the same bin Y/N"), with a two-sided significance test
+  // (Fisher z) and Benjamini-Hochberg FDR correction across all pairs
+  // tested -- same statistical approach as the paper.
+  // Approximation, stated plainly: the paper correlates Salmon-derived gene
+  // abundance (GPM); we don't run per-gene read quantification, so this
+  // uses DefenseFinder's own per-system gene count (already collected) as
+  // the abundance proxy instead. Real signal (multi-copy/expanded systems
+  // do get a higher value), just not sequencing-depth-normalized.
+  function _renderDefenseCorrelation() {
+    const def = typeof DEFENSE_DATA !== 'undefined' ? DEFENSE_DATA : [];
+    const byBinSystem = new Map();
+    def.forEach(r => {
+      const key = `${r.sample}::${r.Bin}`;
+      if (!byBinSystem.has(key)) byBinSystem.set(key, new Map());
+      const genes = parseInt(r.Genes, 10) || 1;
+      const m = byBinSystem.get(key);
+      m.set(r.System, (m.get(r.System) || 0) + genes);
+    });
+    const bins = [...byBinSystem.keys()];
+    const freq = new Map();
+    byBinSystem.forEach(m => m.forEach((_, sys) => freq.set(sys, (freq.get(sys) || 0) + 1)));
+    const top = [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(d => d[0]);
+
+    const noteEl = document.getElementById('defense-correlation-note');
+    if (top.length < 3 || bins.length < 4) {
+      mkChart('defense-correlation-chart', { title: { text: 'Not enough systems/bins for a correlation matrix yet', textStyle: { fontSize: 12 } } });
+      if (noteEl) noteEl.textContent = '';
+      return;
+    }
+
+    const vectors = top.map(sys => bins.map(b => byBinSystem.get(b).get(sys) || 0));
+    const pairs = [];
+    for (let i = 0; i < top.length; i++) {
+      for (let j = 0; j < top.length; j++) {
+        if (i === j) continue;
+        const r = _pearson(vectors[i], vectors[j]);
+        pairs.push({ i, j, r: r === null ? 0 : r });
+      }
+    }
+    const pvals = pairs.map(p => _pearsonPValue(p.r, bins.length));
+    const qvals = _fdrBH(pvals);
+    pairs.forEach((p, k) => { p.p = pvals[k]; p.q = qvals[k]; });
+
+    const sigPairs = pairs.filter(p => p.i < p.j && p.q < 0.05).length;
+    if (noteEl) noteEl.textContent =
+      `${top.length} systems × ${bins.length} bins — ${sigPairs} pair(s) significant after FDR correction (q < 0.05).`;
+
+    const data = pairs.map(p => [p.j, p.i, +p.r.toFixed(3), +p.q.toFixed(4)]);
+    mkChart('defense-correlation-chart', {
+      tooltip: { trigger: 'item', formatter: pt => {
+        const [x, y, r, q] = pt.data;
+        return `${top[y]} &harr; ${top[x]}<br/>r = ${r}<br/>FDR q = ${q}${q < 0.05 ? ' (significant)' : ''}`;
+      }},
+      grid: { left: 110, right: 20, top: 10, bottom: 80 },
+      xAxis: { type: 'category', data: top, axisLabel: { rotate: 60, fontSize: 10 }, splitArea: { show: true } },
+      yAxis: { type: 'category', data: top, axisLabel: { fontSize: 10 }, splitArea: { show: true } },
+      visualMap: { min: -1, max: 1, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
+        inRange: { color: ['#b91c1c', '#f1f5f9', '#0d9488'] } },
       series: [{ type: 'heatmap', data, label: { show: false } }],
     });
   }
@@ -479,7 +673,7 @@
 
     const allRows = [
       ...df.map(r => ({ ...r, Hit: r.System, Detail: r.System_id })),
-      ...dbapis.map(r => ({ ...r, Hit: r.Hit, Detail: `pident=${r.Pident} e=${r.Evalue}` })),
+      ...dbapis.map(r => ({ ...r, Hit: r.Family, Detail: `pident=${r.Pident} e=${r.Evalue}` })),
     ];
     makeTable('viral-antidefense-table', allRows, [
       { key: 'sample', label: 'Sample' },
@@ -615,7 +809,7 @@
       viralAnti.get(key)[label].add(r[nameKey] || '');
     });
     addVirAnti(typeof ANTIDEFENSE_VIRAL_DF !== 'undefined' ? ANTIDEFENSE_VIRAL_DF : [], 'DefenseFinder', 'System');
-    addVirAnti(typeof ANTIDEFENSE_VIRAL_DBAPIS !== 'undefined' ? ANTIDEFENSE_VIRAL_DBAPIS : [], 'dbAPIS', 'Hit');
+    addVirAnti(typeof ANTIDEFENSE_VIRAL_DBAPIS !== 'undefined' ? ANTIDEFENSE_VIRAL_DBAPIS : [], 'dbAPIS', 'Family');
 
     const isAll = sample === '__all__';
     const rows = (isAll ? all : all.filter(r => r.sample === sample)).map(r => {
