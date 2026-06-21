@@ -185,6 +185,8 @@ DEEPARG_DB                    = _expand(config.get("deeparg_db", "")) if config.
 DEFENSE_FINDER_MODELS_DB     = _expand(config.get("defense_finder_models_db", "")) if config.get("defense_finder_models_db", "") else ""
 ABRICATE_ENABLED            = config.get("abricate_enabled", True)
 ARGNORM_ENABLED             = config.get("argnorm_enabled", True)
+DEFENSE_AMR_VIRAL_ENABLED  = config.get("defense_amr_viral_enabled", True)
+APIS_DB                    = _expand(config.get("apis_db", "")) if config.get("apis_db", "") else ""
 
 GENOME_MAP_TOP_N           = config.get("genome_map_top_n", 5)
 GENOME_MAP_MIN_COMP_VIRAL  = config.get("genome_map_min_completeness_viral", 90.0)
@@ -400,6 +402,10 @@ rule all:
         expand(f"{OUTDIR}/{{sample}}/bins/deeparg/done.txt",             sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/abricate/done.txt",            sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/argnorm/done.txt",             sample=SAMPLES),
+
+        # ── Viral-side defense/anti-defense (Han et al. 2026 cold seep paper) ──
+        expand(f"{OUTDIR}/{{sample}}/viral/defensefinder/done.txt",      sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/viral/dbapis/done.txt",             sample=SAMPLES),
 
         # ── Abundance + Diversity ─────────────────────────────────────
         expand(f"{OUTDIR}/{{sample}}/abundance/viral_abundance.tsv",     sample=SAMPLES),

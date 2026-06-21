@@ -29,6 +29,9 @@ vapor/
 │   │                            #            CheckM2, galah derep, GTDB-Tk
 │   ├── taxonomy.smk             # BLOCK 9  — Prodigal, Diamond, vConTACT3
 │   ├── host_prediction.smk      # BLOCK 10 — PHIST
+│   ├── defense_amr.smk          # BLOCK 10.5 — DefenseFinder/AMRFinderPlus/RGI/DeepARG/
+│   │                            #              ABRicate/argNorm (bins) + DefenseFinder/
+│   │                            #              dbAPIS on viral ORFs, defense islands
 │   ├── annotation.smk           # BLOCK 11 — Pharokka, Phold, Bakta, EggNOG, genome maps
 │   ├── abundance.smk            # BLOCK 12 — CoverM (viral + prok), diversity
 │   ├── finalize.smk             # BLOCK 13 — organize_outputs, benchmarks
@@ -43,8 +46,7 @@ vapor/
 │   ├── compute_diversity.py     # alpha, beta diversity, Procrustes
 │   ├── make_votu_table.py       # consolidated vOTU summary table
 │   ├── skani_cluster_votus.py   # greedy single-linkage vOTU BFS clustering (ICTV)
-│   ├── generate_report.py           # standalone Plotly HTML report
-│   ├── vcontact3_network_layout.py  # 2D spectral layout for vConTACT3 network (h5py+scipy)
+│   ├── generate_report.py           # wrapper → scripts/report/ (ECharts + D3 HTML report)
 │   ├── pin_containers.py            # resolve quay.io tags → containers.lock.yaml
 │
 ├── containers.yaml              ← container version definitions (edit to update)

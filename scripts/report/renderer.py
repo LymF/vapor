@@ -17,6 +17,7 @@ from .data_loaders import (
     load_vibrant, load_vcontact3, load_viral_taxonomy, load_viral_source_distribution, load_gtdbtk,
     load_custom_prok, load_phist,
     load_defensefinder, load_antidefensefinder,
+    load_antidefensefinder_viral, load_dbapis_viral, compute_defense_islands,
     load_amrfinder, load_rgi_card, load_deeparg,
     build_host_defense_links, build_bin_annotation_summary,
     enrich_taxonomy_with_checkv, collapse_taxonomy_to_votu, merge_prok_taxonomy,
@@ -75,6 +76,9 @@ def _build(snakemake):
     phist_paths_l    = [path_dict(_inp('phist'), samples).get(s, '') for s in samples]
     defensefinder_paths_l     = [path_dict(_inp('defensefinder'), samples).get(s, '') for s in samples]
     antidefensefinder_paths_l = [path_dict(_inp('antidefensefinder'), samples).get(s, '') for s in samples]
+    antidefense_viral_paths_l = [path_dict(_inp('antidefense_viral'), samples).get(s, '') for s in samples]
+    dbapis_viral_paths_l      = [path_dict(_inp('dbapis_viral'), samples).get(s, '') for s in samples]
+    prok_protein_manifest_l   = [path_dict(_inp('prok_protein_manifest'), samples).get(s, '') for s in samples]
     amrfinder_paths_l         = [path_dict(_inp('amrfinder'), samples).get(s, '') for s in samples]
     rgi_paths_l               = [path_dict(_inp('rgi'), samples).get(s, '') for s in samples]
     deeparg_paths_l           = [path_dict(_inp('deeparg'), samples).get(s, '') for s in samples]
@@ -117,6 +121,9 @@ def _build(snakemake):
     phist_data   = load_phist(phist_paths_l, samples)
     defensefinder_data     = load_defensefinder(defensefinder_paths_l, samples)
     antidefensefinder_data = load_antidefensefinder(antidefensefinder_paths_l, samples)
+    antidefense_viral_df_data    = load_antidefensefinder_viral(antidefense_viral_paths_l, samples)
+    antidefense_viral_dbapis_data = load_dbapis_viral(dbapis_viral_paths_l, samples)
+    defense_islands = compute_defense_islands(prok_protein_manifest_l, samples, defensefinder_data)
     amr_data     = load_amrfinder(amrfinder_paths_l, samples) + load_rgi_card(rgi_paths_l, samples)
     deeparg_data = load_deeparg(deeparg_paths_l, samples)
     host_defense_links = build_host_defense_links(phist_data, gtdb_data)
@@ -126,20 +133,6 @@ def _build(snakemake):
     custom_prok_data = load_custom_prok(
         custom_prok_paths, samples,
         getattr(snakemake.params, 'custom_prok_meta', ''))
-
-    # ── vConTACT3 network layouts ─────────────────────────────────────────────
-    vc3_network_data = {}
-    net_paths = path_dict(list(getattr(snakemake.input, 'network_json', []) or []), samples)
-    for s in samples:
-        np_ = net_paths.get(s, '')
-        if np_ and os.path.exists(np_):
-            try:
-                with open(np_, encoding='utf-8') as f:
-                    vc3_network_data[s] = json.load(f)
-            except Exception:
-                vc3_network_data[s] = {'nodes': [], 'edges': []}
-        else:
-            vc3_network_data[s] = {'nodes': [], 'edges': []}
 
     # ── Merge vConTACT3 into tax_data ─────────────────────────────────────────
     tax_genome_keys = {(r.get('sample', ''), r.get('Genome', '')) for r in tax_data}
@@ -355,12 +348,14 @@ def _build(snakemake):
         "TAX_DATA":     tax_data,
         "VIRAL_SOURCE_DIST": viral_source_dist,
         "VC3_DATA":     vc3_data,
-        "VC3_NETWORK":  vc3_network_data,
         "GTDB_DATA":    gtdb_data,
         "MERGED_PROK":  merged_prok,
         "PHIST_DATA":   phist_data,
         "DEFENSE_DATA": defensefinder_data,
         "ANTIDEFENSE_DATA": antidefensefinder_data,
+        "ANTIDEFENSE_VIRAL_DF":     antidefense_viral_df_data,
+        "ANTIDEFENSE_VIRAL_DBAPIS": antidefense_viral_dbapis_data,
+        "DEFENSE_ISLANDS": defense_islands,
         "AMR_DATA":     amr_data,
         "DEEPARG_DATA": deeparg_data,
         "HOST_DEFENSE_LINKS": host_defense_links,

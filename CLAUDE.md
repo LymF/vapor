@@ -23,9 +23,10 @@ The repository is organized as follows:
   - `viral_binning.smk`: Viral binning with CheckV quality assessment and vRhyme clustering.
   - `prok_binning.smk`: Prokaryotic binning using MetaBAT2, MaxBin2, VAMB, SemiBin2, followed by Binette consolidation, CheckM2 quality check, and GTDB-Tk taxonomy.
   - `taxonomy.smk`: Taxonomy assignment via Prodigal gene prediction and Diamond BLAST against databases, including viral taxonomy.
-  - `host_prediction.smk`: Phage-host prediction using PHIST and iPHoP.
+  - `host_prediction.smk`: Phage-host prediction using PHIST.
+  - `defense_amr.smk`: Defense systems (DefenseFinder/AntiDefenseFinder, PADLOC-style) and AMR (AMRFinderPlus, RGI/CARD, DeepARG) on prokaryotic bins, plus ABRicate (VFDB+PlasmidFinder) and argNorm. Also reuses DefenseFinder and adds dbAPIS (Diamond) for anti-defense detection on viral ORFs, and computes defense islands.
   - `finalize.smk`: Organizing and finalizing output files.
-  - `report.smk`: Generating interactive HTML reports with Plotly and MultiQC aggregation.
+  - `report.smk`: Generating interactive HTML reports (ECharts + D3) and MultiQC aggregation.
 - **scripts/**: Auxiliary Python scripts:
   - `filter_checkv_hq.py`: Filters viral FASTAs based on CheckV quality tiers.
   - `generate_report.py`: Creates the standalone interactive HTML report.
@@ -105,7 +106,7 @@ All environments are created via `snakemake --use-conda --cores 1 --create-envs-
 ## Databases
 
 Requires ~500 GB of pre-downloaded databases:
-- CheckV, VirSorter2, GeNomad, VIBRANT, CenoteTaker3, INPHARED, vConTACT3, iPHoP, CheckM2, GTDB-Tk.
+- CheckV, VirSorter2, GeNomad, VIBRANT, CenoteTaker3, INPHARED, vConTACT3, CheckM2, GTDB-Tk.
 - Optional custom Diamond databases for improved taxonomy.
 
 Paths must be set in `Snakefile`.
@@ -127,7 +128,7 @@ System requirements: Linux, 16+ cores, 64+ GB RAM, 600+ GB disk.
 - **Multi-Platform Support**: Handles Illumina and long-read data seamlessly.
 - **Comprehensive Analysis**: Covers QC, assembly, viral/prokaryotic binning, taxonomy, host prediction.
 - **Consensus Approaches**: Viral detection uses multi-tool consensus.
-- **Interactive Reporting**: Generates detailed HTML reports with Plotly visualizations.
+- **Interactive Reporting**: Generates detailed HTML reports with ECharts/D3 visualizations.
 - **Reproducibility**: Environment locking and version pinning.
 
 ## Troubleshooting

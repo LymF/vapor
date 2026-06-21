@@ -1,4 +1,4 @@
-/* viral.js — Detection, binning, CheckV, taxonomy, vConTACT3 network, lifestyle */
+/* viral.js — Detection, binning, CheckV, taxonomy, lifestyle */
 (function () {
   'use strict';
 
@@ -9,7 +9,6 @@
     _renderBinning(samples);
     _renderLifestyle(samples);
     makeSampleDropdown('sample-sel-viral-tax', _renderTaxonomy, { allSamples: true });
-    makeSampleDropdown('sample-sel-vc3', window.renderVC3Network);
   };
 
   // ── Detection ─────────────────────────────────────────────────────────────
@@ -268,16 +267,11 @@
   }
 
   // ── Taxonomy ──────────────────────────────────────────────────────────────
-  let _currentTaxSample = null;
-  let _currentTax = [];
-
   function _renderTaxonomy(sample) {
     const allTax = typeof TAX_DATA !== 'undefined' ? TAX_DATA : [];
     const isAll  = sample === '__all__';
     const label  = isAll ? 'All samples' : sample;
     const tax    = isAll ? allTax : allTax.filter(r => r.sample === sample);
-    _currentTaxSample = sample;
-    _currentTax = tax;
 
     // Source pie — covers ALL contigs (incl. diamond_custom-only hits and unknown)
     const allSrcDist = typeof VIRAL_SOURCE_DIST !== 'undefined' ? VIRAL_SOURCE_DIST : {};
@@ -340,14 +334,6 @@
     }
     renderRankBar(activeLevel);
 
-    // Taxonomy network — disabled for "All samples" (too dense)
-    if (isAll) {
-      const netEl = document.getElementById('vir-tax-network');
-      if (netEl) netEl.innerHTML = '<p style="color:var(--text-muted);padding:1rem">Select a specific sample to view the taxonomy network.</p>';
-    } else {
-      _renderTaxNetwork(tax, sample);
-    }
-
     // Table — hidden when "All samples" (too many rows)
     const tableCard = document.querySelector('#vir-tax-table')?.closest('.chart-card');
     if (tableCard) tableCard.style.display = isAll ? 'none' : '';
@@ -366,263 +352,6 @@
       });
     }
   }
-
-  // ── Taxonomy network (D3 force) — Order → Family → Genus → Sequence ────────
-  function _renderTaxNetwork(tax, sample) {
-    const el = document.getElementById('vir-tax-network');
-    if (!el) return;
-    el.innerHTML = '';
-
-    if (!tax.length) {
-      el.innerHTML = '<p style="color:var(--text-muted);padding:1rem">No taxonomy data for this sample.</p>';
-      return;
-    }
-
-    // Build node/edge sets: each sequence links up through genus → family → order
-    const nodesMap = new Map();
-    const edgeKeys = new Set();
-    const edges = [];
-
-    function addNode(id, type, label) {
-      let n = nodesMap.get(id);
-      if (!n) { n = { id, type, label, count: 0 }; nodesMap.set(id, n); }
-      n.count++;
-      return n;
-    }
-    function addEdge(a, b) {
-      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
-      if (edgeKeys.has(key)) return;
-      edgeKeys.add(key);
-      edges.push({ source: a, target: b });
-    }
-
-    tax.forEach(r => {
-      const order  = r.final_order  || '';
-      const family = r.final_family || '';
-      const genus  = r.final_genus  || '';
-      const seqId  = `seq:${r.Genome}`;
-      addNode(seqId, 'sequence', r.Genome);
-
-      let parent = seqId;
-      if (genus)  { const id = `genus:${genus}`;   addNode(id, 'genus', genus);   addEdge(parent, id); parent = id; }
-      if (family) { const id = `family:${family}`; addNode(id, 'family', family); addEdge(parent, id); parent = id; }
-      if (order)  { const id = `order:${order}`;   addNode(id, 'order', order);   addEdge(parent, id); parent = id; }
-    });
-
-    const nodes = [...nodesMap.values()];
-    if (!nodes.length) {
-      el.innerHTML = '<p style="color:var(--text-muted);padding:1rem">No taxonomy data for this sample.</p>';
-      return;
-    }
-
-    const dark  = document.documentElement.dataset.theme === 'dark';
-    const W     = el.clientWidth || 900;
-    const H     = 500;
-
-    const typeColor = {
-      sequence: dark ? '#475569' : '#cbd5e1',
-      genus:    '#d97706',
-      family:   '#0891b2',
-      order:    '#7c3aed',
-    };
-    function radius(d) {
-      if (d.type === 'sequence') return 3;
-      if (d.type === 'genus')    return 5 + Math.sqrt(d.count) * 1.5;
-      if (d.type === 'family')   return 7 + Math.sqrt(d.count) * 2;
-      return 9 + Math.sqrt(d.count) * 2.5; // order
-    }
-
-    const svg = d3.select(el).append('svg').attr('width', W).attr('height', H);
-    const zoomLayer = svg.append('g').attr('class', 'zoom-layer');
-
-    const linkSel = zoomLayer.append('g').selectAll('line').data(edges).join('line')
-      .attr('stroke', dark ? '#334155' : '#cbd5e1')
-      .attr('stroke-width', 0.8)
-      .attr('stroke-opacity', 0.6);
-
-    const nodeSel = zoomLayer.append('g').selectAll('circle').data(nodes).join('circle')
-      .attr('r', radius)
-      .attr('fill', d => typeColor[d.type])
-      .attr('fill-opacity', d => d.type === 'sequence' ? 0.6 : 0.9)
-      .attr('stroke', dark ? '#0f172a' : '#fff')
-      .attr('stroke-width', d => d.type === 'sequence' ? 0.5 : 1.5)
-      .style('cursor', 'pointer');
-
-    const labels = zoomLayer.append('g').selectAll('text')
-      .data(nodes.filter(d => d.type !== 'sequence')).join('text')
-      .attr('font-size', d => d.type === 'order' ? 11 : 10)
-      .attr('font-weight', d => d.type === 'order' ? 600 : 400)
-      .attr('fill', dark ? '#e2e8f0' : '#334155')
-      .attr('dy', '-.7em')
-      .style('pointer-events', 'none')
-      .text(d => d.label);
-
-    // Invisible larger "hit area" so small sequence nodes are easy to hover
-    const hitSel = zoomLayer.append('g').selectAll('circle.hit').data(nodes).join('circle')
-      .attr('class', 'hit')
-      .attr('r', d => Math.max(radius(d) + 4, 6))
-      .attr('fill', 'transparent')
-      .style('cursor', 'pointer');
-
-    // Tooltip
-    const tip = d3.select(el).append('div').attr('class', 'd3-tooltip').style('display', 'none');
-    const rankLabel = { sequence: 'Sequence', genus: 'Genus', family: 'Family', order: 'Order' };
-    hitSel.on('mouseover', (e, d) => {
-      tip.style('display', 'block').style('left', (e.offsetX + 12) + 'px').style('top', (e.offsetY - 12) + 'px')
-        .html(`<strong>${rankLabel[d.type]}:</strong> ${d.label}${d.type !== 'sequence' ? `<br>Sequences: ${d.count}` : ''}`);
-    }).on('mouseout', () => tip.style('display', 'none'));
-
-    const sim = d3.forceSimulation(nodes)
-      .force('link',    d3.forceLink(edges).id(d => d.id).distance(d =>
-        d.source.type === 'sequence' || d.target.type === 'sequence' ? 25 : 60).strength(0.6))
-      .force('charge',  d3.forceManyBody().strength(-50))
-      .force('center',  d3.forceCenter(W / 2, H / 2))
-      .force('collide', d3.forceCollide(d => radius(d) + 2));
-
-    // Zoom / pan
-    const zoom = d3.zoom()
-      .scaleExtent([0.1, 8])
-      .on('zoom', e => zoomLayer.attr('transform', e.transform));
-    svg.call(zoom);
-
-    function fitToView() {
-      const b = zoomLayer.node().getBBox();
-      if (!b.width || !b.height) return;
-      const scale = Math.min(8, Math.max(0.1, 0.9 / Math.max(b.width / W, b.height / H)));
-      const tx = W / 2 - scale * (b.x + b.width / 2);
-      const ty = H / 2 - scale * (b.y + b.height / 2);
-      svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
-    }
-
-    sim.on('tick', () => {
-      linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-             .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-      nodeSel.attr('cx', d => d.x).attr('cy', d => d.y);
-      hitSel.attr('cx', d => d.x).attr('cy', d => d.y);
-      labels.attr('x', d => d.x).attr('y', d => d.y);
-    });
-    sim.on('end', fitToView);
-
-    // Drag
-    hitSel.call(d3.drag()
-      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-      .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
-      .on('end',   (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
-    );
-
-    // Zoom control buttons
-    const zoomIn  = document.getElementById('vir-tax-net-zoom-in');
-    const zoomOut = document.getElementById('vir-tax-net-zoom-out');
-    const zoomFit = document.getElementById('vir-tax-net-zoom-fit');
-    if (zoomIn)  zoomIn.onclick  = () => svg.transition().duration(250).call(zoom.scaleBy, 1.4);
-    if (zoomOut) zoomOut.onclick = () => svg.transition().duration(250).call(zoom.scaleBy, 1 / 1.4);
-    if (zoomFit) zoomFit.onclick = fitToView;
-  }
-
-  // ── vConTACT3 Network (D3 force) ─────────────────────────────────────────
-  window._currentVC3Sample = null;
-
-  window.renderVC3Network = function (sample) {
-    if (!sample) return;
-    window._currentVC3Sample = sample;
-    const el = document.getElementById('vc3-network-svg');
-    if (!el) return;
-    el.innerHTML = '';
-
-    const net  = (typeof VC3_NETWORK !== 'undefined' ? VC3_NETWORK : {})[sample] || { nodes: [], edges: [] };
-    const nodes = net.nodes || [];
-    const edges = net.edges || [];
-
-    if (!nodes.length) {
-      el.innerHTML = '<p style="color:var(--text-muted);padding:1rem">No vConTACT3 network data for this sample.</p>';
-      return;
-    }
-
-    const dark = document.documentElement.dataset.theme === 'dark';
-    const W    = el.clientWidth || 900;
-    const H    = 560;
-    const color = d3.scaleOrdinal(PAL);
-
-    const svg = d3.select(el).append('svg').attr('width', W).attr('height', H);
-    svg.append('defs').append('marker')
-      .attr('id', 'arrow').attr('viewBox', '0 -5 10 10').attr('refX', 18)
-      .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
-      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', dark ? '#475569' : '#94a3b8');
-
-    // All zoomable/pannable content lives inside this group
-    const zoomLayer = svg.append('g').attr('class', 'zoom-layer');
-
-    const linkSel = zoomLayer.append('g').selectAll('line').data(edges).join('line')
-      .attr('stroke', dark ? '#334155' : '#cbd5e1')
-      .attr('stroke-width', 0.8)
-      .attr('stroke-opacity', 0.6);
-
-    const nodeSel = zoomLayer.append('g').selectAll('circle').data(nodes).join('circle')
-      .attr('r', d => d.is_novel === false ? 5 : 7)
-      .attr('fill', d => color(d.cluster || 'Singleton'))
-      .attr('fill-opacity', d => d.is_novel === false ? 0.4 : 0.85)
-      .attr('stroke', dark ? '#0f172a' : '#fff')
-      .attr('stroke-width', 1.5)
-      .style('cursor', 'pointer');
-
-    const labels = zoomLayer.append('g').selectAll('text').data(nodes.filter(d => d.is_novel !== false)).join('text')
-      .attr('font-size', 9)
-      .attr('fill', dark ? '#94a3b8' : '#64748b')
-      .attr('dy', '-.5em')
-      .style('pointer-events', 'none')
-      .text(d => (d.id || '').split('_').slice(-2).join('_'));
-
-    // Tooltip
-    const tip = d3.select(el).append('div').attr('class', 'd3-tooltip').style('display', 'none');
-    nodeSel.on('mouseover', (e, d) => {
-      tip.style('display', 'block').style('left', (e.offsetX + 12) + 'px').style('top', (e.offsetY - 12) + 'px')
-        .html(`<strong>${d.id || ''}</strong><br>VC: ${d.cluster || 'Singleton'}<br>Family: ${d.family || '—'}`);
-    }).on('mouseout', () => tip.style('display', 'none'));
-
-    const sim = d3.forceSimulation(nodes)
-      .force('link',    d3.forceLink(edges).id(d => d.id).distance(50).strength(0.3))
-      .force('charge',  d3.forceManyBody().strength(-60))
-      .force('center',  d3.forceCenter(W / 2, H / 2))
-      .force('collide', d3.forceCollide(12));
-
-    // Zoom / pan — lets nodes that drift outside the W×H viewport be reached
-    const zoom = d3.zoom()
-      .scaleExtent([0.1, 8])
-      .on('zoom', e => zoomLayer.attr('transform', e.transform));
-    svg.call(zoom);
-
-    function fitToView() {
-      const b = zoomLayer.node().getBBox();
-      if (!b.width || !b.height) return;
-      const scale = Math.min(8, Math.max(0.1, 0.9 / Math.max(b.width / W, b.height / H)));
-      const tx = W / 2 - scale * (b.x + b.width / 2);
-      const ty = H / 2 - scale * (b.y + b.height / 2);
-      svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
-    }
-
-    sim.on('tick', () => {
-      linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-             .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-      nodeSel.attr('cx', d => d.x).attr('cy', d => d.y);
-      labels.attr('x', d => d.x).attr('y', d => d.y);
-    });
-    sim.on('end', fitToView);
-
-    // Drag
-    nodeSel.call(d3.drag()
-      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-      .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
-      .on('end',   (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
-    );
-
-    // Zoom control buttons (rebound each render — old listeners discarded with old svg)
-    const zoomIn  = document.getElementById('vc3-zoom-in');
-    const zoomOut = document.getElementById('vc3-zoom-out');
-    const zoomFit = document.getElementById('vc3-zoom-fit');
-    if (zoomIn)  zoomIn.onclick  = () => svg.transition().duration(250).call(zoom.scaleBy, 1.4);
-    if (zoomOut) zoomOut.onclick = () => svg.transition().duration(250).call(zoom.scaleBy, 1 / 1.4);
-    if (zoomFit) zoomFit.onclick = fitToView;
-  };
 
   // ── Lifestyle ─────────────────────────────────────────────────────────────
   function _renderLifestyle(samples) {
@@ -655,15 +384,5 @@
       { key: 'KOs',       label: 'KO IDs' },
     ], { searchId: 'amg-search' });
   }
-
-  // Re-render D3 network when its sub-panel becomes visible (so clientWidth is correct)
-  document.addEventListener('vapor:subtabshow', function (e) {
-    if (e.detail.sub === 'vir-network' && typeof window.renderVC3Network === 'function') {
-      setTimeout(() => window.renderVC3Network(window._currentVC3Sample), 50);
-    }
-    if (e.detail.sub === 'vir-taxonomy' && _currentTaxSample) {
-      setTimeout(() => _renderTaxNetwork(_currentTax, _currentTaxSample), 50);
-    }
-  });
 
 })();

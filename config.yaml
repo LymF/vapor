@@ -185,6 +185,17 @@ defense_finder_models_db:    "/media/nas1/LITRP.DBs/metagenDBs/defense_finder_mo
 # package itself -- no download step needed, just `abricate --setupdb`.
 abricate_enabled:            true
 
+# Viral-side defense/anti-defense (Han et al. 2026, Nat Commun -- cold seep
+# defensome paper): DefenseFinder --antidefensefinder reused on viral
+# proteins (same models, host-side rule pattern) + dbAPIS (Yan et al. 2023,
+# NAR -- github.com/yuchen-yan/dbAPIS) via DIAMOND, since dbAPIS is
+# sequence-similarity-based (no genetic-architecture rule), better suited to
+# single scattered anti-defense genes in small phage genomes than
+# MacSyFinder's per-system architecture matching. Reported separately, never
+# merged (same "never merge tiers" rule as AMR curated/exploratory).
+defense_amr_viral_enabled:   true
+apis_db:                     "/media/nas1/LITRP.DBs/metagenDBs/dbapis"  # auto-populated on first run (wget anti_defense.pep)
+
 # argNorm maps AMRFinderPlus/DeepARG gene calls onto the Antibiotic
 # Resistance Ontology (ARO) so they can be compared with each other and
 # with RGI -- RGI is NOT routed through argNorm: it's built on CARD, so

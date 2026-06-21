@@ -44,7 +44,7 @@ _PATH_KEYS = [
     "checkv_db", "vs2_db", "vibrant_base", "genomad_db",
     "checkm2_db", "inphared_db", "vcontact3_db", "gtdbtk_db",
     "gunc_db", "pharokka_db", "phold_db", "bakta_db", "eggnog_db",
-    "card_db", "deeparg_db",
+    "card_db", "deeparg_db", "apis_db",
     "custom_viral_dmnd", "custom_viral_meta",
     "custom_prok_dmnd",  "custom_prok_meta",
     "host_genome", "host_index",

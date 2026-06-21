@@ -98,7 +98,6 @@
         <button class="sub-tab active" data-sub="vir-detection">Detection</button>
         <button class="sub-tab" data-sub="vir-binning">Binning &amp; Quality</button>
         <button class="sub-tab" data-sub="vir-taxonomy">Taxonomy</button>
-        <button class="sub-tab" data-sub="vir-network">Network</button>
         <button class="sub-tab" data-sub="vir-lifestyle">Lifestyle</button>
       </div>
       <div id="sub-vir-detection" class="sub-panel active">
@@ -139,29 +138,9 @@
           </div>
         </div>
         <div class="chart-card mt-md">
-          <div class="toolbar">
-            <span>Taxonomy Network — Order → Family → Genus → Sequence</span>
-            <button id="vir-tax-net-zoom-in"  class="btn-sm" type="button">Zoom +</button>
-            <button id="vir-tax-net-zoom-out" class="btn-sm" type="button">Zoom −</button>
-            <button id="vir-tax-net-zoom-fit" class="btn-sm" type="button">Fit / Reset</button>
-          </div>
-          <div id="vir-tax-network" style="height:500px;overflow:hidden"></div>
-        </div>
-        <div class="chart-card mt-md">
           <h3 class="section-title">Classified Viruses</h3>
           <div class="toolbar"><input id="vir-tax-search" type="search" placeholder="Filter…" class="search-input"></div>
           <div id="vir-tax-table" class="table-wrap"></div>
-        </div>
-      </div>
-      <div id="sub-vir-network" class="sub-panel" style="display:none">
-        <div class="toolbar">
-          <label>Sample: <select id="sample-sel-vc3"></select></label>
-          <button id="vc3-zoom-in"  class="btn-sm" type="button">Zoom +</button>
-          <button id="vc3-zoom-out" class="btn-sm" type="button">Zoom −</button>
-          <button id="vc3-zoom-fit" class="btn-sm" type="button">Fit / Reset</button>
-        </div>
-        <div class="chart-card">
-          <div id="vc3-network-svg" style="height:580px;overflow:hidden"></div>
         </div>
       </div>
       <div id="sub-vir-lifestyle" class="sub-panel" style="display:none">
@@ -221,6 +200,9 @@
         <button class="sub-tab active" data-sub="hd-hostpred">Host Prediction</button>
         <button class="sub-tab" data-sub="hd-defense">Defense &amp; Anti-Defense</button>
         <button class="sub-tab" data-sub="hd-amr">AMR</button>
+        <button class="sub-tab" data-sub="hd-cross">Defense × AMR Insights</button>
+        <button class="sub-tab" data-sub="hd-viral-antidefense">Viral Anti-Defense</button>
+        <button class="sub-tab" data-sub="hd-islands">Defense Islands</button>
         <button class="sub-tab" data-sub="hd-matrix">Host–Virus–Defense–AMR Matrix</button>
       </div>
       <div id="sub-hd-hostpred" class="sub-panel active">
@@ -242,6 +224,18 @@
       </div>
       <div id="sub-hd-defense" class="sub-panel" style="display:none">
         <div class="chart-card"><div id="defense-bar-chart" class="echarts-box"></div></div>
+        <div class="grid-2 mt-md">
+          <div class="chart-card">
+            <h3 class="section-title">Defense Systems by Phylum</h3>
+            <p class="section-sub">DefenseFinder hits joined to GTDB-Tk taxonomy per bin — cf. Beavogui et al. 2024 (Nat Commun)</p>
+            <div id="defense-phylum-chart" class="echarts-box" style="height:300px"></div>
+          </div>
+          <div class="chart-card">
+            <h3 class="section-title">Defense System Co-occurrence</h3>
+            <p class="section-sub">How often pairs of systems are found in the same bin — top systems by frequency</p>
+            <div id="defense-cooccur-chart" class="echarts-box" style="height:300px"></div>
+          </div>
+        </div>
         <div class="chart-card mt-md">
           <h3 class="section-title">Defense / Anti-Defense Systems</h3>
           <div class="toolbar"><input id="defense-search" type="search" placeholder="Filter…" class="search-input"></div>
@@ -250,11 +244,52 @@
       </div>
       <div id="sub-hd-amr" class="sub-panel" style="display:none">
         <div class="chart-card"><div id="amr-bar-chart" class="echarts-box"></div></div>
+        <div class="grid-2 mt-md">
+          <div class="chart-card">
+            <h3 class="section-title">AMR Gene Classes — Curated vs. Exploratory</h3>
+            <p class="section-sub">Drug classes pooled across samples, AMRFinderPlus+RGI/CARD vs. DeepARG kept separate</p>
+            <div id="amr-class-chart" class="echarts-box" style="height:320px"></div>
+          </div>
+          <div class="chart-card">
+            <h3 class="section-title">AMR by Contig Origin</h3>
+            <p class="section-sub">Viral genome vs. binned prokaryotic MAG vs. unbinned/mixed contigs — cf. Kant et al. 2026 (GBE)</p>
+            <div id="amr-origin-chart" class="echarts-box" style="height:320px"></div>
+          </div>
+        </div>
         <div class="chart-card mt-md">
           <h3 class="section-title">AMR Genes — Curated (AMRFinderPlus + RGI/CARD) vs. Exploratory (DeepARG)</h3>
           <div class="toolbar"><input id="amr-search" type="search" placeholder="Filter…" class="search-input"></div>
           <div id="amr-table" class="table-wrap"></div>
         </div>
+      </div>
+      <div id="sub-hd-cross" class="sub-panel" style="display:none">
+        <div class="mason-grid">
+          <div class="chart-card">
+            <h3 class="section-title">Defense Load vs. AMR Load per Bin</h3>
+            <p class="section-sub">Each point is one prokaryotic bin. Tests the inverse defense&ndash;AMR relationship reported by Li et al. 2025 (Nat Commun, aquifers).</p>
+            <div id="cross-corr-defense-amr" class="insight-banner"></div>
+            <div id="defense-amr-scatter" class="echarts-box" style="height:380px"></div>
+          </div>
+          <div class="chart-card">
+            <h3 class="section-title">Defense Load vs. Predicted Phage Infections (PHIST)</h3>
+            <p class="section-sub">Do bins carrying more defense systems get predicted as host to fewer phages?</p>
+            <div id="cross-corr-defense-host" class="insight-banner"></div>
+            <div id="defense-hostload-scatter" class="echarts-box" style="height:380px"></div>
+          </div>
+        </div>
+      </div>
+      <div id="sub-hd-viral-antidefense" class="sub-panel" style="display:none">
+        <p class="section-sub">Anti-defense genes on viral contigs — DefenseFinder (--antidefensefinder, reused on viral ORFs) vs. dbAPIS (Yan et al. 2023, NAR), kept separate. Today this is the only source of viral-side anti-defense; cf. Han et al. 2026 (Nat Commun) Fig 6b.</p>
+        <div class="chart-card"><div id="viral-antidefense-chart" class="echarts-box"></div></div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">Viral Anti-Defense Hits</h3>
+          <div class="toolbar"><input id="viral-antidefense-search" type="search" placeholder="Filter…" class="search-input"></div>
+          <div id="viral-antidefense-table" class="table-wrap"></div>
+        </div>
+      </div>
+      <div id="sub-hd-islands" class="sub-panel" style="display:none">
+        <p class="section-sub">Arrays of defense genes separated by no more than 10 genes, with ≥5 genes from ≥3 different systems (Beavogui et al. 2024 / Han et al. 2026 definition). <strong><span id="defense-islands-count">0</span></strong> found. Click a card to expand its gene map.</p>
+        <div id="defense-islands-list"></div>
       </div>
       <div id="sub-hd-matrix" class="sub-panel" style="display:none">
         <div class="toolbar">

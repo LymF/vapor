@@ -292,6 +292,186 @@ rule defensefinder:
         Path(str(output.done)).touch()
 
 
+rule defensefinder_viral:
+    """
+    Anti-defense systems on VIRAL proteins (Han et al. 2026, Nat Commun
+    cold seep defensome paper, Fig 6b/6c) -- DefenseFinder's
+    --antidefensefinder side of the SAME tool/models/container as
+    `defensefinder` above, just pointed at viral ORFs instead of bin
+    proteins. Today DefenseFinder/AntiDefenseFinder only runs on the host
+    (bin) side, so every Host<->Virus defense/anti-defense cross-link is
+    one-sided (we know which bins defend, never which phages counter-defend).
+    One call across the whole sample's viral protein set (rules.prodigal_viral
+    ran in meta mode on the multi-genome viral FASTA already, same way the
+    low-depth "contigs_pseudogenome" fallback above is tolerated without
+    per-genome splitting).
+    """
+    input:
+        faa  = rules.prodigal_viral.output.faa,
+        done = rules.prodigal_viral.output.done,
+    output:
+        done        = f"{OUTDIR}/{{sample}}/viral/defensefinder/done.txt",
+        systems     = f"{OUTDIR}/{{sample}}/viral/defensefinder/viral_defense_systems.tsv",
+        antisystems = f"{OUTDIR}/{{sample}}/viral/defensefinder/viral_antidefense_systems.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/defensefinder_viral.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/defensefinder_viral.tsv"
+    conda: "../envs/env_defense.yaml"
+    container:  CONTAINERS.get("defense_finder")
+    threads: THREADS
+    params:
+        outdir     = f"{OUTDIR}/{{sample}}/viral/defensefinder",
+        models_dir = DEFENSE_FINDER_MODELS_DB,
+        enabled    = DEFENSE_AMR_VIRAL_ENABLED,
+    run:
+        import csv, glob, os
+        from pathlib import Path
+
+        os.makedirs(params.outdir, exist_ok=True)
+
+        def write_empty(msg):
+            with open(str(log[0]), "a") as lf:
+                lf.write(msg + "\n")
+            Path(str(output.systems)).write_text("genome\n")
+            Path(str(output.antisystems)).write_text("genome\n")
+            Path(str(output.done)).touch()
+
+        if (not params.enabled or not os.path.exists(str(input.faa))
+                or os.path.getsize(str(input.faa)) == 0):
+            write_empty("[defensefinder_viral] Disabled or no viral proteins -- skipping")
+            return
+
+        models_dir = params.models_dir or os.path.join(params.outdir, "models")
+        os.makedirs(models_dir, exist_ok=True)
+        if os.listdir(models_dir):
+            with open(str(log[0]), "a") as lf:
+                lf.write(f"[defensefinder_viral] Models already cached in {models_dir}\n")
+        else:
+            shell("defense-finder update --models-dir {models_dir} >> {log} 2>&1 || "
+                  "echo '[defensefinder_viral] WARNING: model update failed' >> {log}")
+
+        run_out = os.path.join(params.outdir, "run")
+        os.makedirs(run_out, exist_ok=True)
+        shell(
+            "defense-finder run -o {run_out} --models-dir {models_dir} "
+            "--antidefensefinder {input.faa} "
+            ">> {log} 2>&1 || echo '[defensefinder_viral] WARNING: run failed' >> {log}"
+        )
+
+        # Same split-by-"activity" logic as the host-side rule above (3.0.0
+        # writes one consolidated *_defense_finder_systems.tsv, Defense and
+        # Anti-defense rows distinguished by the "activity" column).
+        def_rows, anti_rows, header = [], [], None
+        for tsv in sorted(glob.glob(os.path.join(run_out, "*_defense_finder_systems.tsv"))):
+            with open(tsv) as f:
+                r = csv.reader(f, delimiter="\t")
+                h = next(r, None)
+                if h is None:
+                    continue
+                if header is None:
+                    header = h
+                activity_idx = h.index("activity") if "activity" in h else None
+                for row in r:
+                    is_anti = (activity_idx is not None and len(row) > activity_idx
+                               and "anti" in row[activity_idx].lower())
+                    # "genome" column here is the sample (single viral protein
+                    # set), not a per-bin name -- the protein_in_syst column
+                    # (already part of `header`) carries the actual viral
+                    # contig/ORF IDs needed to attribute hits downstream.
+                    (anti_rows if is_anti else def_rows).append([wildcards.sample] + row)
+
+        def write(path, rows):
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f, delimiter="\t")
+                w.writerow(["genome"] + (header or []))
+                w.writerows(rows)
+
+        write(str(output.systems), def_rows)
+        write(str(output.antisystems), anti_rows)
+
+        with open(str(log[0]), "a") as lf:
+            lf.write(f"[defensefinder_viral] Done -- {len(def_rows)} defense, "
+                      f"{len(anti_rows)} antidefense system rows\n")
+        Path(str(output.done)).touch()
+
+
+rule dbapis_viral:
+    """
+    Anti-defense systems on VIRAL proteins via dbAPIS (Yan et al. 2023, NAR
+    -- bcb.unl.edu/dbAPIS), DIAMOND blastp only (no HMMER pass -- keeps this
+    lightweight, matches the DIAMOND command from the dbAPIS README).
+    Sequence-similarity-based (no genetic-architecture rule), unlike
+    DefenseFinder/MacSyFinder -- complementary detector for single scattered
+    anti-defense genes in small phage genomes, kept separate and never
+    merged with defensefinder_viral (same "never merge tiers" rule as AMR
+    curated/exploratory, see module docstring).
+    DB is tiny (~4.4k curated proteins, a few MB) -- downloaded once into a
+    shared cache dir, same auto-populate pattern as card_db/deeparg_db.
+    """
+    input:
+        faa  = rules.prodigal_viral.output.faa,
+        done = rules.prodigal_viral.output.done,
+    output:
+        done = f"{OUTDIR}/{{sample}}/viral/dbapis/done.txt",
+        hits = f"{OUTDIR}/{{sample}}/viral/dbapis/dbapis_hits.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/dbapis_viral.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/dbapis_viral.tsv"
+    conda: "../envs/env_viral.yaml"
+    container:  CONTAINERS.get("diamond")
+    threads: THREADS
+    params:
+        outdir   = f"{OUTDIR}/{{sample}}/viral/dbapis",
+        apis_dir = APIS_DB or f"{OUTDIR}/dbapis_db",
+        enabled  = DEFENSE_AMR_VIRAL_ENABLED,
+    shell:
+        """
+        set -euo pipefail
+        mkdir -p {params.outdir}
+        if [ "{params.enabled}" != "True" ] || [ ! -s {input.faa} ]; then
+            echo "[dbapis_viral] Disabled or no viral proteins -- skipping" | tee {log}
+            printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
+            touch {output.done}
+            exit 0
+        fi
+
+        APIS_DIR="{params.apis_dir}"
+        mkdir -p "$APIS_DIR"
+
+        if [ ! -s "$APIS_DIR/APIS_db.dmnd" ]; then
+            echo "[dbapis_viral] Building dbAPIS Diamond DB in $APIS_DIR" | tee -a {log}
+            wget -q -O "$APIS_DIR/anti_defense.pep" \
+                https://bcb.unl.edu/dbAPIS/downloads/anti_defense.pep \
+                >> {log} 2>&1 || echo "[dbapis_viral] WARNING: wget anti_defense.pep failed" >> {log}
+            # Family -> inhibited defense-type mapping (current file per dbAPIS
+            # changelog; seed_family_mapping.tsv was deprecated 2024-11-19).
+            wget -q -O "$APIS_DIR/family_member_infor.tsv" \
+                https://bcb.unl.edu/dbAPIS/downloads/family_member_infor.tsv \
+                >> {log} 2>&1 || echo "[dbapis_viral] WARNING: wget family_member_infor.tsv failed (mapping disabled, family IDs still reported)" >> {log}
+            if [ -s "$APIS_DIR/anti_defense.pep" ]; then
+                diamond makedb --in "$APIS_DIR/anti_defense.pep" -d "$APIS_DIR/APIS_db" >> {log} 2>&1
+            fi
+        fi
+
+        if [ -s "$APIS_DIR/APIS_db.dmnd" ]; then
+            diamond blastp --db "$APIS_DIR/APIS_db" -q {input.faa} \
+                -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen \
+                --max-target-seqs 25 --evalue 1e-10 --id 30 \
+                -o {output.hits}.raw --threads {threads} >> {log} 2>&1
+            printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
+            cat {output.hits}.raw >> {output.hits}
+            rm -f {output.hits}.raw
+        else
+            echo "[dbapis_viral] No dbAPIS DB available -- writing empty hits" | tee -a {log}
+            printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
+        fi
+        touch {output.done}
+        echo "[dbapis_viral] Done -- $(( $(wc -l < {output.hits}) - 1 )) hits" | tee -a {log}
+        """
+
+
 rule amrfinderplus:
     """
     AMRFinderPlus -- curated, alignment-based AMR gene + point-mutation

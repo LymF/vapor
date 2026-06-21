@@ -618,6 +618,57 @@ defense_finder_models_db: "/path/to/your/databases/defense_finder_models"
 > very first run — set `GITHUB_TOKEN` in the environment beforehand if you hit
 > it anyway.
 
+`rules/defense_amr.smk` also reuses this exact DefenseFinder/AntiDefenseFinder
+setup on **viral** proteins (`rule defensefinder_viral`, gated by
+`defense_amr_viral_enabled` in `config.yaml`) — same models, same
+`defense_finder_models_db`, nothing extra to configure.
+
+---
+
+### dbAPIS (viral-side anti-defense, complementary to DefenseFinder)
+
+Yan, Y., Zheng, J., Zhang, X., & Yin, Y. (2023). *dbAPIS: a database of
+anti-prokaryotic immune system genes*. Nucleic Acids Research.
+https://doi.org/10.1093/nar/gkad932 — https://bcb.unl.edu/dbAPIS
+
+`rule dbapis_viral` (`rules/defense_amr.smk`) runs DIAMOND blastp (already a
+pipeline dependency, no new tool) against dbAPIS's curated anti-defense
+protein set on viral ORFs (`rules.prodigal_viral.output.faa`). dbAPIS is
+sequence-similarity-based (no genetic-architecture rule like
+MacSyFinder/DefenseFinder), better suited to the single scattered
+anti-defense genes typically found in small phage genomes — kept as a
+separate, complementary detector, never merged with DefenseFinder's calls
+(same "never merge tiers" rule as AMR curated/exploratory). Reported
+separately in the report's "Viral Anti-Defense" tab.
+
+The database is tiny (~4,400 curated proteins, a few MB) — auto-downloaded
+and cached on first run, same pattern as `card_db`/`deeparg_db`:
+
+```bash
+mkdir -p "$DB_BASE/dbapis"
+wget -O "$DB_BASE/dbapis/anti_defense.pep" https://bcb.unl.edu/dbAPIS/downloads/anti_defense.pep
+conda activate env_viral   # has diamond
+diamond makedb --in "$DB_BASE/dbapis/anti_defense.pep" -d "$DB_BASE/dbapis/APIS_db"
+conda deactivate
+```
+
+Then set in `config.yaml`:
+```yaml
+apis_db: "/path/to/your/databases/dbapis"
+```
+
+If `apis_db` is left empty, the rule auto-populates `{outdir}/dbapis_db` on
+first run instead — fine for a single-machine setup, but pre-fetching into a
+shared path (like the example above) avoids re-downloading per output
+directory. Gated by `defense_amr_viral_enabled` in `config.yaml` (default:
+enabled).
+
+> The family→inhibited-defense-type mapping file (`family_member_infor.tsv`)
+> is downloaded by the rule but not yet joined into the report table — its
+> exact column schema hasn't been confirmed against a real download yet.
+> Today the report shows the matched dbAPIS protein ID (`sseqid`) instead of
+> a friendly defense-type label; this is a planned follow-up, not a bug.
+
 ---
 
 ### ABRicate (VFDB + PlasmidFinder screening)
@@ -799,6 +850,11 @@ deeparg_db:                "/path/to/deeparg"
 defense_finder_models_db:  "/path/to/defense_finder_models"
 abricate_enabled:            true   # VFDB + PlasmidFinder only, self-contained
 argnorm_enabled:              true   # AMRFinderPlus + DeepARG -> ARO, self-contained
+
+# Viral-side defense/anti-defense (Han et al. 2026 cold seep paper) —
+# DefenseFinder reused on viral ORFs (no extra DB) + dbAPIS (small, own DB)
+defense_amr_viral_enabled:   true
+apis_db:                     "/path/to/dbapis"
 
 # Custom databases — leave "" to skip
 custom_viral_dmnd: ""

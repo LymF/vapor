@@ -135,7 +135,6 @@
     localStorage.setItem('vapor-theme', dark ? 'dark' : 'light');
     refreshCharts();
     if (typeof renderPCoA === 'function') renderPCoA();
-    if (typeof renderVC3Network === 'function') renderVC3Network(_currentVC3Sample);
   }
   btn.addEventListener('click', () => applyTheme(html.dataset.theme !== 'dark'));
   // Restore saved preference

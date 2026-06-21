@@ -597,10 +597,29 @@ def load_phist(paths, samples):
 
 # ── Defense / anti-defense systems (DefenseFinder) ───────────────────────────
 
+def _split_proteins_in_syst(value):
+    """DefenseFinder's 'protein_in_syst' column: comma-separated protein IDs
+    of every gene assigned to a system. Used both to recover the originating
+    contig (defense_amr.smk concatenates bins as '{genome}__{protein_id}',
+    rules.prodigal_viral does not) and for defense-island detection."""
+    return [x.strip() for x in (value or '').split(',') if x.strip()]
+
+
+def _contig_from_protein_id(protein_id):
+    """Recover the originating contig/replicon from a Prodigal protein ID.
+    Prodigal always names genes '{seqid}_{gene_number}' -- a single trailing
+    '_<digits>' -- so the rightmost split recovers seqid even when it itself
+    contains underscores (e.g. 'k141_1234_3' -> 'k141_1234')."""
+    if not protein_id:
+        return ''
+    return protein_id.rsplit('_', 1)[0]
+
+
 def load_defensefinder(paths, samples):
     """DefenseFinder per-genome systems, merged with a 'genome' column by
     rules/defense_amr.smk (genome = bin name, or 'contigs_pseudogenome' in
-    the low-depth fallback)."""
+    the low-depth fallback). 'Proteins' keeps the raw protein_in_syst list
+    for defense-island detection (compute_defense_islands)."""
     records = []
     for p, s in zip(paths, samples):
         for row in load_tsv(p):
@@ -609,7 +628,8 @@ def load_defensefinder(paths, samples):
             if not genome or not sys_type: continue
             records.append({'sample': s, 'Bin': genome, 'System': sys_type,
                              'System_id': row.get('sys_id', sys_type),
-                             'Genes': row.get('genes_count', '')})
+                             'Genes': row.get('genes_count', ''),
+                             'Proteins': _split_proteins_in_syst(row.get('protein_in_syst', ''))})
     return records
 
 
@@ -625,8 +645,155 @@ def load_antidefensefinder(paths, samples):
             if not genome or not sys_type: continue
             records.append({'sample': s, 'Bin': genome, 'System': sys_type,
                              'System_id': row.get('sys_id', sys_type),
-                             'Genes': row.get('genes_count', '')})
+                             'Genes': row.get('genes_count', ''),
+                             'Proteins': _split_proteins_in_syst(row.get('protein_in_syst', ''))})
     return records
+
+
+# ── Viral-side anti-defense (Han et al. 2026 cold seep defensome paper) ──────
+# DefenseFinder is the same tool/models/container as the host-side rule
+# above, just pointed at viral proteins (rule defensefinder_viral). dbAPIS
+# is a complementary sequence-similarity detector (rule dbapis_viral) —
+# kept in its own loader/JS constant, never merged with the DefenseFinder
+# calls (same "never merge tiers" rule as AMR curated/exploratory).
+
+def load_antidefensefinder_viral(paths, samples):
+    """Anti-defense systems on viral proteins. Unlike the bin-side loader,
+    the 'genome' column here is just the sample (defensefinder_viral makes
+    one call across the whole sample's viral protein set, not per-genome) —
+    the actual virus/contig is recovered from the first protein in
+    protein_in_syst, which is reliable since every gene in one system sits
+    on the same replicon."""
+    records = []
+    for p, s in zip(paths, samples):
+        for row in load_tsv(p):
+            sys_type = row.get('type', row.get('subtype', ''))
+            proteins = _split_proteins_in_syst(row.get('protein_in_syst', ''))
+            if not sys_type or not proteins: continue
+            virus = _contig_from_protein_id(proteins[0])
+            if not virus: continue
+            records.append({'sample': s, 'Virus': virus, 'System': sys_type,
+                             'System_id': row.get('sys_id', sys_type),
+                             'Genes': row.get('genes_count', ''), 'Source': 'DefenseFinder'})
+    return records
+
+
+def load_dbapis_viral(paths, samples):
+    """dbAPIS (Yan et al. 2023, NAR) DIAMOND blastp hits on viral proteins
+    (rule dbapis_viral). Keeps only the best (lowest e-value) hit per query
+    protein. 'Hit' is the dbAPIS representative protein ID (sseqid) — the
+    family/inhibited-defense-type label needs the dbAPIS family mapping file
+    (family_member_infor.tsv, downloaded by the rule but not yet joined here
+    pending confirmation of its exact columns against a real download —
+    don't guess the schema, see [[project_defensome_han2026_implementation_plan]])."""
+    records = []
+    for p, s in zip(paths, samples):
+        best = {}
+        for row in load_tsv(p):
+            qseqid = row.get('qseqid', '')
+            if not qseqid: continue
+            try: evalue = float(row.get('evalue', '1') or '1')
+            except ValueError: evalue = 1.0
+            if qseqid not in best or evalue < best[qseqid][0]:
+                best[qseqid] = (evalue, row)
+        for qseqid, (evalue, row) in best.items():
+            virus = _contig_from_protein_id(qseqid)
+            if not virus: continue
+            records.append({'sample': s, 'Virus': virus, 'Protein': qseqid,
+                             'Hit': row.get('sseqid', ''), 'Pident': row.get('pident', ''),
+                             'Evalue': row.get('evalue', ''), 'Bitscore': row.get('bitscore', ''),
+                             'Source': 'dbAPIS'})
+    return records
+
+
+# ── Defense islands (Han et al. 2026 / Beavogui et al. 2024 definition) ──────
+# Arrays of defense genes separated by no more than 10 genes, containing
+# >=5 genes from >=3 different defense systems.
+
+def _read_protein_manifest(path):
+    """Yield (name, mode, fna, faa, gff) tuples from a prok_bin_proteins
+    manifest.txt — same format written by rules/defense_amr.smk's
+    prok_bin_proteins rule, read independently here since the report side
+    has no access to the Snakemake rules module's helper of the same name."""
+    if not path or not os.path.exists(path):
+        return
+    with open(path) as f:
+        for line in f:
+            parts = line.rstrip('\n').split('\t')
+            if len(parts) < 5:
+                continue
+            yield parts[0], parts[1], parts[2], parts[3], parts[4]
+
+
+def _ordered_proteins_by_contig(faa_path):
+    """Protein IDs per contig, in genomic order — read straight from the
+    .faa header order (Prodigal writes genes in scan order per sequence,
+    numbering them '{seqid}_1', '{seqid}_2', ... — no GFF parsing needed)."""
+    by_contig = defaultdict(list)
+    if not faa_path or not os.path.exists(faa_path):
+        return by_contig
+    try:
+        with open(faa_path) as f:
+            for line in f:
+                if line.startswith('>'):
+                    pid = line[1:].split()[0].strip()
+                    contig = _contig_from_protein_id(pid)
+                    if contig:
+                        by_contig[contig].append(pid)
+    except Exception:
+        pass
+    return by_contig
+
+
+def compute_defense_islands(manifest_paths, samples, defense_data, min_genes=5, min_systems=3, window=10):
+    """One row per defense island: a run of defense genes on the same contig
+    where consecutive defense-gene positions are never more than `window`
+    genes apart, with >=min_genes genes from >=min_systems distinct systems.
+    `defense_data` is load_defensefinder's output (needs the 'Proteins' field)."""
+    islands = []
+    for manifest_path, s in zip(manifest_paths, samples):
+        if not manifest_path or not os.path.exists(manifest_path):
+            continue
+        # protein_id -> (System, System_id) for this sample's bins
+        prot_to_sys = {}
+        for rec in defense_data:
+            if rec.get('sample') != s: continue
+            for prot in rec.get('Proteins', []):
+                prot_to_sys[prot] = (rec.get('Bin'), rec.get('System'), rec.get('System_id'))
+
+        for name, mode, fna, faa, gff in _read_protein_manifest(manifest_path):
+            by_contig = _ordered_proteins_by_contig(faa)
+            for contig, ordered_prots in by_contig.items():
+                hits = [(i, p, prot_to_sys[p]) for i, p in enumerate(ordered_prots) if p in prot_to_sys]
+                if len(hits) < min_genes:
+                    continue
+                cluster = []
+                def flush(cluster):
+                    if len(cluster) < min_genes:
+                        return
+                    systems = {h[2][1] for h in cluster if h[2][1]}
+                    if len(systems) < min_systems:
+                        return
+                    start_idx, end_idx = cluster[0][0], cluster[-1][0]
+                    defense_idx = {h[0]: h[2][1] for h in cluster}
+                    window_genes = [
+                        {'Protein': ordered_prots[i], 'Index': i, 'System': defense_idx.get(i, '')}
+                        for i in range(start_idx, end_idx + 1)
+                    ]
+                    islands.append({
+                        'sample': s, 'Bin': name, 'Contig': contig,
+                        'n_genes': len(cluster), 'n_systems': len(systems),
+                        'Systems': sorted(systems),
+                        'window_genes': window_genes,
+                        'start_idx': start_idx, 'end_idx': end_idx,
+                    })
+                for h in hits:
+                    if cluster and h[0] - cluster[-1][0] > window:
+                        flush(cluster)
+                        cluster = []
+                    cluster.append(h)
+                flush(cluster)
+    return islands
 
 
 # ── AMR: curated (AMRFinderPlus + RGI/CARD) vs. exploratory (DeepARG) ────────

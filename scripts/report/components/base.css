@@ -6,19 +6,42 @@
   --surface:     #ffffff;
   --surface-2:   #f1f5f9;
   --border:      #e2e8f0;
+  --border-dark: #cbd5e1;
   --text:        #0f172a;
+  --text-2:      #334155;
   --text-muted:  #64748b;
+  --text-3:      #94a3b8;
   --accent:      #0d9488;
+  --accent-dark: #0f766e;
   --accent-lt:   #ccfbf1;
   --accent-alt:  #0891b2;
   --amber:       #d97706;
   --red:         #ef4444;
   --green:       #16a34a;
   --purple:      #7c3aed;
+
+  /* Shadow / radius scale (single-value --shadow/--radius kept for existing
+     rules; *-sm/*-lg added for the richer card vocabulary below). */
+  --shadow-sm:   0 1px 2px rgba(0,0,0,.04), 0 2px 6px rgba(0,0,0,.04);
   --shadow:      0 1px 4px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.06);
+  --shadow-lg:   0 14px 32px rgba(0,0,0,.12), 0 6px 12px rgba(0,0,0,.06);
+  --radius-sm:   8px;
   --radius:      10px;
+  --radius-lg:   18px;
+
   --header-h:    56px;
   --font:        'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono:   'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+
+  /* Spacing + type scale (ViralQuest-derived) — used by new components
+     (insight banners, mason grid, corr stats) without churning every
+     existing rule's hand-written px/rem value. */
+  --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem;
+  --space-6: 1.5rem; --space-8: 2rem;
+  --text-xs: .72rem; --text-sm: .85rem; --text-lg: 1.15rem; --text-xl: 1.35rem; --text-2xl: 1.7rem;
+
+  --ease: cubic-bezier(.4,0,.2,1);
+  --dur:  160ms;
 }
 
 [data-theme="dark"] {
@@ -26,12 +49,18 @@
   --surface:     #1e293b;
   --surface-2:   #0f172a;
   --border:      #334155;
+  --border-dark: #475569;
   --text:        #f1f5f9;
+  --text-2:      #cbd5e1;
   --text-muted:  #94a3b8;
+  --text-3:      #64748b;
   --accent:      #14b8a6;
+  --accent-dark: #2dd4bf;
   --accent-lt:   #134e4a;
   --accent-alt:  #22d3ee;
+  --shadow-sm:   0 1px 2px rgba(0,0,0,.3), 0 2px 6px rgba(0,0,0,.2);
   --shadow:      0 1px 4px rgba(0,0,0,.4), 0 4px 12px rgba(0,0,0,.3);
+  --shadow-lg:   0 14px 32px rgba(0,0,0,.5), 0 6px 12px rgba(0,0,0,.3);
 }
 
 /* ── Reset ────────────────────────────────────────────────────────────────── */
@@ -137,7 +166,16 @@ body {
 }
 
 .tab-panel { display: none; }
-.tab-panel.active { display: block; }
+.tab-panel.active { display: block; animation: vapor-fadein var(--dur) var(--ease); }
+
+@keyframes vapor-fadein {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Numeric table cells / IDs in monospace, aligned for scanning */
+.td-mono { font-family: var(--font-mono); font-size: .78rem; }
+.td-num  { font-variant-numeric: tabular-nums; text-align: right; }
 
 /* ── Sub-navigation (pills) ───────────────────────────────────────────────── */
 .sub-nav {
@@ -176,29 +214,45 @@ body {
 }
 
 .kpi-card {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1rem 1.1rem;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: .25rem;
+  overflow: hidden;
+  transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--border);
+  transition: background var(--dur) var(--ease);
+}
+.kpi-card:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
+.kpi-card:hover::before { background: var(--accent); }
 .kpi-card .kpi-val {
   font-size: 1.6rem;
   font-weight: 700;
   line-height: 1;
   color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
 }
 .kpi-card .kpi-label {
   font-size: .75rem;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: .02em;
 }
 .kpi-card .kpi-sub {
   font-size: .7rem;
-  color: var(--text-muted);
+  color: var(--text-3);
 }
 
 /* ── Chart cards ──────────────────────────────────────────────────────────── */
@@ -208,8 +262,10 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1rem;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--dur) var(--ease);
 }
+.chart-card:hover { box-shadow: var(--shadow); }
 .chart-card .section-title {
   font-size: .85rem;
   font-weight: 600;
@@ -218,8 +274,56 @@ body {
   text-transform: uppercase;
   letter-spacing: .04em;
 }
+.chart-card .section-sub {
+  font-size: .75rem;
+  color: var(--text-3);
+  margin-top: -.4rem;
+  margin-bottom: .6rem;
+}
 
 .echarts-box { width: 100%; height: 340px; }
+
+/* ── Mason grid — dense, uneven-height card layout (Cross-Analysis tab) ────── */
+.mason-grid {
+  columns: 2;
+  column-gap: 1rem;
+}
+.mason-grid > * { break-inside: avoid; margin-bottom: 1rem; }
+@media (max-width: 1000px) { .mason-grid { columns: 1; } }
+
+/* ── Insight banner — correlation / cross-analysis call-outs ────────────────── */
+.insight-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: .9rem 1.1rem;
+  margin-bottom: .75rem;
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.insight-banner.warn { border-left-color: var(--amber); }
+.insight-banner .corr-stat {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.insight-banner .corr-text {
+  font-size: .85rem;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.insight-banner .corr-text strong { color: var(--text); }
+.insight-banner .corr-text small {
+  display: block;
+  margin-top: .2rem;
+  color: var(--text-3);
+  font-size: .75rem;
+}
 
 /* ── Export toolbar (PNG/SVG/PDF) ─────────────────────────────────────────── */
 .export-toolbar {
@@ -496,6 +600,63 @@ body {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Collapsible region card (defense islands, ViralQuest-style) ───────────── */
+.region-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: .6rem;
+  transition: border-left-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.region-card:hover { border-left-color: var(--accent); box-shadow: var(--shadow-sm); }
+.region-card__head {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .6rem .9rem;
+  cursor: pointer;
+  user-select: none;
+}
+.region-card__head:hover { background: var(--surface-2); }
+.region-card__id {
+  font-family: var(--font-mono);
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.region-card__meta {
+  display: flex;
+  gap: .9rem;
+  flex: 1;
+  font-size: .75rem;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.region-card__chevron {
+  margin-left: auto;
+  color: var(--text-3);
+  transition: transform var(--dur) var(--ease);
+  flex-shrink: 0;
+}
+.region-card.open .region-card__chevron { transform: rotate(90deg); }
+.region-card__body { display: none; padding: .75rem .9rem 1rem; border-top: 1px solid var(--border); }
+.region-card.open .region-card__body { display: block; }
+
+.region-genemap { overflow-x: auto; padding: .25rem 0; }
+.region-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem .9rem;
+  margin-top: .5rem;
+  font-size: .72rem;
+  color: var(--text-muted);
+}
+.region-legend__item { display: inline-flex; align-items: center; gap: .3rem; }
+.region-legend__swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
 
 /* ── D3 SVG utilities ─────────────────────────────────────────────────────── */
 .d3-tooltip {
