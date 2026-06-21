@@ -115,6 +115,11 @@ CUSTOM_VIRAL_DMND    = config["custom_viral_dmnd"]
 CUSTOM_VIRAL_META    = config["custom_viral_meta"]
 CUSTOM_PROK_DMND     = config["custom_prok_dmnd"]
 CUSTOM_PROK_META     = config["custom_prok_meta"]
+# MMseqs2 seqTaxDB alternative to diamond_custom_prok (real LCA instead of
+# best-hit + majority-vote) -- built once via scripts/prepare_mmseqs_taxdb.py.
+# Empty ("") means the rule is skipped; trialled alongside diamond_custom_prok,
+# not yet a replacement for it.
+CUSTOM_PROK_MMSEQS_DB = _expand(config.get("custom_prok_mmseqs_db", "")) if config.get("custom_prok_mmseqs_db", "") else ""
 
 SEMIBIN_ENV          = config["semibin_env"]
 

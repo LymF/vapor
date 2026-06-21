@@ -189,6 +189,76 @@ rule diamond_custom_prok:
         Path(str(output.done)).touch()
 
 
+rule mmseqs_taxonomy_prok:
+    """
+    Trial alternative to diamond_custom_prok: MMseqs2 `taxonomy` against a
+    custom IMG_NR seqTaxDB (scripts/prepare_mmseqs_taxdb.py) instead of
+    DIAMOND blastp + best-hit/majority-vote. Computes a real lowest-common-
+    ancestor per query across all its hits -- avoids the "spurious
+    specificity" best-hit problem (von Meijenfeldt et al. 2019, CAT/BAT),
+    more relevant here than usual since IMG_NR exists specifically to cover
+    environmental/divergent genomes standard databases under-represent.
+
+    Runs ALONGSIDE diamond_custom_prok (not instead of it) -- not yet wired
+    into the report; inspect taxonomy.tsv directly to compare against the
+    diamond_custom_prok output before deciding whether to cut over.
+    """
+    input:
+        manifest = rules.prok_bin_proteins.output.manifest,
+        done     = rules.prok_bin_proteins.output.done,
+    output:
+        hits = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/taxonomy.tsv",
+        done = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/done.txt",
+    log:   f"{OUTDIR}/{{sample}}/logs/mmseqs_taxonomy_prok.log"
+    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/mmseqs_taxonomy_prok.tsv"
+    conda: "../envs/env_mmseqs.yaml"
+    container:  CONTAINERS.get("mmseqs2")
+    threads: THREADS
+    params:
+        seqtaxdb = CUSTOM_PROK_MMSEQS_DB,
+        outdir   = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok",
+        prok_faa = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/all_bins.faa",
+        querydb  = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/queryDB",
+        result   = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/result",
+        tmp      = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/tmp",
+    run:
+        import os
+        from pathlib import Path
+
+        os.makedirs(params.outdir, exist_ok=True)
+        header = "qseqid\ttaxid\trank\tname\tlineage\n"
+
+        def write_empty(msg):
+            with open(str(log[0]), "a") as lf:
+                lf.write(msg + "\n")
+            Path(str(output.hits)).write_text(header)
+            Path(str(output.done)).touch()
+
+        if not params.seqtaxdb or not os.path.exists(str(params.seqtaxdb) + ".dbtype"):
+            write_empty("[mmseqs_taxonomy_prok] No custom_prok_mmseqs_db configured -- skipping")
+            return
+
+        if not _concat_proteins(str(input.manifest), params.prok_faa):
+            write_empty("[mmseqs_taxonomy_prok] No genome-unit proteins found")
+            return
+
+        shell("rm -rf {params.tmp}; mkdir -p {params.tmp}")
+        shell("mmseqs createdb {params.prok_faa} {params.querydb} >> {log} 2>&1")
+        shell(
+            "mmseqs taxonomy {params.querydb} {params.seqtaxdb} {params.result} {params.tmp} "
+            "--threads {threads} --tax-lineage 1 >> {log} 2>&1"
+        )
+        shell(
+            "mmseqs createtsv {params.querydb} {params.result} {output.hits}.raw >> {log} 2>&1"
+        )
+        Path(str(output.hits)).write_text(header)
+        if os.path.exists(str(output.hits) + ".raw"):
+            with open(str(output.hits) + ".raw") as f, open(str(output.hits), "a") as out:
+                out.writelines(f)
+            os.remove(str(output.hits) + ".raw")
+        Path(str(output.done)).touch()
+
+
 rule vcontact3:
     """
     vConTACT3: protein-sharing network clustering, genus-level.

@@ -46,6 +46,13 @@ custom_viral_meta: "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916_
 custom_prok_dmnd:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916.dmnd"
 custom_prok_meta:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916_meta.tsv"
 
+# MMseqs2 seqTaxDB alternative to custom_prok_dmnd -- real LCA per query
+# instead of best-hit + majority-vote (avoids "spurious specificity" on
+# divergent/environmental genomes, the whole reason IMG_NR is custom in the
+# first place). Trial run alongside diamond_custom_prok, not a replacement
+# yet. Leave "" to skip. Prepare with: python3 scripts/prepare_mmseqs_taxdb.py
+custom_prok_mmseqs_db: ""
+
 # ── Binning ─────────────────────────────────────────────────────────────
 semibin_env: "ocean"    # soil | ocean | gut | wastewater | global
 
