@@ -129,10 +129,18 @@ rule diamond_custom_prok:
     Classifies Binette MAGs not assigned by GTDB-Tk.
     Skipped gracefully when CUSTOM_PROK_DMND = "" or file missing.
     Reuses env_viral (prodigal + diamond are in that env).
+
+    Reuses rules.prok_bin_proteins' manifest (per-genome-unit .faa, already
+    predicted once) instead of re-running Prodigal on Binette bins itself --
+    avoids duplicate work, and the manifest already contains a single
+    'contigs_pseudogenome' entry instead of per-bin entries whenever there
+    are no bins (low_depth_mode, or a genuinely low-coverage sample with
+    zero bins) -- this is a gene-level homology search with no genome-
+    completeness requirement, so it works fine on that pseudo-genome too.
     """
     input:
-        faa      = rules.prodigal_viral.output.faa,  # reuse prodigal env; bins processed in shell
-        bin_done = rules.binette.output.done,         # ensure bins exist before running
+        manifest = rules.prok_bin_proteins.output.manifest,
+        done     = rules.prok_bin_proteins.output.done,
     output:
         hits = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/diamond_vs_custom.tsv",
         done = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/done.txt",
@@ -143,7 +151,6 @@ rule diamond_custom_prok:
     threads: THREADS
     params:
         db       = CUSTOM_PROK_DMND,
-        bins_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
         prok_faa = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/all_bins.faa",
         outdir   = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok",
     shell:
@@ -156,19 +163,15 @@ rule diamond_custom_prok:
 
         mkdir -p {params.outdir}
 
-        # Predict proteins from all Binette bins (if not already done)
+        # Concatenate proteins for every genome unit in the manifest (bins,
+        # or the single contigs_pseudogenome entry when there are no bins).
+        : > {params.prok_faa}
+        while IFS=$'\t' read -r name mode fna faa gff; do
+            [ -s "$faa" ] && cat "$faa" >> {params.prok_faa}
+        done < {input.manifest}
+
         if [ ! -s {params.prok_faa} ]; then
-            for bin in {params.bins_dir}/*.fa; do
-                [ -f "$bin" ] || continue
-                bname=$(basename "$bin" .fa)
-                prodigal -i "$bin" -a {params.outdir}/$bname.faa \
-                         -p single -f gff -q 2>/dev/null || true
-                [ -f {params.outdir}/$bname.faa ] && \
-                    cat {params.outdir}/$bname.faa >> {params.prok_faa}
-            done
-        fi
-        if [ ! -s {params.prok_faa} ]; then
-            echo "[diamond_custom_prok] No bin proteins found" | tee -a {log}
+            echo "[diamond_custom_prok] No genome-unit proteins found" | tee -a {log}
             printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" > {output.hits}
             touch {output.done}; exit 0
         fi

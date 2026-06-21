@@ -187,6 +187,7 @@ ABRICATE_ENABLED            = config.get("abricate_enabled", True)
 ARGNORM_ENABLED             = config.get("argnorm_enabled", True)
 DEFENSE_AMR_VIRAL_ENABLED  = config.get("defense_amr_viral_enabled", True)
 APIS_DB                    = _expand(config.get("apis_db", "")) if config.get("apis_db", "") else ""
+LOW_DEPTH_MODE              = config.get("low_depth_mode", False)
 
 GENOME_MAP_TOP_N           = config.get("genome_map_top_n", 5)
 GENOME_MAP_MIN_COMP_VIRAL  = config.get("genome_map_min_completeness_viral", 90.0)

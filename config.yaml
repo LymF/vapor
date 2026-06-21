@@ -49,6 +49,21 @@ custom_prok_meta:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916_
 # ── Binning ─────────────────────────────────────────────────────────────
 semibin_env: "ocean"    # soil | ocean | gut | wastewater | global
 
+# Low-depth mode: skip binning entirely (MetaBAT2/VAMB/SemiBin2/COMEBin +
+# Binette all write empty output) and route gene-level prokaryotic analyses
+# (DefenseFinder/AMRFinderPlus/RGI/DeepARG/ABRicate, diamond_custom_prok)
+# through the same single-pseudo-genome fallback already used for samples
+# with zero bins (see defense_amr_contig_fallback). A user-set flag, not
+# auto-detected from bin quality -- a sample can produce bins that pass the
+# "exists" check but are too low-quality to trust (GTDB-Tk/CheckM2/etc would
+# still run on them and look confident); set this when you've already
+# decided binning isn't worth trusting for this sample/run.
+# Genome-level analyses that need a complete genome (GTDB-Tk, CheckM2,
+# GUNC, galah dereplication, Bakta, CoverM genome-mode abundance) are
+# skipped -- there is no meaningful fallback for those on a single contig
+# or a multi-species pseudo-genome.
+low_depth_mode: false
+
 # Filter viral contigs out of the input to prokaryotic binners.
 # Greatly reduces viral contamination in MAGs while keeping provirus regions
 # attached to their bacterial hosts (provirus-containing contigs are kept).

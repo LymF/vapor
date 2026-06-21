@@ -72,10 +72,11 @@ rule prok_bin_proteins:
     container:  CONTAINERS.get("prodigal")
     threads: 1
     params:
-        bins_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
-        outdir   = f"{OUTDIR}/{{sample}}/bins/proteins",
-        fallback = DEFENSE_AMR_CONTIG_FALLBACK,
-        enabled  = DEFENSE_AMR_ENABLED,
+        bins_dir   = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
+        outdir     = f"{OUTDIR}/{{sample}}/bins/proteins",
+        fallback   = DEFENSE_AMR_CONTIG_FALLBACK,
+        low_depth  = LOW_DEPTH_MODE,
+        enabled    = DEFENSE_AMR_ENABLED,
     run:
         import glob, os
         from pathlib import Path
@@ -87,7 +88,13 @@ rule prok_bin_proteins:
             if not params.enabled:
                 lf.write("[prok_bin_proteins] defense_amr_enabled=False -- skipping\n")
             else:
-                bins = sorted(glob.glob(os.path.join(params.bins_dir, "*.fa")))
+                # low_depth_mode forces the single-pseudo-genome path regardless
+                # of whether bins exist -- the binners themselves are already
+                # skipped (prok_binning.smk) when this flag is set, but checking
+                # it explicitly here documents the intent rather than relying on
+                # bins_dir happening to be empty.
+                bins = ([] if params.low_depth else
+                        sorted(glob.glob(os.path.join(params.bins_dir, "*.fa"))))
                 if bins:
                     lf.write(f"[prok_bin_proteins] {len(bins)} bins -- per-genome protein prediction\n")
                     for bin_fa in bins:
@@ -100,7 +107,7 @@ rule prok_bin_proteins:
                         )
                         if os.path.exists(faa) and os.path.getsize(faa) > 0:
                             manifest_rows.append((name, "bins", bin_fa, faa, gff))
-                elif (params.fallback and os.path.exists(str(input.contigs))
+                elif ((params.fallback or params.low_depth) and os.path.exists(str(input.contigs))
                       and os.path.getsize(str(input.contigs)) > 0):
                     lf.write("[prok_bin_proteins] No bins (low depth) -- "
                              "fallback: contigs as pseudo-genome\n")

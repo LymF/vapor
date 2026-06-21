@@ -171,10 +171,15 @@ rule metabat2:
     container:  CONTAINERS.get("metabat2")
     threads: THREADS
     params:
-        outdir = f"{OUTDIR}/{{sample}}/bins/metabat2",
+        outdir     = f"{OUTDIR}/{{sample}}/bins/metabat2",
+        low_depth  = LOW_DEPTH_MODE,
     shell:
         """
         mkdir -p {params.outdir}
+        if [ "{params.low_depth}" = "True" ]; then
+            echo "[MetaBAT2] Skipped -- low_depth_mode enabled" | tee {log}
+            touch {output.done}; exit 0
+        fi
         METABAT_MIN=$(( {MIN_CONTIG} > 1500 ? {MIN_CONTIG} : 1500 ))
         metabat2 \
             -i {input.contigs} \
@@ -211,9 +216,15 @@ rule vamb:
     container:  CONTAINERS.get("vamb")
     threads: THREADS
     params:
-        outdir = f"{OUTDIR}/{{sample}}/bins/vamb",
+        outdir     = f"{OUTDIR}/{{sample}}/bins/vamb",
+        low_depth  = LOW_DEPTH_MODE,
     shell:
         """
+        mkdir -p {params.outdir}
+        if [ "{params.low_depth}" = "True" ]; then
+            echo "[VAMB] Skipped -- low_depth_mode enabled" | tee {log}
+            touch {output.done}; exit 0
+        fi
         rm -rf {params.outdir}
         mkdir -p $(dirname {params.outdir}_abundance.tsv)
         # Build abundance TSV filtered to only contigs present in the (viral-filtered) FASTA.
@@ -262,10 +273,15 @@ rule semibin2:
     container:  CONTAINERS.get("semibin")
     threads: THREADS
     params:
-        outdir = f"{OUTDIR}/{{sample}}/bins/semibin2",
+        outdir     = f"{OUTDIR}/{{sample}}/bins/semibin2",
+        low_depth  = LOW_DEPTH_MODE,
     shell:
         """
         mkdir -p {params.outdir}
+        if [ "{params.low_depth}" = "True" ]; then
+            echo "[SemiBin2] Skipped -- low_depth_mode enabled" | tee {log}
+            touch {output.done}; exit 0
+        fi
         ENGINE="cpu"
         if [ "{USE_GPU}" = "True" ]; then ENGINE="gpu"; fi
         SemiBin2 single_easy_bin \
@@ -312,6 +328,10 @@ rule comebin:
         mkdir -p {params.outdir}
         if [ "{COMEBIN_ENABLED}" != "True" ]; then
             echo "[COMEBin] Disabled via config (comebin_enabled: false)" | tee {log}
+            touch {output.done}; exit 0
+        fi
+        if [ "{LOW_DEPTH_MODE}" = "True" ]; then
+            echo "[COMEBin] Skipped -- low_depth_mode enabled" | tee {log}
             touch {output.done}; exit 0
         fi
         # COMEBin internally runs 'samtools depth -aa' on the BAM.
