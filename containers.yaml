@@ -16,7 +16,7 @@
 # ── QC ─────────────────────────────────────────────────────────────────
 fastp:
   image: fastp
-  version: "1.3.3"
+  version: "1.3.5"
 
 quast:
   image: quast
