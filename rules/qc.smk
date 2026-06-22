@@ -48,6 +48,8 @@ rule fastp:
                 --thread {threads} \
                 --qualified_quality_phred 20 \
                 --length_required 50 \
+                --low_complexity_filter \
+                --complexity_threshold 30 \
                 2> {log}
             touch {output.tr2}
         else
@@ -60,6 +62,8 @@ rule fastp:
                 --detect_adapter_for_pe \
                 --qualified_quality_phred 20 \
                 --length_required 50 \
+                --low_complexity_filter \
+                --complexity_threshold 30 \
                 2> {log}
         fi
         touch {output.done}
