@@ -63,8 +63,18 @@ def build_taxdump(img_tax_path, taxdump_dir):
     """Parse taxonOId2Taxonomy.tsv lineages into nodes.dmp/names.dmp.
     Returns {taxon_oid: leaf_taxid}."""
     os.makedirs(taxdump_dir, exist_ok=True)
-    nodes_path = os.path.join(taxdump_dir, 'nodes.dmp')
-    names_path = os.path.join(taxdump_dir, 'names.dmp')
+    nodes_path  = os.path.join(taxdump_dir, 'nodes.dmp')
+    names_path  = os.path.join(taxdump_dir, 'names.dmp')
+    merged_path = os.path.join(taxdump_dir, 'merged.dmp')
+    # mmseqs createtaxdb's createbintaxonomy step requires merged.dmp to
+    # exist even for a from-scratch custom taxonomy with no merged taxon
+    # IDs to report (confirmed live on litrp4: "Input .../merged.dmp does
+    # not exist" -- the GTDB-style conversion example that documents the
+    # minimal nodes.dmp/names.dmp format doesn't mention needing this file,
+    # but a real run against mmseqs2 18.8cc5c does). Empty file, NCBI
+    # format ("old_taxid\t|\tnew_taxid\t|" per line) -- zero lines means
+    # no merges, which is exactly true here.
+    open(merged_path, 'w').close()
 
     node_id = {(): 1}   # path-tuple (ancestor names + this name) -> synthetic taxid
     next_id = 2
@@ -150,8 +160,12 @@ def main():
               "check --faa header format and --img-tax content", file=sys.stderr)
         sys.exit(1)
 
-    print("[prepare_mmseqs_taxdb] Building MMseqs2 sequence DB (mmseqs createdb)...")
-    subprocess.run(['mmseqs', 'createdb', args.faa, seqdb_path], check=True)
+    if os.path.exists(seqdb_path + '.dbtype'):
+        print(f"[prepare_mmseqs_taxdb] {seqdb_path} already exists -- "
+              "skipping mmseqs createdb (delete it to force a rebuild)")
+    else:
+        print("[prepare_mmseqs_taxdb] Building MMseqs2 sequence DB (mmseqs createdb)...")
+        subprocess.run(['mmseqs', 'createdb', args.faa, seqdb_path], check=True)
 
     print("[prepare_mmseqs_taxdb] Running mmseqs createtaxdb "
           "(can take a while for large protein sets)...")
