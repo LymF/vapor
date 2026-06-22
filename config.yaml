@@ -9,8 +9,8 @@
 # ══════════════════════════════════════════════════════════════════════
 
 # ── I/O ────────────────────────────────────────────────────────────────
-fastq_dir: "~/testevapor/"
-outdir:    "~/testevapor/results"
+fastq_dir: "~/amazon/"
+outdir:    "~/amazon/results"
 threads:   55
 
 # ── Assembly — SPAdes ──────────────────────────────────────────────────
@@ -51,7 +51,7 @@ custom_prok_meta:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916_
 # divergent/environmental genomes, the whole reason IMG_NR is custom in the
 # first place). Trial run alongside diamond_custom_prok, not a replacement
 # yet. Leave "" to skip. Prepare with: python3 scripts/prepare_mmseqs_taxdb.py
-custom_prok_mmseqs_db: ""
+custom_prok_mmseqs_db: "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR_mmseqs/seqTaxDB"
 
 # ── Binning ─────────────────────────────────────────────────────────────
 semibin_env: "ocean"    # soil | ocean | gut | wastewater | global
@@ -70,7 +70,7 @@ semibin_env: "ocean"    # soil | ocean | gut | wastewater | global
 # GUNC, galah dereplication, Bakta, CoverM genome-mode abundance) are
 # skipped -- there is no meaningful fallback for those on a single contig
 # or a multi-species pseudo-genome.
-low_depth_mode: false
+low_depth_mode: true
 
 # Filter viral contigs out of the input to prokaryotic binners.
 # Greatly reduces viral contamination in MAGs while keeping provirus regions
@@ -157,7 +157,7 @@ host_index:  ""    # path to pre-built bwa-mem2 index prefix (optional)
 #   GeNomad    — auto (PyTorch NN classifier re-enabled; moderate speedup)
 # Requires: NVIDIA GPU + CUDA drivers + PyTorch with CUDA in each conda env.
 # Leave false if no GPU is available — all tools fall back to CPU gracefully.
-use_gpu: true
+use_gpu: false
 
 # ── Prokaryotic binning — extra binner ─────────────────────────────────
 comebin_enabled: true        # add COMEBin as 4th binner (rank 1 in 2025 benchmark)
