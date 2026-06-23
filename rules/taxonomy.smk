@@ -418,25 +418,26 @@ rule vcontact3:
 rule viral_taxonomy:
     """
     Merge taxonomy from all sources into one table per contig.
-    Sources: vConTACT3, MMseqs2/INPHARED (LCA), Diamond/Custom, GeNomad.
+    Sources: vConTACT3, MMseqs2/INPHARED (LCA), MMseqs2/Custom (LCA), GeNomad.
     No fixed source priority -- each source proposes a (family, genus, order)
     call, and whichever resolves the DEEPEST rank wins per contig (genus >
     family > order > unclassified). Ties are broken by trust order:
-    vConTACT3 > mmseqs_inphared > diamond_custom > genomad.
+    vConTACT3 > mmseqs_inphared > mmseqs_custom > genomad.
     Why: with a fixed priority, an upstream tier's *shallow* hit would always
     beat a downstream tier's deeper, better-supported call (e.g. GeNomad
     resolving to genus) -- see [[project_viral_taxonomy_merge]] memory for
     the full rationale and how each source's depth is computed. That same
-    memory documents why an earlier Diamond/INPHARED best-hit+majority-vote
-    tier was removed (2026-06-22) in favour of mmseqs_inphared's real LCA.
+    memory documents why the earlier Diamond/INPHARED (2026-06-22) and
+    diamond_custom_viral (2026-06-23) best-hit+majority-vote tiers were
+    removed in favour of real per-query LCA (mmseqs_inphared/mmseqs_custom).
     Output: viral_taxonomy_merged.tsv
     """
     input:
         genomad_done    = rules.genomad.output.done,
         mmseqs_hits     = rules.mmseqs_taxonomy_viral.output.hits,
         mmseqs_done     = rules.mmseqs_taxonomy_viral.output.done,
-        custom_hits     = rules.diamond_custom_viral.output.hits,
-        custom_done     = rules.diamond_custom_viral.output.done,
+        custom_hits     = rules.mmseqs_taxonomy_custom_viral.output.hits,
+        custom_done     = rules.mmseqs_taxonomy_custom_viral.output.done,
         vcontact3_net   = rules.vcontact3.output.network,
         vcontact3_done  = rules.vcontact3.output.done,
         viral           = rules.viral_nonredundant.output.fasta,
@@ -448,10 +449,8 @@ rule viral_taxonomy:
     conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("diamond")
     threads: 1
-    params:
-        custom_viral_meta = CUSTOM_VIRAL_META
     run:
-        import csv, os, glob, collections, re
+        import csv, os, glob, collections
         from pathlib import Path
 
         lf = open(str(log[0]), "w")
@@ -502,96 +501,17 @@ rule viral_taxonomy:
                     }
         lf.write(f"vConTACT3: {len(vc3_tax)} genomes\n")
 
-        # ── Diamond/Custom DB ─────────────────────────────────────────
-        custom_meta = {}
-        if params.custom_viral_meta and os.path.exists(str(params.custom_viral_meta)):
-            with open(str(params.custom_viral_meta)) as f:
-                for row in csv.DictReader(f, delimiter="\t"):
-                    acc = row.get("accession","").strip()
-                    if acc:
-                        custom_meta[acc] = {
-                            "family": row.get("family",""),
-                            "genus":  row.get("genus",""),
-                            "order":  row.get("order",""),
-                        }
-        lf.write(f"Custom DB entries: {len(custom_meta)}\n")
-
-        # Reuse same Diamond parse logic — majority vote per contig
-        custom_votes  = collections.defaultdict(collections.Counter)
-        custom_pident = collections.defaultdict(list)
-        custom_ssci   = collections.defaultdict(list)
-        cpath = str(input.custom_hits)
-        if os.path.exists(cpath) and os.path.getsize(cpath) > 0:
-            with open(cpath) as f:
-                for line in f:
-                    if not line.strip() or line.startswith("qseqid"): continue
-                    cols = line.strip().split("\t")
-                    if len(cols) < 3: continue
-                    contig = "_".join(cols[0].split("_")[:-1]) or cols[0]
-                    acc    = "_".join(cols[1].split("_")[:-1]) or cols[1]
-                    custom_votes[contig][acc] += 1
-                    custom_pident[contig].append(float(cols[2]))
-                    pass  # no sscinames in outfmt (DB lacks taxonomy info)
-
-        custom_tax = {}
-        for contig, v in custom_votes.items():
-            top_acc, top_votes = v.most_common(1)[0]
-            meta = custom_meta.get(top_acc, {})
-            avg  = sum(custom_pident[contig]) / len(custom_pident[contig])
-            if avg >= 90:   conf = "genus"
-            elif avg >= 50: conf = "family"
-            elif avg >= 30: conf = "order_putative"
-            else:           conf = "unclassified"
-            custom_tax[contig] = {
-                "family": meta.get("family",""), "genus": meta.get("genus",""),
-                "order":  meta.get("order",""),  "avg_pident": round(avg,2),
-                "top_acc": top_acc, "confidence": conf,
-                "sscinames": ";".join(dict.fromkeys(custom_ssci.get(contig, []))),
-            }
-
-        # ── MMseqs2/INPHARED (real per-query LCA, see rule mmseqs_taxonomy_viral) ──
-        # mmseqs operates per-PROTEIN; roll up to per-CONTIG by taking the
-        # longest common prefix (a second, contig-level LCA) across that
-        # contig's own already-LCA-resolved protein lineages -- avoids one
-        # well-conserved protein dominating the whole-genome call.
-        RANKS = ['realm', 'kingdom', 'phylum', 'class', 'order', 'family', 'subfamily', 'genus']
-        _RANK_PREFIX = re.compile(r'^[a-z]_')
-        contig_protein_lineages = collections.defaultdict(list)
-        mpath = str(input.mmseqs_hits)
-        if os.path.exists(mpath) and os.path.getsize(mpath) > 0:
-            with open(mpath) as f:
-                for row in csv.DictReader(f, delimiter="\t"):
-                    protein_id = row.get("qseqid", "")
-                    rank       = (row.get("rank") or "").strip()
-                    lineage    = (row.get("lineage") or "").strip()
-                    if not protein_id or not lineage or rank in ("", "no rank", "root"):
-                        continue
-                    contig = "_".join(protein_id.split("_")[:-1]) or protein_id
-                    names = [_RANK_PREFIX.sub("", p).strip() for p in lineage.split(";") if p.strip()]
-                    if names:
-                        contig_protein_lineages[contig].append(names)
-
-        mmseqs_tax = {}
-        for contig, lineages in contig_protein_lineages.items():
-            common = []
-            for level in zip(*lineages):
-                if len(set(level)) == 1:
-                    common.append(level[0])
-                else:
-                    break
-            if not common:
-                continue
-            depth = len(common)
-            mmseqs_tax[contig] = {
-                "order":      common[4] if depth >= 5 else "",
-                "family":     common[5] if depth >= 6 else "",
-                "subfamily":  common[6] if depth >= 7 else "",
-                "genus":      common[7] if depth >= 8 else "",
-                "rank":       RANKS[depth - 1] if depth <= len(RANKS) else RANKS[-1],
-                "lineage":    ";".join(common),
-                "n_proteins": len(lineages),
-            }
+        # ── MMseqs2/INPHARED + MMseqs2/Custom (real per-query LCA) ──────
+        # Both rules produce the same (qseqid, taxid, rank, name, lineage)
+        # shape over the same 8-level ICTV rank scheme -- _mmseqs_lca_rollup
+        # (module-level helper, top of this file) does the per-contig rollup
+        # for either one.
+        _RANKS = ['realm', 'kingdom', 'phylum', 'class', 'order', 'family', 'subfamily', 'genus']
+        mmseqs_tax = _mmseqs_lca_rollup(str(input.mmseqs_hits), _RANKS)
         lf.write(f"MMseqs2/INPHARED: {len(mmseqs_tax)} contigs\n")
+
+        custom_tax = _mmseqs_lca_rollup(str(input.custom_hits), _RANKS)
+        lf.write(f"MMseqs2/Custom: {len(custom_tax)} contigs\n")
 
         # ── GeNomad ───────────────────────────────────────────────────
         # Path derivado de input.genomad_done (idêntico ao Snakefile funcional)
@@ -636,9 +556,9 @@ rule viral_taxonomy:
         # ── Build final table ─────────────────────────────────────────
         # No fixed tier priority: each source proposes (family, genus, order);
         # whichever resolves the deepest rank wins. Ties broken by trust order
-        # (vcontact3 > mmseqs_inphared > diamond_custom > genomad).
+        # (vcontact3 > mmseqs_inphared > mmseqs_custom > genomad).
         _PRIORITY = {"vcontact3": 0, "mmseqs_inphared": 1,
-                     "diamond_custom": 2, "genomad": 3}
+                     "mmseqs_custom": 2, "genomad": 3}
 
         def _depth(genus, family, order):
             if genus:  return 3
@@ -651,7 +571,7 @@ rule viral_taxonomy:
             vc3 = vc3_tax.get(contig, {})
             mms = mmseqs_tax.get(contig, {})
             gmd = genomad_tax.get(contig, {})
-            _c  = custom_tax.get(contig, {})
+            cms = custom_tax.get(contig, {})
 
             candidates = []  # (source, ff, fg, fo, lin, conf, best)
 
@@ -670,13 +590,10 @@ rule viral_taxonomy:
                                     f"{mms.get('rank','')} ({mms.get('n_proteins',0)} proteins)",
                                     fg or ff or fo))
 
-            if (_c.get("confidence") not in ("unclassified", "") and
-                  (_c.get("family") or _c.get("genus"))):
-                ff, fg = _c.get("family",""), _c.get("genus","")
-                fo     = _c.get("order","")
-                candidates.append(("diamond_custom", ff, fg, fo,
-                                    ";".join(filter(None, [fo, ff, fg])),
-                                    f"{float(_c.get('avg_pident',0) or 0):.1f}% ({_c.get('confidence','')})",
+            if cms and (cms.get("family") or cms.get("genus") or cms.get("order")):
+                ff, fg, fo = cms.get("family",""), cms.get("genus",""), cms.get("order","")
+                candidates.append(("mmseqs_custom", ff, fg, fo, cms.get("lineage",""),
+                                    f"{cms.get('rank','')} ({cms.get('n_proteins',0)} proteins)",
                                     fg or ff or fo))
 
             if gmd and gmd.get("family"):  # only true family; no class/order via this candidate
@@ -713,11 +630,12 @@ rule viral_taxonomy:
                 "genomad_best":  gmd.get("best",""),
                 "genomad_class": gmd.get("class",""),
                 "genomad_score": gmd.get("score",""),
-                "custom_acc":      custom_tax.get(contig,{}).get("top_acc",""),
-                "custom_pident":   custom_tax.get(contig,{}).get("avg_pident",""),
-                "mmseqs_rank":       mms.get("rank",""),
-                "mmseqs_lineage":    mms.get("lineage",""),
-                "mmseqs_n_proteins": mms.get("n_proteins",""),
+                "mmseqs_rank":         mms.get("rank",""),
+                "mmseqs_lineage":      mms.get("lineage",""),
+                "mmseqs_n_proteins":   mms.get("n_proteins",""),
+                "custom_rank":         cms.get("rank",""),
+                "custom_lineage":      cms.get("lineage",""),
+                "custom_n_proteins":   cms.get("n_proteins",""),
             })
 
         lf.write("\nSummary:\n")
@@ -732,8 +650,8 @@ rule viral_taxonomy:
                   "source","confidence","lineage",
                   "vc3_status","vc3_novel_anchor",
                   "genomad_best","genomad_class","genomad_score",
-                  "custom_acc","custom_pident",
-                  "mmseqs_rank","mmseqs_lineage","mmseqs_n_proteins"]
+                  "mmseqs_rank","mmseqs_lineage","mmseqs_n_proteins",
+                  "custom_rank","custom_lineage","custom_n_proteins"]
         with open(str(output.tsv), "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
             w.writeheader(); w.writerows(rows)

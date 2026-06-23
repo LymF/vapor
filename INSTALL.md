@@ -13,7 +13,7 @@ Follow the steps in order — database downloads are the most time-consuming par
 4. [Create conda environments](#4-create-conda-environments)
 5. [Install Apptainer (container mode)](#5-install-apptainer-container-mode)
 6. [Install databases](#6-install-databases)
-7. [Optional: custom Diamond databases](#7-optional-custom-diamond-databases)
+7. [Optional: custom MMseqs2 seqTaxDBs](#7-optional-custom-mmseqs2-seqtaxdbs)
 8. [Configure config.yaml](#8-configure-configyaml)
 9. [Verify installation](#9-verify-installation)
 
@@ -791,39 +791,30 @@ deeparg_db: "/path/to/your/databases/deeparg"
 
 ---
 
-## 7. Optional: custom Diamond databases
+## 7. Optional: custom MMseqs2 seqTaxDBs
 
-Custom databases allow classifying contigs and bins not covered by primary databases.
+Custom databases allow classifying contigs and bins not covered by primary
+databases. Both the prokaryote and viral custom paths run exclusively
+through MMseqs2 `taxonomy` (real per-genome LCA) now -- there is no Diamond
+best-hit/majority-vote option for either (`diamond_custom_prok` and
+`diamond_custom_viral` were both removed entirely, the latter 2026-06-23).
+MMseqs2 avoids "spurious specificity" (von Meijenfeldt et al. 2019, CAT/BAT)
+on the divergent/environmental genomes these custom DBs exist to cover in
+the first place.
 
-```bash
-# IMG NR — viral subset (Diamond, viral side only -- see below for prokaryotes)
-conda activate env_viral
-python3 scripts/prepare_diamond_db.py \
-    --faa img_nr.faa --format img \
-    --img-tax taxonOId2Taxonomy.tsv \
-    --filter-domain Viruses \
-    --out "$DB_BASE/img/img_viral" --threads 32
-# Output: img_viral.dmnd + img_viral_meta.tsv
-conda deactivate
-```
+Same script for both (`scripts/prepare_mmseqs_taxdb.py`), different
+`--format`: `img`/`ncbi` for prokaryotes, `inphared`/`imgvr` for viral
+(plus `ncbi` works for either). Each format is its own header-parsing +
+lineage-loading pair (see the script's own docstring); a source database
+that doesn't match one of these needs its own small format added there,
+not a new separate script.
 
-### MMseqs2 seqTaxDB — real per-genome LCA (prokaryotes)
+### Prokaryotes (e.g. IMG NR)
 
-`rule mmseqs_taxonomy_prok` is the **only** source for custom prokaryote
-taxonomy (there is no Diamond best-hit/majority-vote option for bins —
-`diamond_custom_prok` was removed). MMseqs2 `taxonomy` computes a real
-per-protein lowest-common-ancestor instead, avoiding "spurious specificity"
-(von Meijenfeldt et al. 2019, CAT/BAT) on the divergent/environmental
-genomes IMG_NR is custom in the first place to cover. The report aggregates
-this to genome level with a second LCA pass (`load_mmseqs_taxonomy_prok` in
+`rule mmseqs_taxonomy_prok` is the only source for custom prokaryote
+taxonomy. The report aggregates per-protein LCA to genome level with a
+second LCA pass (`load_mmseqs_taxonomy_prok` in
 `scripts/report/data_loaders.py`), not a vote, for the same reason.
-
-Same script as the INPHARED build above (`scripts/prepare_mmseqs_taxdb.py`),
-just `--format img` instead of `--format inphared` -- it also supports
-`--format ncbi` for a plain RefSeq/GenBank protein set + accession/lineage
-TSV. Each format is its own header-parsing + lineage-loading pair (see the
-script's own docstring); a source database that doesn't match one of these
-three needs its own small format added there, not a new separate script.
 
 ```bash
 conda activate env_assembly
@@ -839,6 +830,31 @@ conda deactivate
 > sequences) can take several hours — the script skips it on a re-run if
 > `seqTaxDB.dbtype` already exists, so it's safe to re-run after an
 > interrupted `createtaxdb` step.
+
+### Viral (e.g. IMG/VR)
+
+`rule mmseqs_taxonomy_custom_viral` is the only source for custom viral
+taxonomy beyond INPHARED (`mmseqs_taxonomy_viral`, always-on) and GeNomad
+(fallback). Both run alongside `mmseqs_taxonomy_viral` and are compared by
+resolved rank depth in `viral_taxonomy`, not a fixed priority.
+
+IMG/VR's high-confidence export ships
+`IMGVR_all_proteins-high_confidence.faa` (protein headers
+`>{UVIG}|{Taxon_oid}|{rest}`) and
+`IMGVR_all_Sequence_information-high_confidence.tsv` (`UVIG` join key +
+`Taxonomic classification` column, geNomad-generated rank-prefixed lineage
+e.g. `r__Realm;k__Kingdom;p__Phylum;...`) -- confirmed against a real
+IMG/VR 2022-12-19 export.
+
+```bash
+conda activate env_assembly
+python3 scripts/prepare_mmseqs_taxdb.py \
+    --faa IMGVR_all_proteins-high_confidence.faa --format imgvr \
+    --imgvr-tax IMGVR_all_Sequence_information-high_confidence.tsv \
+    --out "$DB_BASE/img/IMG_VR/imgvr_mmseqs" --threads 32
+conda deactivate
+# Output: $DB_BASE/img/IMG_VR/imgvr_mmseqs/seqTaxDB -> set as custom_viral_mmseqs_db
+```
 
 ---
 
@@ -883,10 +899,9 @@ argnorm_enabled:              true   # AMRFinderPlus + DeepARG -> ARO, self-cont
 defense_amr_viral_enabled:   true
 apis_db:                     "/path/to/dbapis"
 
-# Custom databases — leave "" to skip
-custom_viral_dmnd:     ""   # Diamond, viral side only
-custom_viral_meta:     ""
-custom_prok_mmseqs_db: ""   # MMseqs2 seqTaxDB, prokaryote side only
+# Custom MMseqs2 seqTaxDBs — leave "" to skip (no Diamond option for either)
+custom_prok_mmseqs_db:  ""   # e.g. IMG NR
+custom_viral_mmseqs_db: ""   # e.g. IMG/VR
 ```
 
 ---

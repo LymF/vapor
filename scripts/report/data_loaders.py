@@ -461,8 +461,8 @@ def load_viral_taxonomy(paths, samples):
 def load_viral_source_distribution(paths, samples):
     """Per-sample distribution of classification sources for ALL viral contigs
     (including ones dropped from load_viral_taxonomy because they have no
-    family/genus/order). Buckets: genomad, mmseqs_inphared, vcontact3,
-    diamond_custom (IMGVR-only hit), unknown (no hit at all)."""
+    family/genus/order). Buckets: genomad, mmseqs_inphared, mmseqs_custom
+    (IMG/VR or other user-supplied seqTaxDB), vcontact3, unknown (no hit)."""
     _NULL = {"singleton", "unclassified", "nd", "none", ""}
     dist = {}
     for p, s in zip(paths, samples):
@@ -474,14 +474,14 @@ def load_viral_source_distribution(paths, samples):
             final_genus  = row.get('final_genus', '').strip().lower()
             final_order  = row.get('final_order', '').strip().lower()
             source       = row.get('source', '').strip()
-            custom_acc   = row.get('custom_acc', '').strip()
+            custom_lineage = row.get('custom_lineage', '').strip()
             genomad_class = (row.get('genomad_class', '') or row.get('genomad_best', '')).strip()
             if final_family not in _NULL or final_genus not in _NULL or final_order not in _NULL:
                 bucket = source if source not in _NULL else 'genomad'
             elif genomad_class.lower() not in _NULL:
                 bucket = 'genomad'
-            elif custom_acc.lower() not in _NULL:
-                bucket = 'diamond_custom'
+            elif custom_lineage.lower() not in _NULL:
+                bucket = 'mmseqs_custom'
             else:
                 bucket = 'unknown'
             counts[bucket] += 1

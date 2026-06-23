@@ -201,10 +201,9 @@ phold_db:     "/path/to/phold_db"
 bakta_db:     "/path/to/bakta/db"
 eggnog_db:    "/path/to/eggnog"
 
-# Optional — leave "" to skip
-custom_viral_dmnd:     ""   # Diamond, viral side only
-custom_viral_meta:     ""
-custom_prok_mmseqs_db: ""   # MMseqs2 seqTaxDB, prokaryote side only
+# Optional MMseqs2 seqTaxDBs — leave "" to skip (no Diamond option for either)
+custom_prok_mmseqs_db:  ""   # e.g. IMG NR
+custom_viral_mmseqs_db: ""   # e.g. IMG/VR
 ```
 
 ---
@@ -286,7 +285,7 @@ python3 scripts/prepare_diamond_db.py \
 Builds an MMseqs2 seqTaxDB (real per-query LCA via `mmseqs taxonomy`,
 avoids the "spurious specificity" of best-hit-only methods). Same
 multi-format pattern as `prepare_diamond_db.py` above, but for MMseqs2's
-`taxonomy` module — `--format img/ncbi/inphared`, each hardcoding the
+`taxonomy` module — `--format img/ncbi/inphared/imgvr`, each hardcoding the
 header-parsing + lineage-loading logic for its own source (not
 interchangeable). Not auto-built by the pipeline for any format — run once
 manually before processing samples:
@@ -311,6 +310,13 @@ python3 scripts/prepare_mmseqs_taxdb.py \
     --faa viral.1.protein.faa --format ncbi \
     --ncbi-tax taxonomy.tsv \
     --out /path/to/refseq_viral_mmseqs --threads 32
+
+# IMG/VR — used by rule mmseqs_taxonomy_custom_viral (custom_viral_mmseqs_db;
+# replaces an earlier diamond_custom_viral best-hit tier, removed 2026-06-23)
+python3 scripts/prepare_mmseqs_taxdb.py \
+    --faa IMGVR_all_proteins-high_confidence.faa --format imgvr \
+    --imgvr-tax IMGVR_all_Sequence_information-high_confidence.tsv \
+    --out /path/to/imgvr_mmseqs --threads 32
 ```
 
 ### `filter_checkv_hq.py`
