@@ -41,6 +41,16 @@ def _jsstr(obj):
     return json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
 
 
+def _drop_field(records, field):
+    """Strip a key from every record before embedding in the HTML -- for
+    fields only needed server-side (e.g. 'Proteins', the raw per-system
+    protein-ID list defensefinder loaders carry purely for
+    compute_defense_islands; no JS component reads it, so embedding it
+    again in DEFENSE_DATA/ANTIDEFENSE_DATA is pure dead weight in the
+    browser bundle)."""
+    return [{k: v for k, v in r.items() if k != field} for r in records]
+
+
 def build_report(snakemake):
     """Entry point called from generate_report.py."""
     try:
@@ -349,8 +359,8 @@ def _build(snakemake):
         "GTDB_DATA":    gtdb_data,
         "MERGED_PROK":  merged_prok,
         "PHIST_DATA":   phist_data,
-        "DEFENSE_DATA": defensefinder_data,
-        "ANTIDEFENSE_DATA": antidefensefinder_data,
+        "DEFENSE_DATA": _drop_field(defensefinder_data, 'Proteins'),
+        "ANTIDEFENSE_DATA": _drop_field(antidefensefinder_data, 'Proteins'),
         "ANTIDEFENSE_VIRAL_DF":     antidefense_viral_df_data,
         "ANTIDEFENSE_VIRAL_DBAPIS": antidefense_viral_dbapis_data,
         "DEFENSE_ISLANDS": defense_islands,

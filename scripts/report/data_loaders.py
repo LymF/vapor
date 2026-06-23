@@ -273,19 +273,6 @@ def collect_binner_counts(outdir, sample, checkm2_rows):
     }
 
 
-def parse_genomad_taxonomy(outdir, sample):
-    records = []
-    for path in glob.glob(os.path.join(outdir, sample, "viral", "genomad", "*_summary", "*_virus_summary.tsv")):
-        for row in parse_tsv(path):
-            tax = row.get("taxonomy", row.get("Taxonomy", "")).strip()
-            if not tax or tax in ("NA", "n/a", ""): continue
-            parts = [re.sub(r"^[-_ ]+", "", p).strip() for p in tax.split(";")]
-            while len(parts) < 4: parts.append("Unclassified")
-            records.append({"realm": parts[0] or "Unclassified", "kingdom": parts[1] or "Unclassified",
-                            "phylum": parts[2] or "Unclassified", "cls": parts[3] or "Unclassified"})
-    return records
-
-
 def parse_checkm2_phyla(checkm2_rows):
     phyla = Counter()
     for row in checkm2_rows:
@@ -869,9 +856,21 @@ def load_amrfinder(paths, samples):
 
 
 def load_rgi_card(paths, samples):
+    """RGI's own rule runs --include_loose (rules/defense_amr.smk) so the
+    raw TSV on disk keeps every confidence tier for manual inspection, but
+    'Loose' hits are explicitly below CARD's curated bitscore cutoff per
+    model -- RGI's own docs call them "for novel discovery, requires manual
+    curation", not curated-confidence calls. Embedding them under
+    Tier='curated' both mislabels them and was the single largest
+    contributor to report size on a real metagenome (Loose is typically
+    10-100x more hits than Perfect+Strict combined) -- confirmed via a
+    byte-length-per-JS-constant breakdown of a real generated report.html
+    (AMR_DATA alone was 285 MB of a 400 MB file). Only Perfect/Strict are
+    kept here; Loose stays on disk in rgi_results.txt, just not embedded."""
     records = []
     for p, s in zip(paths, samples):
         for row in load_tsv(p):
+            if row.get('Cut_Off', '') not in ('Perfect', 'Strict'): continue
             orf = row.get('ORF_ID', row.get('Contig', ''))
             genome, _ = _split_genome_prefix(orf)
             gene = row.get('Best_Hit_ARO', row.get('ARO', ''))
@@ -1128,16 +1127,6 @@ def load_eggnog(outdir, samples):
         result[s] = dict(cnt)
     return result
 
-
-def load_kegg_per_mag(path):
-    """Load ko_per_mag.tsv → dict {mag: [ko, ...]}."""
-    result = defaultdict(list)
-    for row in load_tsv(path):
-        mag = row.get('bin', row.get('mag', row.get('MAG', '')))
-        ko  = row.get('KO', row.get('ko', ''))
-        if mag and ko:
-            result[mag].append(ko)
-    return dict(result)
 
 
 def load_phrogs(outdir, samples):
