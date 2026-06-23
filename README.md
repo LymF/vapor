@@ -27,7 +27,8 @@ vapor/
 │   ├── prok_binning.smk         # BLOCK 8  — viral→prok filter, MetaBAT2, VAMB,
 │   │                            #            SemiBin2, COMEBin, Binette, GUNC,
 │   │                            #            CheckM2, galah derep, GTDB-Tk
-│   ├── taxonomy.smk             # BLOCK 9  — Prodigal, Diamond, vConTACT3
+│   ├── taxonomy.smk             # BLOCK 9  — Prodigal, MMseqs2/INPHARED (LCA),
+│   │                            #            Diamond/Custom, vConTACT3
 │   ├── host_prediction.smk      # BLOCK 10 — PHIST
 │   ├── defense_amr.smk          # BLOCK 10.5 — DefenseFinder/AMRFinderPlus/RGI/DeepARG/
 │   │                            #              ABRicate/argNorm (bins) + DefenseFinder/
@@ -41,6 +42,7 @@ vapor/
 │   ├── filter_checkv_hq.py      # filter viral FASTA for vConTACT3 input
 │   ├── merge_lr_assemblies.py   # merge Flye + hifiasm + metaMDBG assemblies
 │   ├── prepare_diamond_db.py    # build Diamond DB + metadata TSV
+│   ├── prepare_mmseqs_taxdb.py   # build MMseqs2 seqTaxDB (--format img/ncbi/inphared)
 │   ├── split_viral_fastas.py    # split viral FASTA into per-genome files for PHIST
 │   ├── genome_map_universal.py  # circular genome maps (phage / virus / prok)
 │   ├── compute_diversity.py     # alpha, beta diversity, Procrustes
@@ -200,10 +202,9 @@ bakta_db:     "/path/to/bakta/db"
 eggnog_db:    "/path/to/eggnog"
 
 # Optional — leave "" to skip
-custom_viral_dmnd: ""
-custom_viral_meta: ""
-custom_prok_dmnd:  ""
-custom_prok_meta:  ""
+custom_viral_dmnd:     ""   # Diamond, viral side only
+custom_viral_meta:     ""
+custom_prok_mmseqs_db: ""   # MMseqs2 seqTaxDB, prokaryote side only
 ```
 
 ---
@@ -220,7 +221,7 @@ snakemake --snakefile Snakefile --use-conda --cores 1 --create-envs-only
 | Environment | Main tools |
 |---|---|
 | `env_qc` | fastp, quast, multiqc |
-| `env_assembly` | megahit, spades, metaMDBG, mmseqs2 |
+| `env_assembly` | megahit, spades, metaMDBG, mmseqs2 (also reused by mmseqs_taxonomy_viral/prok) |
 | `env_flye` | flye, hifiasm, hifiasm_meta |
 | `env_medaka` | medaka (ONT polishing) |
 | `env_lr_utils` | nanoplot, porechop_abi, filtlong |
@@ -279,6 +280,37 @@ python3 scripts/prepare_diamond_db.py \
 python3 scripts/prepare_diamond_db.py \
     --faa viral.protein.faa --format ncbi \
     --out /path/to/refseq_viral --threads 32
+```
+
+### `prepare_mmseqs_taxdb.py`
+Builds an MMseqs2 seqTaxDB (real per-query LCA via `mmseqs taxonomy`,
+avoids the "spurious specificity" of best-hit-only methods). Same
+multi-format pattern as `prepare_diamond_db.py` above, but for MMseqs2's
+`taxonomy` module — `--format img/ncbi/inphared`, each hardcoding the
+header-parsing + lineage-loading logic for its own source (not
+interchangeable). Not auto-built by the pipeline for any format — run once
+manually before processing samples:
+```bash
+conda activate env_assembly  # already has mmseqs2, no dedicated env needed
+
+# INPHARED — used by rule mmseqs_taxonomy_viral (replaces an earlier
+# Diamond/INPHARED best-hit tier; this is now the only INPHARED-based source)
+python3 scripts/prepare_mmseqs_taxdb.py \
+    --faa  14Apr2025_vConTACT2_proteins.faa --format inphared \
+    --inphared-tax 14Apr2025_data.tsv \
+    --out  /path/to/inphared/inphared_mmseqs_taxdb --threads 32
+
+# IMG NR — used by rule mmseqs_taxonomy_prok (custom_prok_mmseqs_db)
+python3 scripts/prepare_mmseqs_taxdb.py \
+    --faa img_unrestricted_isolates_nr.faa --format img \
+    --img-tax taxonOId2Taxonomy.tsv \
+    --out /path/to/img_nr_mmseqs --threads 32
+
+# NCBI RefSeq/GenBank — for a custom seqTaxDB from a plain protein set
+python3 scripts/prepare_mmseqs_taxdb.py \
+    --faa viral.1.protein.faa --format ncbi \
+    --ncbi-tax taxonomy.tsv \
+    --out /path/to/refseq_viral_mmseqs --threads 32
 ```
 
 ### `filter_checkv_hq.py`

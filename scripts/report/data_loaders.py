@@ -454,7 +454,6 @@ def load_viral_taxonomy(paths, samples):
                 'Source':        source,
                 'Confidence':    row.get('confidence', ''),
                 'Lineage':       lineage,
-                'INPHARED_name': row.get('inphared_name', ''),
             })
     return records
 
@@ -462,7 +461,7 @@ def load_viral_taxonomy(paths, samples):
 def load_viral_source_distribution(paths, samples):
     """Per-sample distribution of classification sources for ALL viral contigs
     (including ones dropped from load_viral_taxonomy because they have no
-    family/genus/order). Buckets: genomad, diamond_inphared, vcontact3,
+    family/genus/order). Buckets: genomad, mmseqs_inphared, vcontact3,
     diamond_custom (IMGVR-only hit), unknown (no hit at all)."""
     _NULL = {"singleton", "unclassified", "nd", "none", ""}
     dist = {}
@@ -528,55 +527,67 @@ def load_gtdbtk(bac_paths, arc_paths, samples):
     return records
 
 
-# ── Custom Diamond prokaryote hits ────────────────────────────────────────────
+# ── Custom prokaryote taxonomy (MMseqs2 LCA) ──────────────────────────────────
 
-def load_custom_prok(paths_d, samples, meta_path=''):
-    meta = {}
-    if meta_path and os.path.exists(str(meta_path)):
-        for row in load_tsv(str(meta_path)):
-            acc = row.get('accession', '').strip()
-            if acc: meta[acc] = row
+_PROK_RANK_LEVELS = ['Domain', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species', 'Strain']
+
+
+def _parse_mmseqs_lineage(lineage):
+    """mmseqs `--tax-lineage 1` output, e.g.
+    '-_Bacteria;p_Pseudomonadota;c_Betaproteobacteria;o_Burkholderiales' --
+    rank-prefix codes are positional here (domain/strain have no single-
+    letter NCBI rank code, hence '-'), so this is read by position against
+    _PROK_RANK_LEVELS, not by the prefix letter. Only emits a path as deep
+    as mmseqs itself resolved -- a shallow LCA naturally yields a short list."""
+    if not lineage: return []
+    names = []
+    for tok in lineage.split(';'):
+        tok = tok.strip()
+        if not tok: continue
+        _, _, name = tok.partition('_')
+        names.append(name if name else tok)
+    return names
+
+
+def load_mmseqs_taxonomy_prok(paths_d, samples):
+    """mmseqs_taxonomy_prok output (qseqid, taxid, rank, name, lineage) --
+    mmseqs already computes a real per-PROTEIN lowest-common-ancestor, so
+    this aggregates to genome level with a SECOND lowest-common-ancestor
+    pass across each genome unit's own proteins, rather than a majority
+    vote of best hits -- a vote would just be a softer version of the same
+    "spurious specificity" (von Meijenfeldt et al. 2019, CAT/BAT) this path
+    exists to avoid in the first place. Unclassified proteins (taxid 0) are
+    dropped from the consensus instead of voting for 'no rank'."""
     records = []
     for s in samples:
         p = paths_d.get(s, '')
         if not p or not os.path.exists(p): continue
-        votes     = defaultdict(Counter)
-        pidents   = defaultdict(list)
-        sscinames = defaultdict(list)
-        sskingdoms = {}
+        lineages = defaultdict(list)
         for row in load_tsv(p):
-            # qseqid is '{genome}__{protein_id}' (rule diamond_custom_prok
-            # now uses _concat_proteins, same convention as the AMR loaders
-            # below) -- split on '__' for the real bin/genome-unit name,
-            # not the trailing '_<gene_index>' of the raw protein id.
-            bin_name, _ = _split_genome_prefix(row.get('qseqid', ''))
-            if not bin_name: continue
-            h = row.get('sseqid', '')
-            acc = '_'.join(h.split('_')[:-1]) or h
-            votes[bin_name][acc] += 1
-            try: pidents[bin_name].append(float(row.get('pident', 0)))
-            except: pass
-            ss = row.get('sscinames', '')
-            if ss and ss not in ('N/A', '0', ''):
-                sscinames[bin_name].append(ss)
-            sk = row.get('sskingdoms', '')
-            if sk and sk not in ('N/A', '0', ''):
-                sskingdoms[bin_name] = sk
-        for bin_name, v in votes.items():
-            top_acc, _ = v.most_common(1)[0]
-            m   = meta.get(top_acc, {})
-            avg = sum(pidents[bin_name]) / len(pidents[bin_name]) if pidents[bin_name] else 0
-            sci_fb = sscinames[bin_name][0] if sscinames[bin_name] else ''
-            records.append({'sample': s, 'Bin': bin_name,
-                'Phylum':   m.get('phylum', ''),  'Class':    m.get('class', ''),
-                'Order':    m.get('order', ''),   'Family':   m.get('family', ''),
-                'Genus':    m.get('genus', ''),
-                'Organism': m.get('organism', '') or sci_fb,
-                'Domain':   m.get('domain', '') or sskingdoms.get(bin_name, ''),
-                'Top_acc':  top_acc,
-                'Avg_pident': f"{avg:.1f}", 'Source':   'diamond_custom',
-                'Sci_name': sci_fb,
-            })
+            unit = _prok_genome_unit(row.get('qseqid', ''))
+            if not unit: continue
+            taxid = str(row.get('taxid', '0')).strip()
+            if taxid in ('0', ''): continue
+            lineage = _parse_mmseqs_lineage(row.get('lineage', ''))
+            if lineage:
+                lineages[unit].append(lineage)
+        for unit, lins in lineages.items():
+            consensus = list(lins[0])
+            for lin in lins[1:]:
+                agree = len(consensus)
+                for i in range(len(consensus)):
+                    if i >= len(lin) or lin[i] != consensus[i]:
+                        agree = i
+                        break
+                consensus = consensus[:agree]
+                if not consensus: break
+            if not consensus: continue
+            rec = {'sample': s, 'Bin': unit, 'Source': 'mmseqs_lca'}
+            for i, level in enumerate(_PROK_RANK_LEVELS):
+                rec[level] = consensus[i] if i < len(consensus) else ''
+            rec['Organism'] = consensus[-1]
+            rec['Sci_name'] = consensus[-1]
+            records.append(rec)
     return records
 
 
@@ -823,6 +834,25 @@ def _split_genome_prefix(value, sep="__"):
     return "", value or ""
 
 
+_LOW_DEPTH_PSEUDO_GENOME = "contigs_pseudogenome"
+
+
+def _prok_genome_unit(qseqid):
+    """Resolve the taxonomic grouping unit for a prokaryote-side protein ID.
+
+    Normal bins: the bin name (before '__'). low_depth_mode pools every
+    contig's genes under one constant 'contigs_pseudogenome' prefix
+    (rule prok_bin_proteins) -- grouping by that constant would blend every
+    organism in the sample into a single majority-vote/LCA call. Regroup by
+    the contig itself instead (recovered from the trailing
+    '{contig}_{gene_n}' part via _contig_from_protein_id), so each contig
+    gets its own taxonomy call, same granularity as the viral side."""
+    prefix, rest = _split_genome_prefix(qseqid)
+    if prefix == _LOW_DEPTH_PSEUDO_GENOME:
+        return _contig_from_protein_id(rest)
+    return prefix
+
+
 def load_amrfinder(paths, samples):
     records = []
     for p, s in zip(paths, samples):
@@ -981,25 +1011,37 @@ def collapse_taxonomy_to_votu(tax_records, outdir, samples):
     return collapsed
 
 
-def merge_prok_taxonomy(gtdb_records, custom_prok_records, checkm2_dict):
+def merge_prok_taxonomy(gtdb_records, mmseqs_prok_records, checkm2_dict):
+    """Priority: GTDB-Tk (genome-level, most reliable) > MMseqs2 LCA (real
+    per-genome lowest-common-ancestor against the custom IMG_NR DB -- see
+    load_mmseqs_taxonomy_prok) > Unclassified. Replaces the old
+    diamond_custom_prok best-hit/majority-vote source entirely (removed).
+
+    Normally keyed off CheckM2 bins, since Completeness/Contamination only
+    make sense for a real MAG. Under low_depth_mode there are no bins/CheckM2
+    rows at all -- mmseqs records (already regrouped per-contig by
+    _prok_genome_unit, not lumped into one sample-wide call) are surfaced
+    directly instead of being silently dropped.
+    """
     gtdb_bins   = {(r.get('sample', ''), r.get('Bin', '').replace('.fa', '')): r
                    for r in gtdb_records}
-    custom_bins = {(r.get('sample', ''), r.get('Bin', '').replace('.fa', '')): r
-                   for r in custom_prok_records}
+    mmseqs_bins = {(r.get('sample', ''), r.get('Bin', '')): r for r in mmseqs_prok_records}
+
     merged = []
+    seen = set()
     for sample, rows in checkm2_dict.items():
         for cm_row in rows:
             bin_name = cm_row.get('Name', cm_row.get('name', '')).replace('.fa', '')
             if not bin_name: continue
             key = (sample, bin_name)
+            seen.add(key)
             if key in gtdb_bins:
                 base = dict(gtdb_bins[key])
                 base['Source_tax'] = 'GTDB-Tk'
-            elif key in custom_bins:
-                base = dict(custom_bins[key])
-                base['Bin'] = bin_name
-                base['sample'] = sample
-                base['Source_tax'] = 'Diamond-Custom'
+            elif key in mmseqs_bins:
+                base = dict(mmseqs_bins[key])
+                base['Bin'] = bin_name; base['sample'] = sample
+                base['Source_tax'] = 'MMseqs2-LCA'
             else:
                 base = {'sample': sample, 'Bin': bin_name,
                         'Domain': '', 'Phylum': '', 'Class': '', 'Order': '',
@@ -1009,6 +1051,18 @@ def merge_prok_taxonomy(gtdb_records, custom_prok_records, checkm2_dict):
             base['Contamination'] = cm_row.get('Contamination', '')
             base['Genome_size']   = cm_row.get('Genome_Size', cm_row.get('genome_size', ''))
             merged.append(base)
+
+    # low_depth_mode (or any genome unit with no matching CheckM2 bin, e.g.
+    # per-contig calls) -- surface mmseqs records directly. No
+    # completeness/contamination available for a single contig.
+    for key, rec in mmseqs_bins.items():
+        if key in seen: continue
+        seen.add(key)
+        base = dict(rec)
+        base['Source_tax'] = 'MMseqs2-LCA'
+        base['Completeness'] = ''; base['Contamination'] = ''; base['Genome_size'] = ''
+        merged.append(base)
+
     return merged
 
 
@@ -1197,7 +1251,7 @@ def collect_tool_versions():
         "MultiQC":       _ver(f"{C} env_qc multiqc --version"),
         "MEGAHIT":       _ver(f"{C} env_assembly megahit --version"),
         "metaSPAdes":    _ver(f"{C} env_assembly spades.py --version"),
-        "MMseqs2":       _ver(f"{C} env_mmseqs mmseqs version"),
+        "MMseqs2":       _ver(f"{C} env_assembly mmseqs version"),
         "QUAST":         _ver(f"{C} env_qc quast.py --version"),
         "BWA-MEM2":      _ver(f"{C} env_mapping bwa-mem2 version"),
         "minimap2":      _ver(f"{C} env_mapping minimap2 --version"),

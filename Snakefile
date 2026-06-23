@@ -111,15 +111,21 @@ VCONTACT3_DB         = config["vcontact3_db"]
 VCONTACT3_VER        = config["vcontact3_ver"]
 GTDBTK_DB            = config["gtdbtk_db"]
 
-CUSTOM_VIRAL_DMND    = config["custom_viral_dmnd"]
-CUSTOM_VIRAL_META    = config["custom_viral_meta"]
-CUSTOM_PROK_DMND     = config["custom_prok_dmnd"]
-CUSTOM_PROK_META     = config["custom_prok_meta"]
-# MMseqs2 seqTaxDB alternative to diamond_custom_prok (real LCA instead of
-# best-hit + majority-vote) -- built once via scripts/prepare_mmseqs_taxdb.py.
-# Empty ("") means the rule is skipped; trialled alongside diamond_custom_prok,
-# not yet a replacement for it.
+# MMseqs2 seqTaxDB, real per-genome LCA -- the only source for custom
+# prokaryote taxonomy (replaces the old diamond_custom_prok best-hit +
+# majority-vote rule entirely, removed). Avoids "spurious specificity"
+# (von Meijenfeldt et al. 2019, CAT/BAT) on the divergent/environmental
+# organisms IMG_NR is meant to classify in the first place. Built once via
+# scripts/prepare_mmseqs_taxdb.py. "" skips mmseqs_taxonomy_prok gracefully,
+# same as any other optional DB.
 CUSTOM_PROK_MMSEQS_DB = _expand(config.get("custom_prok_mmseqs_db", "")) if config.get("custom_prok_mmseqs_db", "") else ""
+
+# Same pattern for custom viral taxonomy (e.g. IMG/VR) -- replaces the old
+# diamond_custom_viral best-hit + majority-vote rule entirely (removed
+# 2026-06-23, see memory project_viral_taxonomy_merge). Built once via
+# scripts/prepare_mmseqs_taxdb.py --format imgvr (or any other format).
+# "" skips mmseqs_taxonomy_custom_viral gracefully.
+CUSTOM_VIRAL_MMSEQS_DB = _expand(config.get("custom_viral_mmseqs_db", "")) if config.get("custom_viral_mmseqs_db", "") else ""
 
 SEMIBIN_ENV          = config["semibin_env"]
 
@@ -395,7 +401,7 @@ rule all:
         # ── Taxonomy + host prediction ────────────────────────────────
         expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",           sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/custom_viral_done.txt",       sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/done.txt",          sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/done.txt",         sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/done.txt",                   sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/viral/phist/done.txt",                       sample=SAMPLES),
 

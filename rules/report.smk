@@ -24,7 +24,7 @@ rule generate_report:
         binette           = expand(f"{OUTDIR}/{{sample}}/bins/binette/binette_results.tsv",                sample=SAMPLES),
         taxonomy          = expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",        sample=SAMPLES),
         vcontact3         = expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/genome_clusters.tsv",             sample=SAMPLES),
-        custom_prok       = expand(f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/diamond_vs_custom.tsv",  sample=SAMPLES),
+        mmseqs_prok       = expand(f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/taxonomy.tsv",          sample=SAMPLES),
         gtdbtk_bac        = expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.bac120.summary.tsv", sample=SAMPLES),
         gtdbtk_arc        = expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.ar53.summary.tsv",   sample=SAMPLES),
         phist             = expand(f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv",                   sample=SAMPLES),
@@ -59,7 +59,6 @@ rule generate_report:
         genomad_db       = GENOMAD_DB,
         inphared_db      = INPHARED_DB,
         gtdbtk_db        = GTDBTK_DB,
-        custom_prok_meta = CUSTOM_PROK_META,
     benchmark:
         f"{OUTDIR}/benchmarks/generate_report.tsv"
     script:

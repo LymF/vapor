@@ -15,7 +15,7 @@ from .data_loaders import (
     collect_viral_tool_counts, collect_vrhyme_stats, collect_binner_counts,
     parse_checkm2_phyla,
     load_vibrant, load_vcontact3, load_viral_taxonomy, load_viral_source_distribution, load_gtdbtk,
-    load_custom_prok, load_phist,
+    load_mmseqs_taxonomy_prok, load_phist,
     load_defensefinder, load_antidefensefinder,
     load_antidefensefinder_viral, load_dbapis_viral, compute_defense_islands,
     load_amrfinder, load_rgi_card, load_deeparg,
@@ -70,7 +70,7 @@ def _build(snakemake):
     support_paths    = path_dict(_inp('support'),       samples)
     depth_paths      = path_dict(_inp('depth'),         samples)
     taxonomy_paths   = path_dict(_inp('taxonomy'),      samples)
-    custom_prok_paths= path_dict(_inp('custom_prok'),   samples)
+    mmseqs_prok_paths= path_dict(_inp('mmseqs_prok'),   samples)
     gtdbtk_bac_l     = _inp('gtdbtk_bac')
     gtdbtk_arc_l     = _inp('gtdbtk_arc')
     phist_paths_l    = [path_dict(_inp('phist'), samples).get(s, '') for s in samples]
@@ -130,9 +130,7 @@ def _build(snakemake):
     bin_annotations = build_bin_annotation_summary(
         defensefinder_data, antidefensefinder_data, amr_data + deeparg_data)
     vibrant_data, vibrant_amg = load_vibrant(outdir, samples)
-    custom_prok_data = load_custom_prok(
-        custom_prok_paths, samples,
-        getattr(snakemake.params, 'custom_prok_meta', ''))
+    mmseqs_prok_data = load_mmseqs_taxonomy_prok(mmseqs_prok_paths, samples)
 
     # ── Merge vConTACT3 into tax_data ─────────────────────────────────────────
     tax_genome_keys = {(r.get('sample', ''), r.get('Genome', '')) for r in tax_data}
@@ -205,7 +203,7 @@ def _build(snakemake):
     genome_maps  = load_genome_maps(outdir, samples)
 
     # ── Prokaryotic merged taxonomy ───────────────────────────────────────────
-    merged_prok = merge_prok_taxonomy(gtdb_data, custom_prok_data, checkm2_data)
+    merged_prok = merge_prok_taxonomy(gtdb_data, mmseqs_prok_data, checkm2_data)
 
     # ── Build overview dict ───────────────────────────────────────────────────
     overview = {}

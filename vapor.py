@@ -45,8 +45,7 @@ _PATH_KEYS = [
     "checkm2_db", "inphared_db", "vcontact3_db", "gtdbtk_db",
     "gunc_db", "pharokka_db", "phold_db", "bakta_db", "eggnog_db",
     "card_db", "deeparg_db", "apis_db", "defense_finder_models_db",
-    "custom_viral_dmnd", "custom_viral_meta",
-    "custom_prok_dmnd",  "custom_prok_meta",  "custom_prok_mmseqs_db",
+    "custom_viral_dmnd", "custom_viral_meta", "custom_prok_mmseqs_db",
     "host_genome", "host_index",
 ]
 

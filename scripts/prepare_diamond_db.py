@@ -294,12 +294,10 @@ def main():
     print(f"\n[prepare_diamond_db] Done!")
     print(f"  Diamond DB : {out_dmnd}")
     print(f"  Metadata   : {out_meta}")
-    print(f"\nAdd to Snakefile config:")
-    print(f"  CUSTOM_VIRAL_DMND = \"{out_dmnd}\"")
-    print(f"  CUSTOM_VIRAL_META = \"{out_meta}\"")
-    print(f"  # or for prokaryotes:")
-    print(f"  CUSTOM_PROK_DMND  = \"{out_dmnd}\"")
-    print(f"  CUSTOM_PROK_META  = \"{out_meta}\"")
+    print(f"\nAdd to config.yaml (viral side only -- prokaryotes use "
+          f"scripts/prepare_mmseqs_taxdb.py + custom_prok_mmseqs_db instead):")
+    print(f"  custom_viral_dmnd: \"{out_dmnd}\"")
+    print(f"  custom_viral_meta: \"{out_meta}\"")
 
 
 if __name__ == '__main__':

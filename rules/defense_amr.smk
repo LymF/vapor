@@ -2,7 +2,7 @@
 # rules/defense_amr.smk — BLOCK 10.5: Defense Systems + AMR (prok bins)
 #
 # prok_bin_proteins (shared per-genome Prodigal proteins, feeds all 4 tools
-# below + diamond_custom_prok in taxonomy.smk) now lives in
+# below + mmseqs_taxonomy_prok in taxonomy.smk) now lives in
 # rules/prok_binning.smk -- it must be defined before BOTH taxonomy.smk and
 # this file in the Snakefile's include: order, since both reference
 # rules.prok_bin_proteins. _read_manifest/_concat_proteins moved with it.

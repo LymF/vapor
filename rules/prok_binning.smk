@@ -529,7 +529,7 @@ rule binette:
 rule prok_bin_proteins:
     """
     Per-genome protein prediction (Prodigal) shared by every defense/AMR
-    annotation tool in rules/defense_amr.smk plus diamond_custom_prok in
+    annotation tool in rules/defense_amr.smk plus mmseqs_taxonomy_prok in
     rules/taxonomy.smk -- runs once regardless of how many downstream tools
     consume it (same reuse pattern as rules.prodigal_viral.output.faa for
     viral taxonomy). Lives here (not in defense_amr.smk, where it

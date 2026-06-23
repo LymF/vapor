@@ -39,26 +39,29 @@ vcontact3_db: "/media/nas1/LITRP.DBs/metagenDBs/vcontact3"
 vcontact3_ver: "230"
 gtdbtk_db:   "/media/nas1/LITRP.DBs/metagenDBs/gtdbtk/release226"
 
-# ── Custom Diamond databases (leave "" to skip) ────────────────────────
-# Prepare with: python3 scripts/prepare_diamond_db.py
-custom_viral_dmnd: "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916.dmnd"
-custom_viral_meta: "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916_meta.tsv"
-custom_prok_dmnd:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916.dmnd"
-custom_prok_meta:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR/20240916_meta.tsv"
-
-# MMseqs2 seqTaxDB alternative to custom_prok_dmnd -- real LCA per query
-# instead of best-hit + majority-vote (avoids "spurious specificity" on
-# divergent/environmental genomes, the whole reason IMG_NR is custom in the
-# first place). Trial run alongside diamond_custom_prok, not a replacement
-# yet. Leave "" to skip. Prepare with: python3 scripts/prepare_mmseqs_taxdb.py
-custom_prok_mmseqs_db: "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR_mmseqs/seqTaxDB"
+# ── Custom MMseqs2 seqTaxDBs (real per-genome LCA, avoids "spurious
+# specificity" on divergent/environmental genomes -- the whole reason these
+# custom DBs exist in the first place over RefSeq/standard references).
+# No Diamond option anymore for either custom DB -- both old
+# diamond_custom_prok/diamond_custom_viral best-hit+majority-vote rules were
+# removed entirely (prok: earlier; viral: 2026-06-23). Leave "" to skip the
+# corresponding rule gracefully. Build with scripts/prepare_mmseqs_taxdb.py:
+#   python3 scripts/prepare_mmseqs_taxdb.py --faa <img_nr.faa> --format img \
+#       --img-tax <taxonOId2Taxonomy.tsv> --out <dir>
+# Same script also supports --format ncbi (plain RefSeq/GenBank protein set
+# + lineage TSV), --format inphared (used by rule mmseqs_taxonomy_viral, see
+# INSTALL.md), and --format imgvr (IMG/VR's own *_Sequence_information*.tsv
+# "Taxonomic classification" column) -- each format hardcodes parsing for
+# its own header/lineage-table convention, not interchangeable.
+custom_prok_mmseqs_db:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR_mmseqs/seqTaxDB"
+custom_viral_mmseqs_db: "/media/nas1/LITRP.DBs/metagenDBs/img/IMG_VR/Cus_VR/imgvr_mmseqs/seqTaxDB"
 
 # ── Binning ─────────────────────────────────────────────────────────────
 semibin_env: "ocean"    # soil | ocean | gut | wastewater | global
 
 # Low-depth mode: skip binning entirely (MetaBAT2/VAMB/SemiBin2/COMEBin +
 # Binette all write empty output) and route gene-level prokaryotic analyses
-# (DefenseFinder/AMRFinderPlus/RGI/DeepARG/ABRicate, diamond_custom_prok)
+# (DefenseFinder/AMRFinderPlus/RGI/DeepARG/ABRicate, mmseqs_taxonomy_prok)
 # through a single-pseudo-genome path instead (whole contig set as one
 # Prodigal -p meta call). This is the ONLY way to reach that path -- there
 # is no automatic "zero bins -> fall back to contigs" behavior, on purpose:

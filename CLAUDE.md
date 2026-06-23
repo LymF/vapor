@@ -95,8 +95,7 @@ The deduplicated representative sequences (`{sample}_rep_seq.fasta`, generated v
 
 The pipeline uses 23 isolated conda environments for tool isolation. Key environments include:
 - `env_qc`: Quality control tools.
-- `env_assembly`: Assemblers.
-- `env_mmseqs`: Deduplication.
+- `env_assembly`: Assemblers + MMseqs2 (dedup, plus the MMseqs2 taxonomy rules).
 - `env_mapping`: Mapping tools.
 - `env_viral`: Viral detection and taxonomy.
 - And more for binning, reporting, etc.

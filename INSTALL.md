@@ -74,7 +74,9 @@ Or create manually (useful for testing individual environments):
 mamba create -n env_qc -c conda-forge -c bioconda \
     fastp quast multiqc -y
 
-# Assembly (MEGAHIT + SPAdes + metaMDBG + MMseqs2)
+# Assembly (MEGAHIT + SPAdes + metaMDBG + MMseqs2). MMseqs2 here is also
+# reused by rules mmseqs_taxonomy_viral/mmseqs_taxonomy_prok -- no separate
+# env needed for those.
 mamba create -n env_assembly -c conda-forge -c bioconda \
     megahit spades metamdbg mmseqs2 -y
 
@@ -351,36 +353,36 @@ and download the two required files manually (click the filename → "Raw" → S
 
 | File | Purpose |
 |------|---------|
-| `14Apr2025_data.tsv` | Phage metadata (taxonomy: Family, Genus, Order) |
-| `14Apr2025_vConTACT2_proteins.faa` | Protein sequences for Diamond BLASTp |
+| `14Apr2025_data.tsv` | Phage metadata (taxonomy: Realm/Kingdom/Phylum/Class/Order/Family/Sub-family/Genus) |
+| `14Apr2025_vConTACT2_proteins.faa` | Protein sequences for MMseqs2 taxonomy |
 
 > Check the repository for a newer date prefix (e.g. `Jan2026`) and use that instead of `14Apr2025`.
 
-After downloading both files to `$DB_BASE/inphared`, build the Diamond database:
+After downloading both files to `$DB_BASE/inphared`, build the MMseqs2 seqTaxDB that
+`rule mmseqs_taxonomy_viral` queries against (real per-query LCA, see
+`scripts/prepare_mmseqs_taxdb.py --format inphared` -- the same script also builds
+the IMG_NR seqTaxDB for prokaryote bins via `--format img`, and supports
+`--format ncbi` for plain NCBI RefSeq/GenBank protein sets). It is **not**
+auto-built on first run -- the rule just skips gracefully if it's missing (same
+pattern as `mmseqs_taxonomy_prok`/`custom_prok_mmseqs_db`) -- so build it once
+manually, before running the pipeline:
 
-**Conda:**
 ```bash
 mkdir -p "$DB_BASE/inphared"
 # Copy downloaded files to $DB_BASE/inphared, then:
 cd "$DB_BASE/inphared"
 
-conda activate env_viral
-diamond makedb \
-    --in *_vConTACT2_proteins.faa \
-    --db inphared_proteins \
-    --threads 32
+conda activate env_assembly
+python3 /path/to/pipe-final-claude/scripts/prepare_mmseqs_taxdb.py \
+    --faa  $(ls *_vConTACT2_proteins.faa | sort | tail -1) \
+    --format inphared \
+    --inphared-tax $(ls *_data.tsv | sort | tail -1) \
+    --out  ./inphared_mmseqs_taxdb --threads 32
 conda deactivate
 ```
 
-**Docker:**
-```bash
-mkdir -p "$DB_BASE/inphared"
-# Copy downloaded files to $DB_BASE/inphared, then:
-
-docker run --rm -v "$DB_BASE/inphared:/dbs" \
-    quay.io/biocontainers/diamond:2.1.8--h43eeafb_0 \
-    bash -c "diamond makedb --in /dbs/*_vConTACT2_proteins.faa --db /dbs/inphared_proteins --threads 32"
-```
+Output: `$DB_BASE/inphared/inphared_mmseqs_taxdb/seqTaxDB` (the exact path the rule
+expects).
 
 ---
 
@@ -794,7 +796,7 @@ deeparg_db: "/path/to/your/databases/deeparg"
 Custom databases allow classifying contigs and bins not covered by primary databases.
 
 ```bash
-# IMG NR — viral subset
+# IMG NR — viral subset (Diamond, viral side only -- see below for prokaryotes)
 conda activate env_viral
 python3 scripts/prepare_diamond_db.py \
     --faa img_nr.faa --format img \
@@ -802,15 +804,41 @@ python3 scripts/prepare_diamond_db.py \
     --filter-domain Viruses \
     --out "$DB_BASE/img/img_viral" --threads 32
 # Output: img_viral.dmnd + img_viral_meta.tsv
-
-# IMG NR — prokaryote subset
-python3 scripts/prepare_diamond_db.py \
-    --faa img_nr.faa --format img \
-    --img-tax taxonOId2Taxonomy.tsv \
-    --filter-domain Bacteria,Archaea \
-    --out "$DB_BASE/img/img_prok" --threads 32
 conda deactivate
 ```
+
+### MMseqs2 seqTaxDB — real per-genome LCA (prokaryotes)
+
+`rule mmseqs_taxonomy_prok` is the **only** source for custom prokaryote
+taxonomy (there is no Diamond best-hit/majority-vote option for bins —
+`diamond_custom_prok` was removed). MMseqs2 `taxonomy` computes a real
+per-protein lowest-common-ancestor instead, avoiding "spurious specificity"
+(von Meijenfeldt et al. 2019, CAT/BAT) on the divergent/environmental
+genomes IMG_NR is custom in the first place to cover. The report aggregates
+this to genome level with a second LCA pass (`load_mmseqs_taxonomy_prok` in
+`scripts/report/data_loaders.py`), not a vote, for the same reason.
+
+Same script as the INPHARED build above (`scripts/prepare_mmseqs_taxdb.py`),
+just `--format img` instead of `--format inphared` -- it also supports
+`--format ncbi` for a plain RefSeq/GenBank protein set + accession/lineage
+TSV. Each format is its own header-parsing + lineage-loading pair (see the
+script's own docstring); a source database that doesn't match one of these
+three needs its own small format added there, not a new separate script.
+
+```bash
+conda activate env_assembly
+python3 scripts/prepare_mmseqs_taxdb.py \
+    --faa img_unrestricted_isolates_nr.faa --format img \
+    --img-tax taxonOId2Taxonomy.tsv \
+    --out "$DB_BASE/img/img_nr_mmseqs" --threads 32
+conda deactivate
+# Output: $DB_BASE/img/img_nr_mmseqs/seqTaxDB -> set as custom_prok_mmseqs_db
+```
+
+> `mmseqs createdb` on the full IMG NR protein set (hundreds of millions of
+> sequences) can take several hours — the script skips it on a re-run if
+> `seqTaxDB.dbtype` already exists, so it's safe to re-run after an
+> interrupted `createtaxdb` step.
 
 ---
 
@@ -856,10 +884,9 @@ defense_amr_viral_enabled:   true
 apis_db:                     "/path/to/dbapis"
 
 # Custom databases — leave "" to skip
-custom_viral_dmnd: ""
-custom_viral_meta: ""
-custom_prok_dmnd:  ""
-custom_prok_meta:  ""
+custom_viral_dmnd:     ""   # Diamond, viral side only
+custom_viral_meta:     ""
+custom_prok_mmseqs_db: ""   # MMseqs2 seqTaxDB, prokaryote side only
 ```
 
 ---

@@ -1,20 +1,81 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/taxonomy.smk — BLOCK 9: Viral Taxonomy
 #
-# Hierarchical 3-tier priority:
-#   Tier 1 — vConTACT3     : protein-sharing network (genus-level, most specific)
-#   Tier 2 — Diamond/INPHARED : metagenome phage references (family/genus)
-#   Tier 3 — Diamond/Custom + GeNomad fallback (class/order for unknowns)
+# No fixed source priority -- rule viral_taxonomy compares the rank DEPTH
+# each source resolves to and takes the deepest, ties broken by trust order.
+# Sources:
+#   vConTACT3       — protein-sharing network (genus-level, most specific)
+#   MMseqs2/INPHARED — real per-query LCA against INPHARED (rule
+#                      mmseqs_taxonomy_viral), contig-level LCA-of-LCAs
+#                      across that contig's proteins. Replaced an earlier
+#                      Diamond/INPHARED best-hit+majority-vote tier (removed
+#                      2026-06-22 -- see memory project_viral_taxonomy_merge).
+#   MMseqs2/Custom  — optional user-supplied seqTaxDB (e.g. IMG/VR, rule
+#                      mmseqs_taxonomy_custom_viral), same LCA approach.
+#                      Replaced an earlier diamond_custom_viral best-hit+
+#                      majority-vote rule entirely (removed 2026-06-23).
+#   GeNomad         — marker-gene lineage string, parsed to deepest level
+# See memory project_viral_taxonomy_merge for the full rationale.
 #
-# Diamond confidence thresholds (avg pident):
-#   >= 90% → genus | >= 50% → family | >= 30% → order_putative
-#
-# Also contains diamond_custom_prok for prokaryote bin taxonomy.
+# Also contains mmseqs_taxonomy_prok for prokaryote bin taxonomy (separate
+# from the viral merge above; diamond_custom_prok was removed -- mmseqs
+# replaces it outright, not just outranks it).
 # ══════════════════════════════════════════════════════════════════════
 
 
+def _mmseqs_lca_rollup(hits_path, ranks):
+    """Shared by mmseqs_taxonomy_viral (INPHARED) and
+    mmseqs_taxonomy_custom_viral (e.g. IMG/VR) results -- both produce the
+    same (qseqid, taxid, rank, name, lineage) shape over the same 8-level
+    ICTV rank scheme (realm..genus), just against different seqTaxDBs.
+
+    mmseqs operates per-PROTEIN; roll up to per-CONTIG by taking the longest
+    common prefix (a second, contig-level LCA) across that contig's own
+    already-LCA-resolved protein lineages -- avoids one well-conserved
+    protein dominating the whole-genome call. Returns
+    {contig: {order, family, subfamily, genus, rank, lineage, n_proteins}}.
+    """
+    import csv, os, re, collections
+    _RANK_PREFIX = re.compile(r'^[a-z]+_')
+    contig_protein_lineages = collections.defaultdict(list)
+    if os.path.exists(hits_path) and os.path.getsize(hits_path) > 0:
+        with open(hits_path) as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                protein_id = row.get("qseqid", "")
+                rank       = (row.get("rank") or "").strip()
+                lineage    = (row.get("lineage") or "").strip()
+                if not protein_id or not lineage or rank in ("", "no rank", "root"):
+                    continue
+                contig = "_".join(protein_id.split("_")[:-1]) or protein_id
+                names = [_RANK_PREFIX.sub("", p).strip() for p in lineage.split(";") if p.strip()]
+                if names:
+                    contig_protein_lineages[contig].append(names)
+
+    result = {}
+    for contig, lineages in contig_protein_lineages.items():
+        common = []
+        for level in zip(*lineages):
+            if len(set(level)) == 1:
+                common.append(level[0])
+            else:
+                break
+        if not common:
+            continue
+        depth = len(common)
+        result[contig] = {
+            "order":      common[4] if depth >= 5 else "",
+            "family":     common[5] if depth >= 6 else "",
+            "subfamily":  common[6] if depth >= 7 else "",
+            "genus":      common[7] if depth >= 8 else "",
+            "rank":       ranks[depth - 1] if depth <= len(ranks) else ranks[-1],
+            "lineage":    ";".join(common),
+            "n_proteins": len(lineages),
+        }
+    return result
+
+
 rule prodigal_viral:
-    """Predict ORFs from the non-redundant viral genome set for Diamond taxonomy searches."""
+    """Predict ORFs from the non-redundant viral genome set for taxonomy searches."""
     input:
         viral = rules.viral_nonredundant.output.fasta,
     output:
@@ -36,129 +97,52 @@ rule prodigal_viral:
         """
 
 
-rule diamond_inphared:
+rule mmseqs_taxonomy_viral:
     """
-    Diamond BLASTp vs INPHARED phage protein database.
-    Builds the Diamond DB on first run from *_vConTACT2_proteins.faa.
-    Tier 2 in viral_taxonomy (after vConTACT3).
+    The pipeline's only INPHARED-based taxonomy source (replaced an earlier
+    Diamond/INPHARED best-hit+majority-vote rule on 2026-06-22 -- removed
+    entirely, see memory project_viral_taxonomy_merge). MMseqs2 `taxonomy`
+    computes a real per-query lowest-common-ancestor against an
+    INPHARED-derived seqTaxDB, avoiding "spurious specificity" (von
+    Meijenfeldt et al. 2019, CAT/BAT) the same way mmseqs_taxonomy_prok does
+    for IMG_NR -- relevant here because divergent environmental phages
+    (INPHARED's own niche relative to RefSeq) are exactly where best-hit
+    identity cutoffs are least reliable.
+
+    Same pattern as mmseqs_taxonomy_prok: the seqTaxDB is NOT built here.
+    Pre-build it ONCE with scripts/prepare_mmseqs_taxdb.py --format inphared
+    (see INSTALL.md) -- skipped gracefully if missing. Deliberately not
+    auto-built inline: the seqTaxDB lives under the shared INPHARED_DB, not
+    a per-sample Snakemake output, so auto-building on first sight would
+    race across samples under --cores >1.
+
+    viral_taxonomy compares this against vConTACT3/Diamond-custom/GeNomad by
+    resolved rank depth, not a fixed priority order, so this can win, lose,
+    or tie per contig.
     """
     input:
         faa  = rules.prodigal_viral.output.faa,
         done = rules.prodigal_viral.output.done,
     output:
-        hits = f"{OUTDIR}/{{sample}}/viral/taxonomy/diamond_vs_inphared.tsv",
-        done = f"{OUTDIR}/{{sample}}/viral/taxonomy/diamond_done.txt",
-    log:   f"{OUTDIR}/{{sample}}/logs/diamond_inphared.log"
-    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/diamond_inphared.tsv"
-    conda: "../envs/env_viral.yaml"
-    container:  CONTAINERS.get("diamond")
+        hits = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_vs_inphared.tsv",
+        done = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_inphared_done.txt",
+    log:   f"{OUTDIR}/{{sample}}/logs/mmseqs_taxonomy_viral.log"
+    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/mmseqs_taxonomy_viral.tsv"
+    conda: "../envs/env_assembly.yaml"
+    container:  CONTAINERS.get("mmseqs2")
     threads: THREADS
     params:
-        db = f"{INPHARED_DB}/inphared_proteins.dmnd"
-    shell:
-        """
-        if [ ! -s {input.faa} ]; then
-            printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" > {output.hits}
-            touch {output.done}; exit 0
-        fi
-        INPHARED_PROT=$(ls {INPHARED_DB}/*_vConTACT2_proteins.faa 2>/dev/null | sort | tail -1)
-        if [ -z "$INPHARED_PROT" ]; then
-            echo "[diamond] ERROR: INPHARED proteins not found" | tee {log}; exit 1
-        fi
-        if [ ! -f {params.db} ]; then
-            diamond makedb --in "$INPHARED_PROT" --db {params.db} --threads {threads} >> {log} 2>&1
-        fi
-        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" \
-            > {output.hits}
-        diamond blastp \
-            --query {input.faa} --db {params.db} --out /dev/stdout \
-            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
-            --max-target-seqs 1 --evalue 1e-5 --id 30 --query-cover 50 \
-            --threads {threads} --sensitive --tmpdir /tmp \
-            >> {output.hits} 2>> {log}
-        touch {output.done}
-        """
-
-
-rule diamond_custom_viral:
-    """
-    Optional Diamond BLASTp vs user-supplied viral DB (e.g. IMG NR viral subset).
-    Tier 3 in viral taxonomy: vConTACT3 > INPHARED > CUSTOM > GeNomad.
-    Skipped gracefully when CUSTOM_VIRAL_DMND = "" or file missing.
-    Prepare DB: python3 scripts/prepare_diamond_db.py ...
-    """
-    input:
-        faa  = rules.prodigal_viral.output.faa,
-        done = rules.prodigal_viral.output.done,
-    output:
-        hits = f"{OUTDIR}/{{sample}}/viral/taxonomy/diamond_vs_custom.tsv",
-        done = f"{OUTDIR}/{{sample}}/viral/taxonomy/custom_viral_done.txt",
-    log:   f"{OUTDIR}/{{sample}}/logs/diamond_custom_viral.log"
-    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/diamond_custom_viral.tsv"
-    conda: "../envs/env_viral.yaml"
-    container:  CONTAINERS.get("diamond")
-    threads: THREADS
-    params:
-        db = CUSTOM_VIRAL_DMND
-    shell:
-        """
-        if [ -z "{params.db}" ] || [ ! -f "{params.db}" ]; then
-            echo "[diamond_custom_viral] No custom DB configured — skipping" | tee {log}
-            printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" > {output.hits}
-            touch {output.done}; exit 0
-        fi
-        if [ ! -s {input.faa} ]; then
-            printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" > {output.hits}
-            touch {output.done}; exit 0
-        fi
-        printf "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n" \
-            > {output.hits}
-        diamond blastp \
-            --query {input.faa} --db {params.db} --out /dev/stdout \
-            --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
-            --max-target-seqs 1 --evalue 1e-5 --id 30 --query-cover 50 \
-            --threads {threads} --sensitive --tmpdir /tmp \
-            >> {output.hits} 2>> {log}
-        touch {output.done}
-        """
-
-
-rule diamond_custom_prok:
-    """
-    Optional Diamond BLASTp vs user-supplied prokaryote DB (e.g. IMG NR).
-    Classifies Binette MAGs not assigned by GTDB-Tk.
-    Skipped gracefully when CUSTOM_PROK_DMND = "" or file missing.
-    Reuses env_viral (prodigal + diamond are in that env).
-
-    Reuses rules.prok_bin_proteins' manifest (per-genome-unit .faa, already
-    predicted once) instead of re-running Prodigal on Binette bins itself --
-    avoids duplicate work, and the manifest already contains a single
-    'contigs_pseudogenome' entry instead of per-bin entries whenever there
-    are no bins (low_depth_mode, or a genuinely low-coverage sample with
-    zero bins) -- this is a gene-level homology search with no genome-
-    completeness requirement, so it works fine on that pseudo-genome too.
-    """
-    input:
-        manifest = rules.prok_bin_proteins.output.manifest,
-        done     = rules.prok_bin_proteins.output.done,
-    output:
-        hits = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/diamond_vs_custom.tsv",
-        done = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/done.txt",
-    log:   f"{OUTDIR}/{{sample}}/logs/diamond_custom_prok.log"
-    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/diamond_custom_prok.tsv"
-    conda: "../envs/env_viral.yaml"
-    container:  CONTAINERS.get("diamond")
-    threads: THREADS
-    params:
-        db       = CUSTOM_PROK_DMND,
-        prok_faa = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok/all_bins.faa",
-        outdir   = f"{OUTDIR}/{{sample}}/bins/diamond_custom_prok",
+        seqtaxdb = f"{INPHARED_DB}/inphared_mmseqs_taxdb/seqTaxDB",
+        outdir   = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_inphared",
+        querydb  = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_inphared/queryDB",
+        result   = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_inphared/result",
+        tmp      = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_inphared/tmp",
     run:
         import os
         from pathlib import Path
 
         os.makedirs(params.outdir, exist_ok=True)
-        header = "qseqid\tsseqid\tpident\tlength\tmismatch\tgapopen\tqstart\tqend\tsstart\tsend\tevalue\tbitscore\n"
+        header = "qseqid\ttaxid\trank\tname\tlineage\n"
 
         def write_empty(msg):
             with open(str(log[0]), "a") as lf:
@@ -166,42 +150,131 @@ rule diamond_custom_prok:
             Path(str(output.hits)).write_text(header)
             Path(str(output.done)).touch()
 
-        if not params.db or not os.path.exists(str(params.db)):
-            write_empty("[diamond_custom_prok] No custom DB configured -- skipping")
+        if not os.path.exists(str(params.seqtaxdb) + ".dbtype"):
+            write_empty(
+                "[mmseqs_taxonomy_viral] No seqTaxDB at " + str(params.seqtaxdb) +
+                " -- run scripts/prepare_mmseqs_taxdb.py --format inphared once first (see INSTALL.md). Skipping."
+            )
             return
 
-        # Concatenate proteins for every genome unit in the manifest (bins,
-        # or the single contigs_pseudogenome entry when there are no bins) --
-        # _concat_proteins is the same helper amrfinderplus/rgi_card/deeparg
-        # use, defined alongside prok_bin_proteins in prok_binning.smk.
-        if not _concat_proteins(str(input.manifest), params.prok_faa):
-            write_empty("[diamond_custom_prok] No genome-unit proteins found")
+        if not os.path.exists(str(input.faa)) or os.path.getsize(str(input.faa)) == 0:
+            write_empty("[mmseqs_taxonomy_viral] No viral proteins -- skipping")
             return
 
-        Path(str(output.hits)).write_text(header)
+        # mmseqs taxonomy refuses to run if its output DB already exists
+        # ("result.dbtype exists already!") -- happens on any retry after a
+        # previous attempt got partway through (same fix as mmseqs_taxonomy_prok,
+        # confirmed live on litrp4). querydb doesn't need this: createdb's own
+        # message confirms it overwrites an existing one on its own.
+        shell("rm -rf {params.tmp} {params.result}*; mkdir -p {params.tmp}")
+        shell("mmseqs createdb {input.faa} {params.querydb} >> {log} 2>&1")
         shell(
-            "diamond blastp --query {params.prok_faa} --db {params.db} "
-            "--outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore "
-            "--max-target-seqs 1 --evalue 1e-5 --id 50 --query-cover 70 "
-            "--threads {threads} --sensitive --tmpdir /tmp "
-            ">> {output.hits} 2>> {log}"
+            "mmseqs taxonomy {params.querydb} {params.seqtaxdb} {params.result} {params.tmp} "
+            "--threads {threads} --tax-lineage 1 >> {log} 2>&1"
         )
+        shell(
+            "mmseqs createtsv {params.querydb} {params.result} {output.hits}.raw >> {log} 2>&1"
+        )
+        Path(str(output.hits)).write_text(header)
+        if os.path.exists(str(output.hits) + ".raw"):
+            with open(str(output.hits) + ".raw") as f, open(str(output.hits), "a") as out:
+                out.writelines(f)
+            os.remove(str(output.hits) + ".raw")
+        Path(str(output.done)).touch()
+
+
+rule mmseqs_taxonomy_custom_viral:
+    """
+    Optional custom viral MMseqs2 seqTaxDB (e.g. IMG/VR) -- real per-query
+    LCA, same approach as mmseqs_taxonomy_viral but against a user-supplied
+    DB instead of INPHARED. Replaces an earlier diamond_custom_viral
+    best-hit+majority-vote rule entirely (removed 2026-06-23, see memory
+    project_viral_taxonomy_merge).
+
+    Same pattern as mmseqs_taxonomy_prok/mmseqs_taxonomy_viral: the seqTaxDB
+    is NOT built here -- pre-build it once with scripts/prepare_mmseqs_taxdb.py
+    (e.g. --format imgvr, see INSTALL.md). Skipped gracefully if
+    custom_viral_mmseqs_db isn't configured, same as any other optional DB.
+    """
+    input:
+        faa  = rules.prodigal_viral.output.faa,
+        done = rules.prodigal_viral.output.done,
+    output:
+        hits = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_vs_custom.tsv",
+        done = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_custom_viral_done.txt",
+    log:   f"{OUTDIR}/{{sample}}/logs/mmseqs_taxonomy_custom_viral.log"
+    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/mmseqs_taxonomy_custom_viral.tsv"
+    conda: "../envs/env_assembly.yaml"
+    container:  CONTAINERS.get("mmseqs2")
+    threads: THREADS
+    params:
+        seqtaxdb = CUSTOM_VIRAL_MMSEQS_DB,
+        outdir   = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_custom",
+        querydb  = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_custom/queryDB",
+        result   = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_custom/result",
+        tmp      = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_custom/tmp",
+    run:
+        import os
+        from pathlib import Path
+
+        os.makedirs(params.outdir, exist_ok=True)
+        header = "qseqid\ttaxid\trank\tname\tlineage\n"
+
+        def write_empty(msg):
+            with open(str(log[0]), "a") as lf:
+                lf.write(msg + "\n")
+            Path(str(output.hits)).write_text(header)
+            Path(str(output.done)).touch()
+
+        if not params.seqtaxdb or not os.path.exists(str(params.seqtaxdb) + ".dbtype"):
+            write_empty("[mmseqs_taxonomy_custom_viral] No custom_viral_mmseqs_db configured -- skipping")
+            return
+
+        if not os.path.exists(str(input.faa)) or os.path.getsize(str(input.faa)) == 0:
+            write_empty("[mmseqs_taxonomy_custom_viral] No viral proteins -- skipping")
+            return
+
+        # mmseqs taxonomy refuses to run if its output DB already exists --
+        # same lesson as mmseqs_taxonomy_viral/mmseqs_taxonomy_prok.
+        shell("rm -rf {params.tmp} {params.result}*; mkdir -p {params.tmp}")
+        shell("mmseqs createdb {input.faa} {params.querydb} >> {log} 2>&1")
+        shell(
+            "mmseqs taxonomy {params.querydb} {params.seqtaxdb} {params.result} {params.tmp} "
+            "--threads {threads} --tax-lineage 1 >> {log} 2>&1"
+        )
+        shell(
+            "mmseqs createtsv {params.querydb} {params.result} {output.hits}.raw >> {log} 2>&1"
+        )
+        Path(str(output.hits)).write_text(header)
+        if os.path.exists(str(output.hits) + ".raw"):
+            with open(str(output.hits) + ".raw") as f, open(str(output.hits), "a") as out:
+                out.writelines(f)
+            os.remove(str(output.hits) + ".raw")
         Path(str(output.done)).touch()
 
 
 rule mmseqs_taxonomy_prok:
     """
-    Trial alternative to diamond_custom_prok: MMseqs2 `taxonomy` against a
-    custom IMG_NR seqTaxDB (scripts/prepare_mmseqs_taxdb.py) instead of
-    DIAMOND blastp + best-hit/majority-vote. Computes a real lowest-common-
-    ancestor per query across all its hits -- avoids the "spurious
-    specificity" best-hit problem (von Meijenfeldt et al. 2019, CAT/BAT),
-    more relevant here than usual since IMG_NR exists specifically to cover
-    environmental/divergent genomes standard databases under-represent.
+    Primary source for custom prokaryote taxonomy: MMseqs2 `taxonomy`
+    against a custom IMG_NR seqTaxDB (scripts/prepare_mmseqs_taxdb.py)
+    instead of DIAMOND blastp + best-hit/majority-vote. Computes a real
+    lowest-common-ancestor per query across all its hits -- avoids the
+    "spurious specificity" best-hit problem (von Meijenfeldt et al. 2019,
+    CAT/BAT), more relevant here than usual since IMG_NR exists specifically
+    to cover environmental/divergent genomes standard databases
+    under-represent.
 
-    Runs ALONGSIDE diamond_custom_prok (not instead of it) -- not yet wired
-    into the report; inspect taxonomy.tsv directly to compare against the
-    diamond_custom_prok output before deciding whether to cut over.
+    Output (qseqid, taxid, rank, name, lineage) is per-PROTEIN; the report
+    loader (load_mmseqs_taxonomy_prok in scripts/report/data_loaders.py)
+    aggregates to genome level with a second LCA pass across each genome
+    unit's own proteins -- a vote would reintroduce the same problem this
+    rule exists to avoid. Under low_depth_mode the genome unit is each
+    contig individually, not the whole sample's pooled pseudo-genome (see
+    _prok_genome_unit), so taxonomy isn't blended across organisms.
+
+    Replaces diamond_custom_prok entirely (removed) -- custom prokaryote
+    taxonomy now runs exclusively through this rule. Skips gracefully if
+    custom_prok_mmseqs_db isn't configured, same as any other optional DB.
     """
     input:
         manifest = rules.prok_bin_proteins.output.manifest,
@@ -211,7 +284,7 @@ rule mmseqs_taxonomy_prok:
         done = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/done.txt",
     log:   f"{OUTDIR}/{{sample}}/logs/mmseqs_taxonomy_prok.log"
     benchmark: f"{OUTDIR}/{{sample}}/benchmarks/mmseqs_taxonomy_prok.tsv"
-    conda: "../envs/env_mmseqs.yaml"
+    conda: "../envs/env_assembly.yaml"
     container:  CONTAINERS.get("mmseqs2")
     threads: THREADS
     params:
@@ -242,9 +315,6 @@ rule mmseqs_taxonomy_prok:
             write_empty("[mmseqs_taxonomy_prok] No genome-unit proteins found")
             return
 
-        # mmseqs taxonomy refuses to overwrite its own existing result DB
-        # ("result.dbtype exists already!" -- confirmed live on litrp4 on any
-        # retry after a previous attempt got partway through). Clean it too.
         shell("rm -rf {params.tmp} {params.result}*; mkdir -p {params.tmp}")
         shell("mmseqs createdb {params.prok_faa} {params.querydb} >> {log} 2>&1")
         shell(
@@ -265,7 +335,8 @@ rule mmseqs_taxonomy_prok:
 rule vcontact3:
     """
     vConTACT3: protein-sharing network clustering, genus-level.
-    Tier 1 in viral_taxonomy — most specific classification.
+    Generally the most specific source when it resolves (compared by rank
+    depth against other sources in viral_taxonomy, not a fixed priority).
     Only runs on CheckV >= MQ (>= 50% complete) to reduce noise.
     Filtering: scripts/filter_checkv_hq.py (Tier1=MQ+, Tier2=length>=5kb).
     Options: SqRoot metric, 5 iterations, --reduce-memory, family+genus ranks.
@@ -297,7 +368,7 @@ rule vcontact3:
             >> {log} 2>&1
         # Note: filter_checkv_hq.py keeps Complete/HQ/MQ + completeness>=50%
         # Unbinned short contigs (<50% complete) are still classified by
-        # Diamond/INPHARED and GeNomad in rule viral_taxonomy
+        # MMseqs2/INPHARED and GeNomad in rule viral_taxonomy
 
         if [ ! -s {params.hq_fa} ]; then
             echo "[vcontact3] No HQ/MQ genomes — skipping" | tee -a {log}
@@ -346,20 +417,29 @@ rule vcontact3:
 
 rule viral_taxonomy:
     """
-    Merge taxonomy from all three tiers into one table per contig.
-    Priority: vConTACT3 > Diamond/INPHARED > Diamond/Custom > GeNomad.
-    GeNomad lineage parsed to deepest available level as final fallback.
+    Merge taxonomy from all sources into one table per contig.
+    Sources: vConTACT3, MMseqs2/INPHARED (LCA), Diamond/Custom, GeNomad.
+    No fixed source priority -- each source proposes a (family, genus, order)
+    call, and whichever resolves the DEEPEST rank wins per contig (genus >
+    family > order > unclassified). Ties are broken by trust order:
+    vConTACT3 > mmseqs_inphared > diamond_custom > genomad.
+    Why: with a fixed priority, an upstream tier's *shallow* hit would always
+    beat a downstream tier's deeper, better-supported call (e.g. GeNomad
+    resolving to genus) -- see [[project_viral_taxonomy_merge]] memory for
+    the full rationale and how each source's depth is computed. That same
+    memory documents why an earlier Diamond/INPHARED best-hit+majority-vote
+    tier was removed (2026-06-22) in favour of mmseqs_inphared's real LCA.
     Output: viral_taxonomy_merged.tsv
     """
     input:
-        genomad_done   = rules.genomad.output.done,
-        diamond_hits   = rules.diamond_inphared.output.hits,
-        diamond_done   = rules.diamond_inphared.output.done,
-        custom_hits    = rules.diamond_custom_viral.output.hits,
-        custom_done    = rules.diamond_custom_viral.output.done,
-        vcontact3_net  = rules.vcontact3.output.network,
-        vcontact3_done = rules.vcontact3.output.done,
-        viral          = rules.viral_nonredundant.output.fasta,
+        genomad_done    = rules.genomad.output.done,
+        mmseqs_hits     = rules.mmseqs_taxonomy_viral.output.hits,
+        mmseqs_done     = rules.mmseqs_taxonomy_viral.output.done,
+        custom_hits     = rules.diamond_custom_viral.output.hits,
+        custom_done     = rules.diamond_custom_viral.output.done,
+        vcontact3_net   = rules.vcontact3.output.network,
+        vcontact3_done  = rules.vcontact3.output.done,
+        viral           = rules.viral_nonredundant.output.fasta,
     output:
         tsv  = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",
         done = f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",
@@ -369,9 +449,9 @@ rule viral_taxonomy:
     container:  CONTAINERS.get("diamond")
     threads: 1
     params:
-        inphared_db = INPHARED_DB, custom_viral_meta = CUSTOM_VIRAL_META
+        custom_viral_meta = CUSTOM_VIRAL_META
     run:
-        import csv, os, glob, collections
+        import csv, os, glob, collections, re
         from pathlib import Path
 
         lf = open(str(log[0]), "w")
@@ -384,7 +464,7 @@ rule viral_taxonomy:
                     if line.startswith(">"): contigs.append(line[1:].split()[0])
         lf.write(f"Total viral contigs: {len(contigs)}\n")
 
-        # ── Tier 1: vConTACT3 ─────────────────────────────────────────
+        # ── vConTACT3 ─────────────────────────────────────────────────
         vc3_tax = {}
         vc3_path = str(input.vcontact3_net)
         if os.path.exists(vc3_path) and os.path.getsize(vc3_path) > 100:
@@ -422,62 +502,7 @@ rule viral_taxonomy:
                     }
         lf.write(f"vConTACT3: {len(vc3_tax)} genomes\n")
 
-        # ── Tier 2: Diamond/INPHARED ──────────────────────────────────
-        inphared_meta = {}
-        # Accept both *_data.tsv (full) and *_data_excluding_refseq.tsv; prefer full
-        data_files = sorted(glob.glob(os.path.join(str(params.inphared_db), "*_data.tsv")))
-        if not data_files:
-            data_files = sorted(glob.glob(os.path.join(str(params.inphared_db), "*_data_excluding_refseq.tsv")))
-        if data_files:
-            with open(data_files[-1]) as f:
-                for row in csv.DictReader(f, delimiter="\t"):
-                    acc = row.get("Accession","").strip()
-                    if acc:
-                        # Phage name: try common column names across INPHARED versions
-                        pname = (row.get("Phage_name","") or row.get("Name","")
-                                 or row.get("phage_name","") or row.get("Description","") or "").strip()
-                        inphared_meta[acc] = {
-                            "family": row.get("Family",""),
-                            "genus":  row.get("Genus",""),
-                            "order":  row.get("Order",""),
-                            "name":   pname,
-                        }
-        lf.write(f"INPHARED entries: {len(inphared_meta)}\n")
-
-        votes      = collections.defaultdict(collections.Counter)
-        pident     = collections.defaultdict(list)
-        ssci_map   = collections.defaultdict(list)
-        skingd_map = collections.defaultdict(str)
-        dpath  = str(input.diamond_hits)
-        if os.path.exists(dpath) and os.path.getsize(dpath) > 0:
-            with open(dpath) as f:
-                for line in f:
-                    if not line.strip() or line.startswith("qseqid"): continue
-                    cols = line.strip().split("\t")
-                    if len(cols) < 3: continue
-                    contig = "_".join(cols[0].split("_")[:-1]) or cols[0]
-                    acc    = "_".join(cols[1].split("_")[:-1]) or cols[1]
-                    votes[contig][acc] += 1
-                    pident[contig].append(float(cols[2]))
-
-        inphared_tax = {}
-        for contig, v in votes.items():
-            top_acc, top_votes = v.most_common(1)[0]
-            meta = inphared_meta.get(top_acc, {})
-            avg  = sum(pident[contig]) / len(pident[contig])
-            if avg >= 90:   conf = "genus"
-            elif avg >= 50: conf = "family"
-            elif avg >= 30: conf = "order_putative"
-            else:           conf = "unclassified"
-            inphared_tax[contig] = {
-                "family": meta.get("family",""), "genus": meta.get("genus",""),
-                "order":  meta.get("order",""),  "name": meta.get("name",""),
-                "avg_pident": round(avg, 2), "votes": top_votes,
-                "top_acc": top_acc, "confidence": conf,
-            }
-        lf.write(f"Diamond/INPHARED: {len(inphared_tax)} contigs\n")
-
-        # ── Tier 3: Diamond/Custom DB ──────────────────────────────────
+        # ── Diamond/Custom DB ─────────────────────────────────────────
         custom_meta = {}
         if params.custom_viral_meta and os.path.exists(str(params.custom_viral_meta)):
             with open(str(params.custom_viral_meta)) as f:
@@ -524,7 +549,51 @@ rule viral_taxonomy:
                 "sscinames": ";".join(dict.fromkeys(custom_ssci.get(contig, []))),
             }
 
-        # ── Tier 3: GeNomad fallback ──────────────────────────────────
+        # ── MMseqs2/INPHARED (real per-query LCA, see rule mmseqs_taxonomy_viral) ──
+        # mmseqs operates per-PROTEIN; roll up to per-CONTIG by taking the
+        # longest common prefix (a second, contig-level LCA) across that
+        # contig's own already-LCA-resolved protein lineages -- avoids one
+        # well-conserved protein dominating the whole-genome call.
+        RANKS = ['realm', 'kingdom', 'phylum', 'class', 'order', 'family', 'subfamily', 'genus']
+        _RANK_PREFIX = re.compile(r'^[a-z]_')
+        contig_protein_lineages = collections.defaultdict(list)
+        mpath = str(input.mmseqs_hits)
+        if os.path.exists(mpath) and os.path.getsize(mpath) > 0:
+            with open(mpath) as f:
+                for row in csv.DictReader(f, delimiter="\t"):
+                    protein_id = row.get("qseqid", "")
+                    rank       = (row.get("rank") or "").strip()
+                    lineage    = (row.get("lineage") or "").strip()
+                    if not protein_id or not lineage or rank in ("", "no rank", "root"):
+                        continue
+                    contig = "_".join(protein_id.split("_")[:-1]) or protein_id
+                    names = [_RANK_PREFIX.sub("", p).strip() for p in lineage.split(";") if p.strip()]
+                    if names:
+                        contig_protein_lineages[contig].append(names)
+
+        mmseqs_tax = {}
+        for contig, lineages in contig_protein_lineages.items():
+            common = []
+            for level in zip(*lineages):
+                if len(set(level)) == 1:
+                    common.append(level[0])
+                else:
+                    break
+            if not common:
+                continue
+            depth = len(common)
+            mmseqs_tax[contig] = {
+                "order":      common[4] if depth >= 5 else "",
+                "family":     common[5] if depth >= 6 else "",
+                "subfamily":  common[6] if depth >= 7 else "",
+                "genus":      common[7] if depth >= 8 else "",
+                "rank":       RANKS[depth - 1] if depth <= len(RANKS) else RANKS[-1],
+                "lineage":    ";".join(common),
+                "n_proteins": len(lineages),
+            }
+        lf.write(f"MMseqs2/INPHARED: {len(mmseqs_tax)} contigs\n")
+
+        # ── GeNomad ───────────────────────────────────────────────────
         # Path derivado de input.genomad_done (idêntico ao Snakefile funcional)
         genomad_tax = {}
         gdir   = os.path.dirname(str(input.genomad_done))
@@ -565,53 +634,66 @@ rule viral_taxonomy:
         lf.write(f"GeNomad: {len(genomad_tax)} contigs\n")
 
         # ── Build final table ─────────────────────────────────────────
+        # No fixed tier priority: each source proposes (family, genus, order);
+        # whichever resolves the deepest rank wins. Ties broken by trust order
+        # (vcontact3 > mmseqs_inphared > diamond_custom > genomad).
+        _PRIORITY = {"vcontact3": 0, "mmseqs_inphared": 1,
+                     "diamond_custom": 2, "genomad": 3}
+
+        def _depth(genus, family, order):
+            if genus:  return 3
+            if family: return 2
+            if order:  return 1
+            return 0
+
         rows = []; stats = collections.Counter()
         for contig in contigs:
             vc3 = vc3_tax.get(contig, {})
-            iph = inphared_tax.get(contig, {})
+            mms = mmseqs_tax.get(contig, {})
             gmd = genomad_tax.get(contig, {})
+            _c  = custom_tax.get(contig, {})
+
+            candidates = []  # (source, ff, fg, fo, lin, conf, best)
 
             vc3_status = vc3.get("status","").strip()
             if (vc3 and vc3_status in ("Assigned", "Shared") and
                     (vc3.get("family") or vc3.get("genus"))):
-                source = "vcontact3"
                 ff, fg = vc3.get("family",""), vc3.get("genus","")
                 fo     = vc3.get("order","")
-                conf   = vc3_status
-                lin    = ";".join(filter(None, [fo, ff, fg]))
-                best   = fg or ff or fo
+                candidates.append(("vcontact3", ff, fg, fo,
+                                    ";".join(filter(None, [fo, ff, fg])),
+                                    vc3_status, fg or ff or fo))
 
-            elif (iph and iph.get("confidence") not in ("unclassified", "") and
-                  (iph.get("family") or iph.get("genus"))):
-                # Diamond/INPHARED wins only when INPHARED metadata has family or genus.
-                # Hits where INPHARED has no family/genus fall through to GeNomad (tier 4).
-                source = "diamond_inphared"
-                ff, fg = iph.get("family",""), iph.get("genus","")
-                fo     = iph.get("order","")
-                best   = fg or ff or fo
-                lin    = ";".join(filter(None, [fo, ff, fg]))
-                conf   = f"{iph['avg_pident']:.1f}% ({iph['confidence']})"
+            if mms and (mms.get("family") or mms.get("genus") or mms.get("order")):
+                ff, fg, fo = mms.get("family",""), mms.get("genus",""), mms.get("order","")
+                candidates.append(("mmseqs_inphared", ff, fg, fo, mms.get("lineage",""),
+                                    f"{mms.get('rank','')} ({mms.get('n_proteins',0)} proteins)",
+                                    fg or ff or fo))
 
-            elif (contig in custom_tax and
-                  custom_tax[contig].get("confidence") not in ("unclassified", "") and
-                  (custom_tax[contig].get("family") or custom_tax[contig].get("genus"))):
-                _c     = custom_tax[contig]
-                source = "diamond_custom"
+            if (_c.get("confidence") not in ("unclassified", "") and
+                  (_c.get("family") or _c.get("genus"))):
                 ff, fg = _c.get("family",""), _c.get("genus","")
                 fo     = _c.get("order","")
-                best   = fg or ff or fo
-                lin    = ";".join(filter(None, [fo, ff, fg]))
-                conf   = f"{float(_c.get('avg_pident',0) or 0):.1f}% ({_c.get('confidence','')})"
+                candidates.append(("diamond_custom", ff, fg, fo,
+                                    ";".join(filter(None, [fo, ff, fg])),
+                                    f"{float(_c.get('avg_pident',0) or 0):.1f}% ({_c.get('confidence','')})",
+                                    fg or ff or fo))
 
+            if gmd and gmd.get("family"):  # only true family; no class/order via this candidate
+                ff, fg, fo = gmd.get("family",""), gmd.get("genus",""), gmd.get("order","")
+                candidates.append(("genomad", ff, fg, fo, gmd.get("lineage",""),
+                                    f"{gmd['score']:.3f}", gmd.get("best","")))
+
+            if candidates:
+                candidates.sort(key=lambda c: (-_depth(c[2], c[1], c[3]), _PRIORITY[c[0]]))
+                source, ff, fg, fo, lin, conf, best = candidates[0]
             elif gmd:
+                # GeNomad's only signal is class/order/higher -- still better than nothing
                 source = "genomad"
-                ff     = gmd.get("family","")    # true family only; no class/order fallback
-                fg     = gmd.get("genus","")
-                fo     = gmd.get("order","")
-                best   = gmd.get("best","")      # deepest level (may include class/order)
+                ff, fg, fo = "", "", gmd.get("order","")
+                best   = gmd.get("best","")
                 conf   = f"{gmd['score']:.3f}"
                 lin    = gmd.get("lineage","")
-
             else:
                 source = "unclassified"
                 ff = fg = fo = conf = lin = best = ""
@@ -631,11 +713,11 @@ rule viral_taxonomy:
                 "genomad_best":  gmd.get("best",""),
                 "genomad_class": gmd.get("class",""),
                 "genomad_score": gmd.get("score",""),
-                "inphared_pident": iph.get("avg_pident",""),
-                "inphared_votes":  iph.get("votes",""),
-                "inphared_name":   iph.get("name",""),
                 "custom_acc":      custom_tax.get(contig,{}).get("top_acc",""),
                 "custom_pident":   custom_tax.get(contig,{}).get("avg_pident",""),
+                "mmseqs_rank":       mms.get("rank",""),
+                "mmseqs_lineage":    mms.get("lineage",""),
+                "mmseqs_n_proteins": mms.get("n_proteins",""),
             })
 
         lf.write("\nSummary:\n")
@@ -650,8 +732,8 @@ rule viral_taxonomy:
                   "source","confidence","lineage",
                   "vc3_status","vc3_novel_anchor",
                   "genomad_best","genomad_class","genomad_score",
-                  "inphared_pident","inphared_votes","inphared_name",
-                  "custom_acc","custom_pident"]
+                  "custom_acc","custom_pident",
+                  "mmseqs_rank","mmseqs_lineage","mmseqs_n_proteins"]
         with open(str(output.tsv), "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
             w.writeheader(); w.writerows(rows)
