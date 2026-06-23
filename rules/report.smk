@@ -59,6 +59,10 @@ rule generate_report:
         genomad_db       = GENOMAD_DB,
         inphared_db      = INPHARED_DB,
         gtdbtk_db        = GTDBTK_DB,
+        # Same fallback as rule dbapis_viral's params.apis_dir -- the
+        # seed_and_familyrep_all_infor.tsv family->gene/defense-system
+        # mapping lives wherever that rule actually downloaded it.
+        apis_db_dir      = APIS_DB or f"{OUTDIR}/dbapis_db",
     benchmark:
         f"{OUTDIR}/benchmarks/generate_report.tsv"
     script:

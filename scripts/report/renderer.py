@@ -132,7 +132,8 @@ def _build(snakemake):
     defensefinder_data     = load_defensefinder(defensefinder_paths_l, samples)
     antidefensefinder_data = load_antidefensefinder(antidefensefinder_paths_l, samples)
     antidefense_viral_df_data    = load_antidefensefinder_viral(antidefense_viral_paths_l, samples)
-    antidefense_viral_dbapis_data = load_dbapis_viral(dbapis_viral_paths_l, samples)
+    antidefense_viral_dbapis_data = load_dbapis_viral(
+        dbapis_viral_paths_l, samples, getattr(snakemake.params, 'apis_db_dir', ''))
     defense_islands = compute_defense_islands(prok_protein_manifest_l, samples, defensefinder_data)
     amr_data     = load_amrfinder(amrfinder_paths_l, samples) + load_rgi_card(rgi_paths_l, samples)
     deeparg_data = load_deeparg(deeparg_paths_l, samples)

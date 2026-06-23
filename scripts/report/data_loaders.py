@@ -680,7 +680,34 @@ def load_antidefensefinder_viral(paths, samples):
     return records
 
 
-def load_dbapis_viral(paths, samples):
+def _load_apis_family_map(apis_db_dir):
+    """seed_and_familyrep_all_infor.tsv (downloaded by rule dbapis_viral) --
+    one row per APIS family, columns 'APIS families' (e.g. 'APIS001'),
+    'APIS genes' (short characterized gene name, e.g. 'Apyc1'), 'Defense
+    systems' (readable inhibited-defense-system label, e.g. 'pyrimidine
+    cyclase system for antiphage resistance (Pycsar)') -- confirmed against
+    a real download from pro.unl.edu/dbAPIS 2026-06-23. Indexed by BOTH the
+    family ID and the gene name: dbAPIS protein headers (and therefore the
+    'Family' field extracted from sseqid in load_dbapis_viral) use either
+    convention depending on whether that family has a characterized name."""
+    by_key = {}
+    if not apis_db_dir:
+        return by_key
+    path = os.path.join(apis_db_dir, 'seed_and_familyrep_all_infor.tsv')
+    if not os.path.exists(path):
+        return by_key
+    for row in load_tsv(path):
+        fam    = row.get('APIS families', '').strip()
+        gene   = row.get('APIS genes', '').strip()
+        defsys = row.get('Defense systems', '').strip()
+        if not defsys:
+            continue
+        if fam:  by_key[fam] = (gene, defsys)
+        if gene: by_key[gene] = (gene, defsys)
+    return by_key
+
+
+def load_dbapis_viral(paths, samples, apis_db_dir=''):
     """dbAPIS (Yan et al. 2023, NAR) DIAMOND blastp hits on viral proteins
     (rule dbapis_viral). Keeps only the best (lowest e-value) hit per query
     protein. sseqid is pipe-delimited: '{family_or_gene_id}|{IMGVR_UViG_id}|
@@ -688,12 +715,14 @@ def load_dbapis_viral(paths, samples):
     litrp4, e.g. 'AcrIIA7|IMGVR_UViG_3300037418_004174|3300037418|
     Ga0395900_0000476_40112_40693') -- the first field alone is already a
     real, informative name (a dbAPIS family ID like 'APIS331', or a known
-    gene name like 'AcrIIA7' for characterized Acr families), so 'Family'
-    is usable without the separate family_member_infor.tsv mapping file.
-    That file would still add the *inhibited defense-type* label (e.g.
-    'APIS331' -> 'CRISPR-Cas') but its exact column schema is still
-    unconfirmed against a real download -- not joined here, see
-    [[project_defensome_han2026_implementation_plan]]."""
+    gene name like 'AcrIIA7' for characterized Acr families).
+
+    'Gene'/'Defense_system_inhibited' add the readable translation via
+    _load_apis_family_map (seed_and_familyrep_all_infor.tsv) -- e.g.
+    'APIS331' -> gene name + 'restriction-modification system' instead of
+    just the bare family ID. Falls back to the raw Family/empty string if
+    apis_db_dir wasn't configured or the mapping file isn't there yet."""
+    fam_map = _load_apis_family_map(apis_db_dir)
     records = []
     for p, s in zip(paths, samples):
         best = {}
@@ -709,8 +738,11 @@ def load_dbapis_viral(paths, samples):
             if not virus: continue
             sseqid = row.get('sseqid', '')
             family = sseqid.split('|', 1)[0] if sseqid else ''
+            gene, defense_system = fam_map.get(family, ('', ''))
             records.append({'sample': s, 'Virus': virus, 'Protein': qseqid,
-                             'Family': family or sseqid, 'Hit': sseqid, 'Pident': row.get('pident', ''),
+                             'Family': family or sseqid, 'Gene': gene or family or sseqid,
+                             'Defense_system_inhibited': defense_system,
+                             'Hit': sseqid, 'Pident': row.get('pident', ''),
                              'Evalue': row.get('evalue', ''), 'Bitscore': row.get('bitscore', ''),
                              'Source': 'dbAPIS'})
     return records

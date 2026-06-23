@@ -130,11 +130,23 @@
     return new Blob(parts, { type: 'application/pdf' });
   }
 
-  // ── Table → TSV ──────────────────────────────────────────────────────────
-  function tableToTSV(tableEl) {
+  // ── Table → CSV (RFC4180) ─────────────────────────────────────────────────
+  // Excel only auto-splits into columns on double-click/open for .csv --
+  // .tsv requires an explicit Data > From Text/CSV import with Tab chosen
+  // manually (confirmed: Microsoft doesn't register the same automatic
+  // delimited-text recognition for .tsv that .csv gets). Quote any field
+  // containing a comma/quote/newline (doubling internal quotes per
+  // RFC4180) since several report fields are comma-joined multi-value
+  // strings (e.g. "Pegunavirus, Coopervirus") that would otherwise shift
+  // every column after them.
+  function csvEscape(v) {
+    const s = String(v ?? '').replace(/[\n\r]/g, ' ').trim();
+    return /[",]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function tableToCSV(tableEl) {
     return [...tableEl.querySelectorAll('tr')]
-      .map(tr => [...tr.children].map(td => td.textContent.replace(/[\t\n\r]/g, ' ').trim()).join('\t'))
-      .join('\n');
+      .map(tr => [...tr.children].map(td => csvEscape(td.textContent)).join(','))
+      .join('\r\n');
   }
 
   // ── Table → layout / canvas / svg ────────────────────────────────────────
@@ -255,13 +267,13 @@
     const dark = document.documentElement.dataset.theme === 'dark';
     const bg = dark ? '#1e293b' : '#ffffff';
     try {
-      if (fmt === 'TSV') {
+      if (fmt === 'CSV') {
         if (target.type === 'table') {
           // Leading BOM so Excel detects UTF-8 instead of guessing the
           // system codepage -- without it, any non-ASCII char (e.g. the
           // '—' placeholder used for missing values) comes out as
           // mojibake ("â€”") when opened in Excel on Windows.
-          downloadBlob(new Blob(['﻿' + tableToTSV(target.el)], { type: 'text/tab-separated-values' }), `${name}.tsv`);
+          downloadBlob(new Blob(['﻿' + tableToCSV(target.el)], { type: 'text/csv;charset=utf-8' }), `${name}.csv`);
         }
         return;
       }
@@ -329,7 +341,7 @@
   // Attach export toolbars to every chart/table card on the page (idempotent).
   function injectAll() {
     document.querySelectorAll('.chart-card').forEach(card => {
-      const formats = card.querySelector('.table-wrap') ? ['TSV'] : ['PNG', 'SVG', 'PDF'];
+      const formats = card.querySelector('.table-wrap') ? ['CSV'] : ['PNG', 'SVG', 'PDF'];
       attachToolbar(card, () => resolveTarget(card), null, formats);
     });
   }

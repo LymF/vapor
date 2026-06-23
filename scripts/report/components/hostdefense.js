@@ -673,7 +673,13 @@
 
     const allRows = [
       ...df.map(r => ({ ...r, Hit: r.System, Detail: r.System_id })),
-      ...dbapis.map(r => ({ ...r, Hit: r.Family, Detail: `pident=${r.Pident} e=${r.Evalue}` })),
+      // Gene/Defense_system_inhibited come from dbAPIS's own
+      // seed_and_familyrep_all_infor.tsv (family -> gene name + readable
+      // inhibited-system label, e.g. 'APIS331' -> restriction-modification
+      // system) -- falls back to the bare family/gene ID from the hit
+      // itself if that mapping file isn't downloaded yet.
+      ...dbapis.map(r => ({ ...r, Hit: r.Gene,
+        Detail: [r.Defense_system_inhibited, `pident=${r.Pident} e=${r.Evalue}`].filter(Boolean).join(' — ') })),
     ];
     makeTable('viral-antidefense-table', allRows, [
       { key: 'sample', label: 'Sample' },
@@ -809,7 +815,7 @@
       viralAnti.get(key)[label].add(r[nameKey] || '');
     });
     addVirAnti(typeof ANTIDEFENSE_VIRAL_DF !== 'undefined' ? ANTIDEFENSE_VIRAL_DF : [], 'DefenseFinder', 'System');
-    addVirAnti(typeof ANTIDEFENSE_VIRAL_DBAPIS !== 'undefined' ? ANTIDEFENSE_VIRAL_DBAPIS : [], 'dbAPIS', 'Family');
+    addVirAnti(typeof ANTIDEFENSE_VIRAL_DBAPIS !== 'undefined' ? ANTIDEFENSE_VIRAL_DBAPIS : [], 'dbAPIS', 'Gene');
 
     const isAll = sample === '__all__';
     const rows = (isAll ? all : all.filter(r => r.sample === sample)).map(r => {

@@ -631,7 +631,12 @@ setup on **viral** proteins (`rule defensefinder_viral`, gated by
 
 Yan, Y., Zheng, J., Zhang, X., & Yin, Y. (2023). *dbAPIS: a database of
 anti-prokaryotic immune system genes*. Nucleic Acids Research.
-https://doi.org/10.1093/nar/gkad932 — https://bcb.unl.edu/dbAPIS
+https://doi.org/10.1093/nar/gkad932 — https://pro.unl.edu/dbAPIS
+(moved from the old bcb.unl.edu host; bcb.unl.edu now 302-redirects to the
+bare /dbAPIS homepage instead of the requested file, so any old direct
+bcb.unl.edu/dbAPIS/downloads/<file> URL silently fetches an HTML page
+instead of the real file — confirmed 2026-06-23. Use pro.unl.edu's
+`download_file.php?file=<name>` endpoint instead.)
 
 `rule dbapis_viral` (`rules/defense_amr.smk`) runs DIAMOND blastp (already a
 pipeline dependency, no new tool) against dbAPIS's curated anti-defense
@@ -648,7 +653,14 @@ and cached on first run, same pattern as `card_db`/`deeparg_db`:
 
 ```bash
 mkdir -p "$DB_BASE/dbapis"
-wget -O "$DB_BASE/dbapis/anti_defense.pep" https://bcb.unl.edu/dbAPIS/downloads/anti_defense.pep
+wget -O "$DB_BASE/dbapis/anti_defense.pep" \
+    "https://pro.unl.edu/dbAPIS/download_file.php?file=anti_defense.pep"
+# Family -> (gene name, inhibited defense-system) mapping, one row per
+# APIS family -- used by the report to translate bare family IDs like
+# "APIS331" into a readable label (see load_dbapis_viral in
+# scripts/report/data_loaders.py).
+wget -O "$DB_BASE/dbapis/seed_and_familyrep_all_infor.tsv" \
+    "https://pro.unl.edu/dbAPIS/download_file.php?file=seed_and_familyrep_all_infor.tsv"
 conda activate env_viral   # has diamond
 diamond makedb --in "$DB_BASE/dbapis/anti_defense.pep" -d "$DB_BASE/dbapis/APIS_db"
 conda deactivate
@@ -664,12 +676,6 @@ first run instead — fine for a single-machine setup, but pre-fetching into a
 shared path (like the example above) avoids re-downloading per output
 directory. Gated by `defense_amr_viral_enabled` in `config.yaml` (default:
 enabled).
-
-> The family→inhibited-defense-type mapping file (`family_member_infor.tsv`)
-> is downloaded by the rule but not yet joined into the report table — its
-> exact column schema hasn't been confirmed against a real download yet.
-> Today the report shows the matched dbAPIS protein ID (`sseqid`) instead of
-> a friendly defense-type label; this is a planned follow-up, not a bug.
 
 ---
 

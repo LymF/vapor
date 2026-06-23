@@ -283,8 +283,13 @@ rule defensefinder_viral:
 rule dbapis_viral:
     """
     Anti-defense systems on VIRAL proteins via dbAPIS (Yan et al. 2023, NAR
-    -- bcb.unl.edu/dbAPIS), DIAMOND blastp only (no HMMER pass -- keeps this
-    lightweight, matches the DIAMOND command from the dbAPIS README).
+    -- pro.unl.edu/dbAPIS, moved from the old bcb.unl.edu host; bcb.unl.edu
+    now 302-redirects to the bare /dbAPIS homepage instead of the requested
+    file, so the old direct /downloads/<file> URLs would have silently
+    saved an HTML page as if it were the .pep/.tsv -- confirmed live by
+    fetching both old and new URLs), DIAMOND blastp only (no HMMER pass --
+    keeps this lightweight, matches the DIAMOND command from the dbAPIS
+    README).
     Sequence-similarity-based (no genetic-architecture rule), unlike
     DefenseFinder/MacSyFinder -- complementary detector for single scattered
     anti-defense genes in small phage genomes, kept separate and never
@@ -292,6 +297,15 @@ rule dbapis_viral:
     curated/exploratory, see module docstring).
     DB is tiny (~4.4k curated proteins, a few MB) -- downloaded once into a
     shared cache dir, same auto-populate pattern as card_db/deeparg_db.
+
+    Also downloads seed_and_familyrep_all_infor.tsv -- one row per APIS
+    family (APIS001, APIS002, ...) with a short characterized gene name
+    ("APIS genes", e.g. "Apyc1") and a readable inhibited-defense-system
+    label ("Defense systems", e.g. "pyrimidine cyclase system for
+    antiphage resistance (Pycsar)") -- confirmed against a real download
+    2026-06-23. Used by load_dbapis_viral (scripts/report/data_loaders.py)
+    to translate the bare family/gene ID a dbAPIS hit reports into that
+    readable gene name + defense-system label.
     """
     input:
         faa  = rules.prodigal_viral.output.faa,
@@ -327,13 +341,14 @@ rule dbapis_viral:
         if [ ! -s "$APIS_DIR/APIS_db.dmnd" ]; then
             echo "[dbapis_viral] Building dbAPIS Diamond DB in $APIS_DIR" | tee -a {log}
             wget -q -O "$APIS_DIR/anti_defense.pep" \
-                https://bcb.unl.edu/dbAPIS/downloads/anti_defense.pep \
+                "https://pro.unl.edu/dbAPIS/download_file.php?file=anti_defense.pep" \
                 >> {log} 2>&1 || echo "[dbapis_viral] WARNING: wget anti_defense.pep failed" >> {log}
-            # Family -> inhibited defense-type mapping (current file per dbAPIS
-            # changelog; seed_family_mapping.tsv was deprecated 2024-11-19).
-            wget -q -O "$APIS_DIR/family_member_infor.tsv" \
-                https://bcb.unl.edu/dbAPIS/downloads/family_member_infor.tsv \
-                >> {log} 2>&1 || echo "[dbapis_viral] WARNING: wget family_member_infor.tsv failed (mapping disabled, family IDs still reported)" >> {log}
+            # Family -> (gene name, inhibited defense-type) mapping, one row
+            # per APIS family -- confirmed against a real download 2026-06-23
+            # (columns: "APIS families", "APIS genes", "Defense systems", ...).
+            wget -q -O "$APIS_DIR/seed_and_familyrep_all_infor.tsv" \
+                "https://pro.unl.edu/dbAPIS/download_file.php?file=seed_and_familyrep_all_infor.tsv" \
+                >> {log} 2>&1 || echo "[dbapis_viral] WARNING: wget seed_and_familyrep_all_infor.tsv failed (mapping disabled, family IDs still reported)" >> {log}
             if [ -s "$APIS_DIR/anti_defense.pep" ]; then
                 diamond makedb --in "$APIS_DIR/anti_defense.pep" -d "$APIS_DIR/APIS_db" >> {log} 2>&1
             fi
