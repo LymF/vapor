@@ -242,7 +242,10 @@ rule mmseqs_taxonomy_prok:
             write_empty("[mmseqs_taxonomy_prok] No genome-unit proteins found")
             return
 
-        shell("rm -rf {params.tmp}; mkdir -p {params.tmp}")
+        # mmseqs taxonomy refuses to overwrite its own existing result DB
+        # ("result.dbtype exists already!" -- confirmed live on litrp4 on any
+        # retry after a previous attempt got partway through). Clean it too.
+        shell("rm -rf {params.tmp} {params.result}*; mkdir -p {params.tmp}")
         shell("mmseqs createdb {params.prok_faa} {params.querydb} >> {log} 2>&1")
         shell(
             "mmseqs taxonomy {params.querydb} {params.seqtaxdb} {params.result} {params.tmp} "
