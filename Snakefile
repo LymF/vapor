@@ -400,7 +400,6 @@ rule all:
 
         # ── Taxonomy + host prediction ────────────────────────────────
         expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",           sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/custom_viral_done.txt",       sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/done.txt",         sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/done.txt",                   sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/viral/phist/done.txt",                       sample=SAMPLES),
