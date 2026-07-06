@@ -3,25 +3,44 @@
 #
 # Cria estrutura limpa em {sample}/final/:
 #
+#   final/assembly/
+#     quast_report.tsv              — assembly quality metrics (QUAST)
+#
 #   final/viral/
-#     viral_consensus.fasta       — contigs virais confirmados
-#     checkv_quality.tsv          — qualidade CheckV
-#     viral_bins/                 — vMAGs do vRhyme
+#     viral_consensus.fasta         — contigs virais confirmados (multi-tool)
+#     viral_nonredundant.fasta      — deduplicados (95% ANI)
+#     checkv_quality.tsv            — qualidade/completude CheckV
+#     viral_bins/                   — vMAGs do vRhyme
 #     taxonomy/
-#       viral_taxonomy_merged.tsv — taxonomia 3-tier
-#       vcontact3_clusters.tsv    — clusters vConTACT3
+#       viral_taxonomy_merged.tsv   — taxonomia 3-tier (MMseqs2/GeNomad/INPHARED)
+#       vcontact3_clusters.tsv      — clusters vConTACT3
 #     host_prediction/
-#       phist_results.tsv
+#       phist_results.tsv           — predição hospedeiro (PHIST)
+#     defense_amr/
+#       viral_defense_systems.tsv   — sistemas de defesa em ORFs virais (DefenseFinder)
+#       viral_antidefense_systems.tsv — anti-defesa em ORFs virais (AntiDefenseFinder)
+#       dbapis_hits.tsv             — anti-defesa (dbAPIS Diamond)
 #
 #   final/bins/
-#     bacteria/                   — MAGs classificados como Bactéria
-#     archaea/                    — MAGs classificados como Archaea
-#     unclassified/               — MAGs sem domínio definido
+#     bacteria/                     — MAGs Bacteria (GTDB-Tk)
+#     archaea/                      — MAGs Archaea (GTDB-Tk)
+#     unclassified/                 — MAGs sem domínio definido
+#     all_bins_checkm2.tsv          — qualidade CheckM2 todos os bins
+#     binette_quality.tsv           — sumário Binette (dereplication)
 #     taxonomy/
 #       gtdbtk_bacteria.tsv
 #       gtdbtk_archaea.tsv
-#     all_bins_checkm2.tsv
-#     binette_quality.tsv
+#       mmseqs_taxonomy_prok.tsv    — taxonomia LCA (MMseqs2)
+#     defense_amr/
+#       defensefinder_systems.tsv   — sistemas de defesa anti-fago (DefenseFinder)
+#       antidefensefinder_systems.tsv — sistemas anti-defesa em bins
+#       amrfinder_results.tsv       — AMR curado (AMRFinderPlus/NCBI)
+#       rgi_results.tsv             — AMR curado (RGI/CARD)
+#       deeparg_results.tsv         — AMR exploratório (DeepARG)
+#       vfdb_results.tsv            — fatores de virulência (ABRicate/VFDB)
+#       plasmidfinder_results.tsv   — replicons plasmidiais (ABRicate/PlasmidFinder)
+#       amrfinderplus_normed.tsv    — AMRFinderPlus normalizado ARO (argNorm)
+#       deeparg_normed.tsv          — DeepARG normalizado ARO (argNorm)
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -84,20 +103,42 @@ rule aggregate_benchmarks:
 rule organize_outputs:
     """
     Classifica bins por domínio usando GTDB-Tk (fallback: CheckM2 lineage).
-    Copia outputs virais e metagenômicos para final/ com estrutura limpa.
+    Copia outputs virais, metagenômicos, defense/AMR e assembly para final/
+    com estrutura limpa.
     """
     input:
-        checkm2  = rules.checkm2.output.report,
-        checkv   = rules.checkv.output.summary,
-        viral    = rules.viral_consensus.output.fasta,
-        viral_nr = rules.viral_nonredundant.output.fasta,
-        vrhyme   = rules.vrhyme.output.done,
-        gtdbtk_b = rules.gtdbtk.output.bac_tsv,
-        gtdbtk_a = rules.gtdbtk.output.ar_tsv,
-        phist    = rules.phist.output.results,
-        taxonomy  = rules.viral_taxonomy.output.tsv,
-        vcontact3 = rules.vcontact3.output.network,
-        binette  = rules.binette.output.summary,
+        # Assembly
+        quast        = rules.quast.output.report,
+        # Viral core
+        checkm2      = rules.checkm2.output.report,
+        checkv       = rules.checkv.output.summary,
+        viral        = rules.viral_consensus.output.fasta,
+        viral_nr     = rules.viral_nonredundant.output.fasta,
+        vrhyme       = rules.vrhyme.output.done,
+        # Viral taxonomy + host
+        taxonomy     = rules.viral_taxonomy.output.tsv,
+        vcontact3    = rules.vcontact3.output.network,
+        phist        = rules.phist.output.results,
+        # Viral defense/anti-defense
+        vdef         = rules.defensefinder_viral.output.systems,
+        vantidef     = rules.defensefinder_viral.output.antisystems,
+        dbapis       = rules.dbapis_viral.output.hits,
+        # Prok bins
+        gtdbtk_b     = rules.gtdbtk.output.bac_tsv,
+        gtdbtk_a     = rules.gtdbtk.output.ar_tsv,
+        binette      = rules.binette.output.summary,
+        mmseqs_prok  = rules.mmseqs_taxonomy_prok.output.hits,
+        # Prok defense/anti-defense
+        pdef         = rules.defensefinder.output.systems,
+        pantidef     = rules.defensefinder.output.antisystems,
+        # Prok AMR
+        amrfinder    = rules.amrfinderplus.output.results,
+        rgi          = rules.rgi_card.output.results,
+        deeparg      = rules.deeparg.output.results,
+        vfdb         = rules.abricate.output.vfdb,
+        plasmidfind  = rules.abricate.output.plasmidfinder,
+        amf_normed   = rules.argnorm_normalize.output.amrfinder_normed,
+        deeparg_norm = rules.argnorm_normalize.output.deeparg_normed,
     output:
         done = f"{OUTDIR}/{{sample}}/final/done.txt",
     log:
@@ -112,42 +153,52 @@ rule organize_outputs:
         s     = params.s
         final = f"{s}/final"
 
-        for d in [f"{final}/viral/viral_bins",
-                  f"{final}/viral/taxonomy",
-                  f"{final}/viral/host_prediction",
-                  f"{final}/bins/bacteria",
-                  f"{final}/bins/archaea",
-                  f"{final}/bins/unclassified",
-                  f"{final}/bins/taxonomy"]:
+        for d in [
+            f"{final}/assembly",
+            f"{final}/viral/viral_bins",
+            f"{final}/viral/taxonomy",
+            f"{final}/viral/host_prediction",
+            f"{final}/viral/defense_amr",
+            f"{final}/bins/bacteria",
+            f"{final}/bins/archaea",
+            f"{final}/bins/unclassified",
+            f"{final}/bins/taxonomy",
+            f"{final}/bins/defense_amr",
+        ]:
             os.makedirs(d, exist_ok=True)
+
+        def cp(src, dst):
+            if os.path.exists(str(src)):
+                shutil.copy(str(src), dst)
 
         with open(log[0], "w") as lf:
 
-            # ── Viral outputs ──────────────────────────────────────────
-            shutil.copy(input.viral,    f"{final}/viral/viral_consensus.fasta")
-            shutil.copy(input.viral_nr, f"{final}/viral/viral_nonredundant.fasta")
-            shutil.copy(input.checkv,   f"{final}/viral/checkv_quality.tsv")
+            # ── Assembly ───────────────────────────────────────────────
+            cp(input.quast, f"{final}/assembly/quast_report.tsv")
 
-            # vRhyme bins
+            # ── Viral core ────────────────────────────────────────────
+            cp(input.viral,    f"{final}/viral/viral_consensus.fasta")
+            cp(input.viral_nr, f"{final}/viral/viral_nonredundant.fasta")
+            cp(input.checkv,   f"{final}/viral/checkv_quality.tsv")
+
             vrhyme_bins = glob.glob(f"{s}/bins/vrhyme/vRhyme_best_bins.*.fasta")
             for bf in vrhyme_bins:
                 shutil.copy(bf, f"{final}/viral/viral_bins/")
             lf.write(f"vRhyme bins: {len(vrhyme_bins)}\n")
 
-            # Viral taxonomy (3-tier: vConTACT3 > INPHARED > GeNomad)
-            if os.path.exists(str(input.taxonomy)):
-                shutil.copy(input.taxonomy, f"{final}/viral/taxonomy/viral_taxonomy_merged.tsv")
-            if os.path.exists(str(input.vcontact3)):
-                shutil.copy(input.vcontact3, f"{final}/viral/taxonomy/vcontact3_clusters.tsv")
+            # ── Viral taxonomy + host ─────────────────────────────────
+            cp(input.taxonomy,  f"{final}/viral/taxonomy/viral_taxonomy_merged.tsv")
+            cp(input.vcontact3, f"{final}/viral/taxonomy/vcontact3_clusters.tsv")
+            cp(input.phist,     f"{final}/viral/host_prediction/phist_results.tsv")
 
-            # Host predictions
-            if os.path.exists(str(input.phist)):
-                shutil.copy(input.phist, f"{final}/viral/host_prediction/phist_results.tsv")
+            # ── Viral defense / anti-defense ──────────────────────────
+            cp(input.vdef,    f"{final}/viral/defense_amr/viral_defense_systems.tsv")
+            cp(input.vantidef, f"{final}/viral/defense_amr/viral_antidefense_systems.tsv")
+            cp(input.dbapis,  f"{final}/viral/defense_amr/dbapis_hits.tsv")
 
             # ── Prokaryotic bins — classify with GTDB-Tk ──────────────
             archaea_bins, bacteria_bins = set(), set()
 
-            # Parse GTDB-Tk bacteria summary
             for tsv_path in [str(input.gtdbtk_b), str(input.gtdbtk_a)]:
                 is_arc = 'ar53' in tsv_path or 'ar_tsv' in tsv_path
                 if not os.path.exists(tsv_path):
@@ -184,7 +235,6 @@ rule organize_outputs:
 
             lf.write(f"GTDB-Tk — Bacteria: {len(bacteria_bins)}, Archaea: {len(archaea_bins)}\n")
 
-            # Copy Binette bins to final/
             copied = {'bacteria': 0, 'archaea': 0, 'unclassified': 0}
             bins_dir = f"{s}/bins/binette/final_bins"
             for bf in glob.glob(f"{bins_dir}/*.fa"):
@@ -196,14 +246,27 @@ rule organize_outputs:
                 else:
                     shutil.copy(bf, f"{final}/bins/unclassified/"); copied['unclassified'] += 1
 
-            # Copy QC/taxonomy tables
-            shutil.copy(str(input.checkm2),  f"{final}/bins/all_bins_checkm2.tsv")
-            shutil.copy(str(input.binette),  f"{final}/bins/binette_quality.tsv")
-            if os.path.exists(str(input.gtdbtk_b)):
-                shutil.copy(str(input.gtdbtk_b), f"{final}/bins/taxonomy/gtdbtk_bacteria.tsv")
-            if os.path.exists(str(input.gtdbtk_a)):
-                shutil.copy(str(input.gtdbtk_a), f"{final}/bins/taxonomy/gtdbtk_archaea.tsv")
             lf.write(f"Bins copied: {copied}\n")
+
+            # ── Prok QC + taxonomy ────────────────────────────────────
+            cp(input.checkm2,     f"{final}/bins/all_bins_checkm2.tsv")
+            cp(input.binette,     f"{final}/bins/binette_quality.tsv")
+            cp(input.gtdbtk_b,    f"{final}/bins/taxonomy/gtdbtk_bacteria.tsv")
+            cp(input.gtdbtk_a,    f"{final}/bins/taxonomy/gtdbtk_archaea.tsv")
+            cp(input.mmseqs_prok, f"{final}/bins/taxonomy/mmseqs_taxonomy_prok.tsv")
+
+            # ── Prok defense / anti-defense ───────────────────────────
+            cp(input.pdef,    f"{final}/bins/defense_amr/defensefinder_systems.tsv")
+            cp(input.pantidef, f"{final}/bins/defense_amr/antidefensefinder_systems.tsv")
+
+            # ── Prok AMR ──────────────────────────────────────────────
+            cp(input.amrfinder,    f"{final}/bins/defense_amr/amrfinder_results.tsv")
+            cp(input.rgi,          f"{final}/bins/defense_amr/rgi_results.tsv")
+            cp(input.deeparg,      f"{final}/bins/defense_amr/deeparg_results.tsv")
+            cp(input.vfdb,         f"{final}/bins/defense_amr/vfdb_results.tsv")
+            cp(input.plasmidfind,  f"{final}/bins/defense_amr/plasmidfinder_results.tsv")
+            cp(input.amf_normed,   f"{final}/bins/defense_amr/amrfinderplus_normed.tsv")
+            cp(input.deeparg_norm, f"{final}/bins/defense_amr/deeparg_normed.tsv")
 
         with open(output.done, 'w') as f:
             f.write('ok\n')

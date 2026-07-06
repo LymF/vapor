@@ -58,6 +58,7 @@ rule cobra_megahit:
         all_contigs = f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta",
         query       = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_consensus.fasta",
         coverage    = f"{OUTDIR}/{{sample}}/cobra/coverage.tsv",
+        bam         = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
         bwa_done    = (f"{OUTDIR}/{{sample}}/mapping/bwa_mem_done.txt"
                        if not LONG_READS else []),
     output:
@@ -79,6 +80,7 @@ rule cobra_megahit:
         cobra-meta \
             -f {input.all_contigs} \
             -q {input.query} \
+            -m {input.bam} \
             -c {input.coverage} \
             -a megahit \
             -mink {params.mink} \
@@ -100,6 +102,7 @@ rule cobra_spades:
         all_contigs = f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta",
         query       = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_consensus.fasta",
         coverage    = f"{OUTDIR}/{{sample}}/cobra/coverage.tsv",
+        bam         = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
         bwa_done    = (f"{OUTDIR}/{{sample}}/mapping/bwa_mem_done.txt"
                        if not LONG_READS else []),
     output:
@@ -121,6 +124,7 @@ rule cobra_spades:
         cobra-meta \
             -f {input.all_contigs} \
             -q {input.query} \
+            -m {input.bam} \
             -c {input.coverage} \
             -a metaspades \
             -mink {params.mink} \
