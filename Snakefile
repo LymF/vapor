@@ -90,6 +90,7 @@ FASTQ_DIR            = _expand(config["fastq_dir"])
 OUTDIR               = _expand(config["outdir"])
 THREADS              = config["threads"]
 
+USE_SPADES           = config.get("use_spades", True)
 SPADES_MEM           = config["spades_mem"]
 SPADES_KMERS         = config["spades_kmers"]
 SPADES_KMER_LIST     = config["spades_kmer_list"]

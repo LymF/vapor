@@ -90,8 +90,15 @@ rule metaspades:
         outdir     = f"{OUTDIR}/{{sample}}/assembly/metaspades",
         kmers      = f"-k {SPADES_KMER_LIST}" if SPADES_KMERS == "custom" else "",
         single_end = SINGLE_END,
+        use_spades = USE_SPADES,
     shell:
         """
+        if [ "{params.use_spades}" = "False" ]; then
+            echo "[metaspades] Skipped — use_spades=false in config" | tee {log}
+            mkdir -p {params.outdir}
+            touch {output.contigs} {output.graph}
+            exit 0
+        fi
         if [ "{params.single_end}" = "True" ]; then
             spades.py \
                 -s {input.tr1} \
