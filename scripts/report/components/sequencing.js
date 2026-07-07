@@ -182,12 +182,16 @@
     const asmStages = ['MEGAHIT', 'metaSPAdes', 'metaviralSPAdes', 'merged_filtered', 'deduplicated'];
     const metrics   = ['N50', 'Total length', '# contigs'];
 
-    // Assembly progression per sample, grouped by stage
+    // Assembly progression per sample, grouped by stage. Stages are ORDINAL
+    // (each is a later step of the same pipeline, not an unrelated
+    // category) -- a single-hue light->dark ramp reads as progression;
+    // 5 arbitrary categorical hues would not.
+    const asmRamp = ordinalRamp(asmStages.length);
     const progSeries = asmStages.map((stage, i) => ({
       name: stage,
       type: 'bar',
       data: samples.map(s => +(quast[s]?.[stage]?.['N50'] || 0)),
-      color: PAL[i % PAL.length],
+      color: asmRamp[i],
     }));
 
     mkChart('seq-asm-prog-chart', {

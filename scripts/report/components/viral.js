@@ -94,33 +94,38 @@
       }));
       return counts;
     }
+    // Quality tiers are an ORDINAL good->bad ladder (Complete > HQ > MQ > LQ
+    // > Not-determined), and each card is really one distribution being
+    // read as a composition -- a 100%-stacked horizontal bar (one row) lets
+    // the reader compare segment widths directly and shares the same
+    // baseline the MIMAG HQ/MQ/LQ bar (overview.js) already uses, instead
+    // of asking them to eyeball two separate pie wedges/areas side by side.
+    function _checkvBarOption(title, counts) {
+      const total = cvCats.reduce((a, c) => a + (counts[c] || 0), 0) || 1;
+      return {
+        title: { text: title },
+        tooltip: { trigger: 'item', formatter: p => `${p.seriesName}: ${p.value} (${(p.value / total * 100).toFixed(1)}%)` },
+        legend: { top: 26 },
+        grid: { top: 58, bottom: 20, left: 10, right: 10, containLabel: true },
+        xAxis: { type: 'value', show: false },
+        yAxis: { type: 'category', data: [''], axisLine: { show: false }, axisTick: { show: false } },
+        series: cvCats.map((c, i) => ({
+          name: c, type: 'bar', stack: 'q', barWidth: 46,
+          itemStyle: { color: cvCols[i] },
+          label: { show: true, formatter: p => p.value > 0 ? p.value : '', color: '#fff', fontSize: 11 },
+          data: [counts[c] || 0],
+        })),
+      };
+    }
+
     function _renderCheckvDonuts(sel) {
       const sampleList = sel === ALL ? samples : [sel];
       const label = sel === ALL ? 'all samples' : sel;
 
-      const counts = _checkvCounts(cv, sampleList);
-      mkChart('vir-checkv-pie-chart', {
-        title: { text: `CheckV — Consensus Contigs Quality (${label})` },
-        tooltip: { trigger: 'item', formatter: p => `${p.name}: ${p.value} (${p.percent.toFixed(1)}%)` },
-        legend: { orient: 'vertical', left: 'left', top: 'middle' },
-        series: [{
-          type: 'pie', radius: ['40%', '70%'],
-          data: cvCats.map((c, i) => ({ value: counts[c] || 0, name: c, itemStyle: { color: cvCols[i] } })),
-          label: { formatter: '{b}: {c}' },
-        }],
-      });
-
-      const countsVrh = _checkvCounts(cvr, sampleList);
-      mkChart('vir-checkv-pie-vrh-chart', {
-        title: { text: `CheckV — vRhyme vMAGs Quality (${label})` },
-        tooltip: { trigger: 'item', formatter: p => `${p.name}: ${p.value} (${p.percent.toFixed(1)}%)` },
-        legend: { orient: 'vertical', left: 'left', top: 'middle' },
-        series: [{
-          type: 'pie', radius: ['40%', '70%'],
-          data: cvCats.map((c, i) => ({ value: countsVrh[c] || 0, name: c, itemStyle: { color: cvCols[i] } })),
-          label: { formatter: '{b}: {c}' },
-        }],
-      });
+      mkChart('vir-checkv-pie-chart', _checkvBarOption(
+        `CheckV — Consensus Contigs Quality (${label})`, _checkvCounts(cv, sampleList)));
+      mkChart('vir-checkv-pie-vrh-chart', _checkvBarOption(
+        `CheckV — vRhyme vMAGs Quality (${label})`, _checkvCounts(cvr, sampleList)));
     }
 
     const checkvSel = document.getElementById('sample-sel-vir-checkv');
@@ -357,7 +362,13 @@
   function _renderLifestyle(samples) {
     const ls = typeof LIFESTYLE !== 'undefined' ? LIFESTYLE : {};
     const labels = ['Lytic', 'Lysogenic', 'Unknown'];
-    const cols   = ['#ef4444', '#7c3aed', '#64748b'];
+    // Lytic/lysogenic is a categorical biological classification, not a
+    // good/bad status axis -- red (PAL[7]) means "low quality/problem"
+    // everywhere else in this report (CheckV, CheckM2, MIMAG), so using it
+    // here would mislead a reader skimming tabs into reading "Lytic" as the
+    // concerning outcome. PAL[3]/PAL[2] are plain categorical identity;
+    // PAL_MUTED for the true "don't know" bucket.
+    const cols = [PAL[3], PAL[2], PAL_MUTED];
 
     const series = labels.map((l, i) => ({
       name: l, type: 'bar', stack: 'ls', color: cols[i],

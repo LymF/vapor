@@ -35,46 +35,54 @@
     const eggnog = typeof EGGNOG_DATA !== 'undefined' ? EGGNOG_DATA : {};
     const phrogs = typeof PHROGS_DATA !== 'undefined' ? PHROGS_DATA : {};
 
-    // COG categories — collect all categories across samples
-    const cogCatSet = new Set();
-    samples.forEach(s => Object.keys(eggnog[s] || {}).forEach(c => cogCatSet.add(c)));
-    const cogCats = [...cogCatSet].sort();
+    // COG categories — EggNOG can report ~20 functional letters, well past
+    // the validated 8-hue budget. Fold to the top 7 by total count across
+    // samples + one "Other" bucket instead of cycling PAL past slot 8
+    // (a validated 15-slot extension was tried and failed the CVD/chroma
+    // checks — see window.PAL in app.js).
+    const cogTotals = {};
+    samples.forEach(s => Object.entries(eggnog[s] || {}).forEach(([c, v]) => { cogTotals[c] = (cogTotals[c] || 0) + v; }));
+    const cogTop = foldOther(cogTotals, 7).map(d => d[0]);
 
-    const cogSeries = cogCats.map((cat, i) => ({
+    const cogSeries = cogTop.map((cat, i) => ({
       name:  cat,
       type:  'bar',
       stack: 'cog',
-      color: PAL[i % PAL.length],
-      data:  samples.map(s => (eggnog[s] || {})[cat] || 0),
+      color: cat === 'Other' ? PAL_MUTED : PAL[i % PAL.length],
+      data:  samples.map(s => cat === 'Other'
+        ? Object.entries(eggnog[s] || {}).reduce((a, [c, v]) => a + (cogTop.includes(c) ? 0 : v), 0)
+        : (eggnog[s] || {})[cat] || 0),
     }));
 
     mkChart('ann-cog-chart', {
       title:   { text: 'COG Functional Categories (EggNOG-mapper)' },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend:  { type: 'scroll', data: cogCats, top: 'bottom' },
+      legend:  { type: 'scroll', data: cogTop, top: 'bottom' },
       xAxis:   { type: 'category', data: samples, axisLabel: { rotate: 30 } },
       yAxis:   { type: 'value', name: 'Gene count' },
       series:  cogSeries,
       grid:    { bottom: 90 },
     });
 
-    // PHROGS categories
-    const phrogsCatSet = new Set();
-    samples.forEach(s => Object.keys(phrogs[s] || {}).forEach(c => phrogsCatSet.add(c)));
-    const phrogsCats = [...phrogsCatSet].sort();
+    // PHROGS categories — same fold-to-top-7+Other treatment as COG above.
+    const phrogsTotals = {};
+    samples.forEach(s => Object.entries(phrogs[s] || {}).forEach(([c, v]) => { phrogsTotals[c] = (phrogsTotals[c] || 0) + v; }));
+    const phrogsTop = foldOther(phrogsTotals, 7).map(d => d[0]);
 
-    const phrogsSeries = phrogsCats.map((cat, i) => ({
+    const phrogsSeries = phrogsTop.map((cat, i) => ({
       name:  cat,
       type:  'bar',
       stack: 'ph',
-      color: PAL[i % PAL.length],
-      data:  samples.map(s => (phrogs[s] || {})[cat] || 0),
+      color: cat === 'Other' ? PAL_MUTED : PAL[i % PAL.length],
+      data:  samples.map(s => cat === 'Other'
+        ? Object.entries(phrogs[s] || {}).reduce((a, [c, v]) => a + (phrogsTop.includes(c) ? 0 : v), 0)
+        : (phrogs[s] || {})[cat] || 0),
     }));
 
     mkChart('ann-phrogs-chart', {
       title:   { text: 'PHROGS Functional Categories (Pharokka)' },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend:  { type: 'scroll', data: phrogsCats, top: 'bottom' },
+      legend:  { type: 'scroll', data: phrogsTop, top: 'bottom' },
       xAxis:   { type: 'category', data: samples, axisLabel: { rotate: 30 } },
       yAxis:   { type: 'value', name: 'Gene count' },
       series:  phrogsSeries,

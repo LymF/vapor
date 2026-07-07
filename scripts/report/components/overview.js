@@ -114,6 +114,18 @@
     const avgViral = viralVals.reduce((a,b) => a+b, 0) / n;
     const avgMAG   = magVals.reduce((a,b) => a+b, 0) / n;
 
+    // Pipeline stages are ORDINAL (each stage is a narrower subset of the
+    // one before it) -- a single-hue light->dark ramp reads as "funneling
+    // down" at a glance; 5 unrelated categorical hues would read as 5
+    // disconnected categories instead of one narrowing sequence.
+    const funnelRamp = ordinalRamp(5);
+    const funnelStages = [
+      { name: 'Raw reads',   value: Math.round(avgRaw) },
+      { name: 'Trimmed',     value: Math.round(avgTrim) },
+      { name: 'Contigs',     value: Math.round(avgContig) },
+      { name: 'Viral vOTUs', value: Math.round(avgViral) },
+      { name: 'MAGs',        value: Math.round(avgMAG) },
+    ];
     mkChart('ov-funnel-chart', {
       title: { text: 'Read Pipeline Funnel (average across samples)' },
       tooltip: { trigger: 'item', formatter: '{b}: {c}' },
@@ -122,14 +134,15 @@
         left: '5%', width: '90%',
         sort: 'none',
         gap: 2,
-        label: { show: true, position: 'inside', color: '#fff', fontSize: 12, formatter: '{b}\n{c}' },
-        data: [
-          { name: 'Raw reads',    value: Math.round(avgRaw),   itemStyle: { color: '#0891b2' } },
-          { name: 'Trimmed',      value: Math.round(avgTrim),  itemStyle: { color: '#0d9488' } },
-          { name: 'Contigs',      value: Math.round(avgContig),itemStyle: { color: '#7c3aed' } },
-          { name: 'Viral vOTUs',  value: Math.round(avgViral), itemStyle: { color: '#d97706' } },
-          { name: 'MAGs',         value: Math.round(avgMAG),   itemStyle: { color: '#16a34a' } },
-        ],
+        label: { show: true, position: 'inside', fontSize: 12, formatter: '{b}\n{c}' },
+        data: funnelStages.map((d, i) => ({
+          ...d,
+          itemStyle: { color: funnelRamp[i] },
+          // First two steps of the ramp are light enough that white label
+          // text loses contrast -- switch to dark ink for those, white for
+          // the rest (same relief the ordinal-ramp rule requires).
+          label: { color: i < 2 ? '#0f172a' : '#fff' },
+        })),
       }],
     });
   }

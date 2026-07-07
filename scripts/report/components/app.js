@@ -3,11 +3,48 @@
   'use strict';
 
   // ── ECharts palette (matches design system) ───────────────────────────────
+  // 8 hues, fixed order -- validated with the dataviz-skill validator
+  // (scripts/validate_palette.js, light mode): lightness band, chroma floor,
+  // CVD adjacent-pair separation and surface contrast all PASS for exactly
+  // these 8, in this order. Never index past PAL.length -- a 9th category
+  // must fold into "Other" (see window.foldOther) instead of generating or
+  // cycling a hue; a validated 9-15 extension was tried and FAILED (two
+  // slots below the chroma floor, one adjacent pair at CVD ΔE 2.9).
   window.PAL = [
-    '#0d9488','#d97706','#7c3aed','#0891b2','#16a34a',
-    '#f59e0b','#9333ea','#ef4444','#0e7490','#b45309',
-    '#64748b','#2563eb','#db2777','#059669','#ca8a04',
+    '#0d9488','#d97706','#7c3aed','#0891b2',
+    '#16a34a','#f59e0b','#9333ea','#ef4444',
   ];
+  // Neutral gray for "Other"/"Unknown" buckets -- not a categorical identity
+  // slot (never used for a real series), just an escape hatch for the tail.
+  window.PAL_MUTED = '#64748b';
+
+  // Fold a {name: count} map down to the top `max` entries + one "Other"
+  // bucket summing the rest, sorted descending. Keeps stacked/legend series
+  // within the validated 8-hue budget regardless of how many distinct
+  // categories the underlying data has (e.g. COG/PHROGS functional letters).
+  window.foldOther = function (counts, max = 7) {
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const top = sorted.slice(0, max);
+    const rest = sorted.slice(max).reduce((a, [, v]) => a + v, 0);
+    if (rest > 0) top.push(['Other', rest]);
+    return top;
+  };
+
+  // Single-hue, monotone-lightness ramp for ORDINAL data (pipeline stages,
+  // size tiers) -- never use categorical PAL slots for a sequence where
+  // order carries meaning. Both ramps validated with --ordinal (lightness
+  // monotone, adjacent |dL| >= 0.06, light end clears contrast floor for its
+  // surface); dark-mode steps are shifted lighter as a set, not reversed,
+  // since the floor is checked against the dark card surface (#1e293b).
+  const _RAMP_LIGHT = ['#14b8a6','#0d9488','#0f766e','#134e4a','#042f2e'];
+  const _RAMP_DARK  = ['#5eead4','#2dd4bf','#14b8a6','#0d9488','#0f766e'];
+  window.ordinalRamp = function (n) {
+    const dark = document.documentElement.dataset.theme === 'dark';
+    const ramp = dark ? _RAMP_DARK : _RAMP_LIGHT;
+    if (n === ramp.length) return ramp;
+    // Even subsample for n < 5; ramps this codebase uses today never exceed 5.
+    return Array.from({ length: n }, (_, i) => ramp[Math.round(i * (ramp.length - 1) / Math.max(1, n - 1))]);
+  };
 
   // ── Boxplot stats helper (median/IQR/whiskers + 1.5*IQR outliers) ──────────
   // Used by per-sample distribution charts (contig length/depth, genome size,
