@@ -924,6 +924,12 @@ def load_amr_consensus(paths, samples):
             if not locus:
                 continue
             genome, _ = _split_genome_prefix(locus)
+            # contigs_pseudogenome = all-contig fallback, not a real bin; skip entirely.
+            # Only include consensus calls (≥2 tools) to keep the report manageable.
+            if genome == 'contigs_pseudogenome':
+                continue
+            if safe_int(row.get('n_tools', 0)) < 2:
+                continue
             records.append({
                 'sample':               s,
                 'Bin':                  genome,
@@ -1087,16 +1093,17 @@ def merge_prok_taxonomy(gtdb_records, mmseqs_prok_records, checkm2_dict):
             base['Genome_size']   = cm_row.get('Genome_Size', cm_row.get('genome_size', ''))
             merged.append(base)
 
-    # low_depth_mode (or any genome unit with no matching CheckM2 bin, e.g.
-    # per-contig calls) -- surface mmseqs records directly. No
-    # completeness/contamination available for a single contig.
-    for key, rec in mmseqs_bins.items():
-        if key in seen: continue
-        seen.add(key)
-        base = dict(rec)
-        base['Source_tax'] = 'MMseqs2-LCA'
-        base['Completeness'] = ''; base['Contamination'] = ''; base['Genome_size'] = ''
-        merged.append(base)
+    # low_depth_mode only: if no CheckM2 bins were found at all, fall back to
+    # per-contig MMseqs2-LCA records. When real bins exist, skip this fallback
+    # to avoid flooding MERGED_PROK with tens-of-thousands of individual contigs.
+    if not merged:
+        for key, rec in mmseqs_bins.items():
+            if key in seen: continue
+            seen.add(key)
+            base = dict(rec)
+            base['Source_tax'] = 'MMseqs2-LCA'
+            base['Completeness'] = ''; base['Contamination'] = ''; base['Genome_size'] = ''
+            merged.append(base)
 
     return merged
 
