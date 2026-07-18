@@ -175,15 +175,13 @@ apis_db:                  "/media/nas1/LITRP.DBs/metagenDBs/dbapis"
 reads_classify: false
 
 reads_classify_dbs:
-  imgvr:    ""    # IMG/VR 4.1  — 2.9M viral genomes, ~2 GB disk
-                  # Download: wget http://faust.compbio.cs.cmu.edu/sylph-stuff/imgvr_c200_v0.3.0.syldb
-  uhgv:     ""    # UHGV        — 171k gut vOTUs,    ~0.4 GB disk (better taxonomy for human gut)
-                  # Download: wget http://faust.compbio.cs.cmu.edu/sylph-stuff/uhgv_c100_v0.3.0.syldb
-  gtdb:     ""    # GTDB r226   — prokaryotes,        ~4 GB disk (optional, for prokaryotic context)
-                  # Download: wget http://faust.compbio.cs.cmu.edu/sylph-stuff/gtdb-r226-c1000-dbv1.syldb
-  gtdb_version: "r226"          # r214 / r220 / r226 / r232 — must match the downloaded DB
-  custom:   ""    # Any user-built .syldb (e.g. from INPHARED: sylph sketch -c 100 inphared.fna)
-  custom_taxonomy: ""           # Path to custom taxonomy TSV (filename → lineage) for sylph-tax
+  imgvr:    "/media/nas1/LITRP.DBs/metagenDBs/sylph/imgvr_c200_v0.3.0.syldb"
+  uhgv:     ""    # fill in after download: uhgv_c100_dbv1.syldb (~0.4 GB)
+                  # wget https://zenodo.org/records/14884392/files/uhgv_c100_dbv1.syldb
+  gtdb:     "/media/nas1/LITRP.DBs/metagenDBs/sylph/gtdb-r232-c200-dbv1.syldb"
+  gtdb_version: "r232"          # must match the downloaded DB filename
+  custom:   ""    # Any user-built .syldb (sylph sketch -c 100 -i *.fna -o custom_db)
+  custom_taxonomy: ""           # Path to custom taxonomy TSV (genome_id → lineage) for sylph-tax
 
 # Where to store sylph-tax taxonomy annotation files (~50 MB, downloaded once).
 # Default: {outdir}/reads_classify/taxonomy

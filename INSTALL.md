@@ -854,19 +854,30 @@ reads_classify_dbs:
 
 ---
 
-### GTDB r232 (prokaryotes, ~4 GB)
+### GTDB r232 (prokaryotes)
 
 All GTDB r232 representative genomes, for prokaryotic profiling alongside viral DBs.
+Two compression levels are available — choose based on your RAM/disk budget:
+
+| Variant | Disk | RAM usage | Sensitivity |
+|---|---|---|---|
+| `c1000` (recommended) | ~5 GB | lower | standard |
+| `c200` (high sensitivity) | ~24 GB | higher | more hits at low ANI |
 
 ```bash
+# Standard (c1000, ~5 GB) — recommended for most uses
 wget -O "$DB_BASE/sylph/gtdb-r232-c1000-dbv1.syldb" \
     "https://zenodo.org/records/14884392/files/gtdb-r232-c1000-dbv1.syldb"
+
+# High-sensitivity (c200, ~24 GB) — for low-abundance or divergent taxa
+wget -O "$DB_BASE/sylph/gtdb-r232-c200-dbv1.syldb" \
+    "https://faust.compbio.cs.cmu.edu/sylph-stuff/gtdb-r232-c200-dbv1.syldb"
 ```
 
 Set in `config.yaml`:
 ```yaml
 reads_classify_dbs:
-  gtdb: "/path/to/databases/sylph/gtdb-r232-c1000-dbv1.syldb"
+  gtdb: "/path/to/databases/sylph/gtdb-r232-c1000-dbv1.syldb"   # or c200 variant
   gtdb_version: "r232"
 ```
 
@@ -1122,7 +1133,8 @@ done
 | IMG prokaryote (optional) | 50–200 GB |
 | Sylph UHGV (optional, reads_classify) | 0.4 GB |
 | Sylph IMG/VR 4.1 (optional, reads_classify) | 2 GB |
-| Sylph GTDB r232 (optional, reads_classify) | 4 GB |
+| Sylph GTDB r232 c1000 (optional, reads_classify) | 5 GB |
+| Sylph GTDB r232 c200 (optional, reads_classify) | 24 GB |
 | Sylph taxonomy files (optional, reads_classify) | <0.1 GB |
 | **Total (without custom)** | **~242 GB** |
 
