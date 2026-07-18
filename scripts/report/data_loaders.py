@@ -1142,52 +1142,93 @@ def merge_prok_taxonomy(gtdb_records, mmseqs_prok_records, checkm2_dict, *, low_
 def load_reads_classify(abundance_path, host_path, samples):
     """Parse sylph-tax merged abundance and viral-by-host tables for the report.
 
-    abundance_path : merged_relative_abundance_filtered.tsv (wide format,
-                     first column = clade_name, remaining = samples)
-    host_path      : viral_abundance_by_host.tsv (host_genus | n_viral_taxa | samples)
-    samples        : ordered list of sample names
+    sylphmpa format uses | as rank separator and r__ (realm) for viral taxonomy.
+    Merged TSV columns are full fastq paths — mapped to sample names by basename.
 
-    Returns dict with keys: viral, prok, archaea, host, has_data, samples
+    Returns dict: viral, prok, archaea, host, has_data, samples
     """
-    def _parse_prefix(clade, prefix):
-        for part in clade.split(';'):
-            if part.startswith(prefix):
-                return part[len(prefix):].strip()
-        return ''
+    def _fastq_to_sample(col):
+        """Strip directory + fastq extensions to recover sample name."""
+        name = os.path.basename(col)
+        for ext in ('.fastq.gz', '.fq.gz', '.fastq', '.fq'):
+            if name.endswith(ext):
+                name = name[:-len(ext)]
+                break
+        return name
+
+    def _is_viral(clade):
+        # Viral taxonomy starts with r__ (ICTV realm), e.g. r__Duplodnaviria
+        first = clade.split('|')[0]
+        if first.startswith('r__') and first not in ('r__', ):
+            return True
+        # Fallback: d__Viruses in NCBI-style taxonomy
+        for part in clade.split('|'):
+            if part.startswith('d__') and 'virus' in part.lower():
+                return True
+        return False
+
+    def _is_archaea(clade):
+        for part in clade.split('|'):
+            if part == 'd__Archaea':
+                return True
+        return False
 
     viral, prok, archaea = [], [], []
+    col_to_sample = {}  # merged TSV column header → sample name
 
     if abundance_path and os.path.exists(abundance_path):
         rows = list(load_tsv(abundance_path))
         if rows:
             taxon_col = list(rows[0].keys())[0]
+
+            # Build col→sample map (merged headers are full fastq paths)
+            for col in rows[0].keys():
+                if col == taxon_col:
+                    continue
+                mapped = _fastq_to_sample(col)
+                if mapped in samples:
+                    col_to_sample[col] = mapped
+                elif col in samples:
+                    col_to_sample[col] = col
+
+            # Identify leaf nodes: rows that have no child row (no other clade
+            # starts with this clade + '|'). Avoids double-counting parent rows.
+            all_clades = {row.get(taxon_col, '') for row in rows}
+
             for row in rows:
                 clade = row.get(taxon_col, '').strip()
                 if not clade:
                     continue
-                domain = _parse_prefix(clade, 'd__')
+                # Skip parent rows — their abundance is already in the children
+                if any(other.startswith(clade + '|') for other in all_clades if other != clade):
+                    continue
+
                 record = {'clade': clade}
+                for col, sname in col_to_sample.items():
+                    record[sname] = safe_float(row.get(col, 0.0))
                 for s in samples:
-                    record[s] = safe_float(row.get(s, 0.0))
-                if 'Viruses' in domain or 'virus' in domain.lower() or 'Virus' in domain:
+                    if s not in record:
+                        record[s] = 0.0
+
+                if _is_viral(clade):
                     viral.append(record)
-                elif 'Archaea' in domain:
+                elif _is_archaea(clade):
                     archaea.append(record)
-                elif domain:
+                else:
                     prok.append(record)
 
     host = []
     if host_path and os.path.exists(host_path):
         for row in load_tsv(host_path):
-            h = row.get('host_genus', row.get('Host_genus', ''))
+            h = row.get('host_genus', '')
             if not h:
                 continue
-            record = {
-                'host_genus': h,
-                'n_viral_taxa': safe_int(row.get('n_viral_taxa', 0)),
-            }
+            record = {'host_genus': h, 'n_viral_taxa': safe_int(row.get('n_viral_taxa', 0))}
+            for col, sname in col_to_sample.items():
+                record[sname] = safe_float(row.get(col, 0.0))
             for s in samples:
-                record[s] = safe_float(row.get(s, 0.0))
+                if s not in record:
+                    record[s] = safe_float(row.get(s, 0.0))
             host.append(record)
         host.sort(key=lambda r: sum(r.get(s, 0) for s in samples), reverse=True)
 

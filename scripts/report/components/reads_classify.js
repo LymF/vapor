@@ -22,10 +22,14 @@
   function _samples() { return (RC && RC.samples) || []; }
 
   function _rankField(clade, rank) {
-    const map = { family: 'f__', order: 'o__', genus: 'g__', phylum: 'p__', class: 'c__' };
+    // sylphmpa uses | separator; viral taxonomy uses r__ (realm), k__ (kingdom)
+    const map = {
+      family: 'f__', order: 'o__', genus: 'g__', phylum: 'p__', class: 'c__',
+      species: 's__', realm: 'r__', kingdom: 'k__', domain: 'd__',
+    };
     const prefix = map[rank] || 'f__';
-    const parts = (clade || '').split(';');
-    for (const p of parts) if (p.startsWith(prefix)) return p.slice(3).trim();
+    const parts = (clade || '').split('|');
+    for (const p of parts) if (p.startsWith(prefix)) return p.slice(3).trim() || '—';
     return '';
   }
 
