@@ -25,16 +25,39 @@ from metagenomic short-read (Illumina) and long-read (ONT/HiFi) data.
 
 EPILOG = """\
 Examples:
-  vapor --dry-run                        validate workflow without executing
-  vapor --threads 32                     run with 32 CPU cores
-  vapor --config /path/to/config.yaml    use a custom config file
-  vapor --rerun-incomplete               resume an interrupted run
-  vapor --force                          re-run everything from scratch
-  vapor --forcerun quast viral_detection force specific rules to re-run
-  vapor --dag                            generate workflow DAG (dag.svg)
-  vapor --unlock                         unlock directory after crash
-  vapor --set use_spades=false           disable SPAdes (override config.yaml)
-  vapor --set use_cobra=true --set pharokka_min_completeness=70
+  vapor --dry-run                             validate workflow without executing
+  vapor --threads 32                          run with 32 CPU cores
+  vapor --config /path/to/config.yaml         use a custom config file
+  vapor --rerun-incomplete                    resume an interrupted run
+  vapor --force                               re-run everything from scratch
+  vapor --forcerun quast viral_detection      force specific rules to re-run
+  vapor --dag                                 generate workflow DAG (dag.svg)
+  vapor --unlock                              unlock directory after crash
+
+Module switches (override config.yaml without editing):
+  vapor --set use_spades=false                skip SPAdes (low-RAM server)
+  vapor --set use_cobra=true                  enable viral contig extension
+  vapor --set use_pharokka=false              skip phage annotation
+  vapor --set use_phold=false                 skip structure-based annotation
+  vapor --set use_bakta=false                 skip prokaryotic MAG annotation
+  vapor --set use_eggnog=false                skip COG/KEGG functional annotation
+  vapor --set use_comebin=false               skip COMEBin (no GPU available)
+  vapor --set use_gunc=false                  skip chimera detection
+  vapor --set use_mag_derep=false             skip MAG dereplication
+  vapor --set use_amr_consensus=false         skip AMR consensus step
+  vapor --set use_defense_viral=false         skip viral defense annotation
+  vapor --set use_gpu=true                    enable GPU (VAMB/SemiBin2/COMEBin)
+
+Performance and thresholds:
+  vapor --set threads=40                      override thread count
+  vapor --set min_contig=5000                 raise minimum contig length
+  vapor --set votu_ani=95                     vOTU clustering ANI threshold
+  vapor --set pharokka_min_completeness=70    lower phage annotation threshold
+  vapor --set viral_consensus_mode=count      switch viral detection mode
+
+Combined:
+  vapor --threads 40 --set use_spades=false --set use_comebin=false
+  vapor --dry-run --set use_pharokka=false --set use_phold=false
 
 Config file (config.yaml) must be edited before running.
 See INSTALL.md for database setup instructions.
