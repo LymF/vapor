@@ -41,6 +41,11 @@ rule generate_report:
         pcoa_viral        = f"{OUTDIR}/diversity/beta_pcoord_viral.tsv",
         pcoa_prok         = f"{OUTDIR}/diversity/beta_pcoord_prok.tsv",
         pcoa_combined     = f"{OUTDIR}/diversity/beta_pcoord_combined.tsv",
+        # reads_classify module (optional — only wired when enabled)
+        **({
+            "reads_classify_abundance": f"{OUTDIR}/reads_classify/merged_relative_abundance_filtered.tsv",
+            "reads_classify_host":      f"{OUTDIR}/reads_classify/viral_abundance_by_host.tsv",
+        } if READS_CLASSIFY_ENABLED else {}),
     output:
         html = f"{OUTDIR}/report.html",
     params:

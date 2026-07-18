@@ -21,8 +21,9 @@
       <button role="tab" class="nav-tab" data-tab="prokaryotic"  aria-selected="false" tabindex="-1">Prokaryotic</button>
       <button role="tab" class="nav-tab" data-tab="hostdefense"  aria-selected="false" tabindex="-1">Host &amp; Defense</button>
       <button role="tab" class="nav-tab" data-tab="diversity"    aria-selected="false" tabindex="-1">Diversity</button>
-      <button role="tab" class="nav-tab" data-tab="annotation"   aria-selected="false" tabindex="-1">Annotation</button>
-      <button role="tab" class="nav-tab" data-tab="about"        aria-selected="false" tabindex="-1">About</button>
+      <button role="tab" class="nav-tab" data-tab="annotation"      aria-selected="false" tabindex="-1">Annotation</button>
+      <button role="tab" class="nav-tab" data-tab="reads-classify" aria-selected="false" tabindex="-1">Reads Survey</button>
+      <button role="tab" class="nav-tab" data-tab="about"          aria-selected="false" tabindex="-1">About</button>
     </nav>
     <button id="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle theme">☀</button>
   </header>
@@ -394,6 +395,104 @@
           </label>
         </div>
         <div id="genome-maps-container" class="genome-maps-grid"></div>
+      </div>
+    </section>
+
+    <!-- Reads Survey (Sylph reads-only classification) -->
+    <section id="tab-reads-classify" class="tab-panel" role="tabpanel" aria-labelledby="nav-reads-classify" hidden>
+      <div class="sub-nav" role="tablist" aria-label="Reads Survey sub-sections">
+        <button class="sub-tab active" data-sub="rc-viral">Viral</button>
+        <button class="sub-tab" data-sub="rc-prok">Prokaryotic</button>
+        <button class="sub-tab" data-sub="rc-host">Viral by Host</button>
+      </div>
+
+      <!-- Viral reads classification -->
+      <div id="sub-rc-viral" class="sub-panel active">
+        <div id="rc-no-data" class="empty-state" style="display:none">
+          <p>Reads Survey module not enabled or no data available.<br>
+          Set <code>reads_classify: true</code> in <code>config.yaml</code> and configure at least one database.</p>
+        </div>
+        <div id="rc-viral-content">
+          <div class="chart-card">
+            <h3 class="section-title">Top Viral Families — Relative Abundance</h3>
+            <p class="section-sub">Sylph profiling against IMG/VR / UHGV / custom viral DB — top 15 families per sample</p>
+            <div class="toolbar">
+              <label>Rank:
+                <select id="rc-viral-rank-sel">
+                  <option value="family">Family</option>
+                  <option value="order">Order</option>
+                  <option value="genus">Genus</option>
+                </select>
+              </label>
+              <label>Min abundance (%):
+                <input id="rc-viral-min-abund" type="number" value="0.01" step="0.01" min="0" style="width:80px">
+              </label>
+            </div>
+            <div id="rc-viral-family-chart" class="echarts-box" style="height:400px"></div>
+          </div>
+          <div class="grid-2 mt-md">
+            <div class="chart-card">
+              <h3 class="section-title">Viral Domain Breakdown</h3>
+              <div id="rc-viral-domain-chart" class="echarts-box" style="height:300px"></div>
+            </div>
+            <div class="chart-card">
+              <h3 class="section-title">Detected Viral Taxa per Sample</h3>
+              <div id="rc-viral-richness-chart" class="echarts-box" style="height:300px"></div>
+            </div>
+          </div>
+          <div class="chart-card mt-md">
+            <h3 class="section-title">Viral Taxa Table</h3>
+            <div class="toolbar"><input id="rc-viral-search" type="search" placeholder="Filter…" class="search-input"></div>
+            <div id="rc-viral-table" class="table-wrap"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prokaryotic reads classification -->
+      <div id="sub-rc-prok" class="sub-panel" style="display:none">
+        <div class="chart-card">
+          <h3 class="section-title">Top Prokaryotic Phyla — Relative Abundance</h3>
+          <p class="section-sub">Sylph profiling against GTDB r232 — top 15 phyla across samples</p>
+          <div class="toolbar">
+            <label>Rank:
+              <select id="rc-prok-rank-sel">
+                <option value="phylum">Phylum</option>
+                <option value="class">Class</option>
+                <option value="family">Family</option>
+                <option value="genus">Genus</option>
+              </select>
+            </label>
+          </div>
+          <div id="rc-prok-phylum-chart" class="echarts-box" style="height:400px"></div>
+        </div>
+        <div class="grid-2 mt-md">
+          <div class="chart-card">
+            <h3 class="section-title">Bacteria vs. Archaea</h3>
+            <div id="rc-prok-domain-chart" class="echarts-box" style="height:300px"></div>
+          </div>
+          <div class="chart-card">
+            <h3 class="section-title">Prokaryotic Richness per Sample</h3>
+            <div id="rc-prok-richness-chart" class="echarts-box" style="height:300px"></div>
+          </div>
+        </div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">Prokaryotic Taxa Table</h3>
+          <div class="toolbar"><input id="rc-prok-search" type="search" placeholder="Filter…" class="search-input"></div>
+          <div id="rc-prok-table" class="table-wrap"></div>
+        </div>
+      </div>
+
+      <!-- Viral by host -->
+      <div id="sub-rc-host" class="sub-panel" style="display:none">
+        <div class="chart-card">
+          <h3 class="section-title">Viral Relative Abundance by Predicted Host Genus</h3>
+          <p class="section-sub">Requires IMGVR or UHGV databases (pre-built viral DBs with host annotation via sylph-tax -a)</p>
+          <div id="rc-host-chart" class="echarts-box" style="height:420px"></div>
+        </div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">Host-Virus Table</h3>
+          <div id="rc-host-table" class="table-wrap"></div>
+        </div>
       </div>
     </section>
 

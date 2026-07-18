@@ -1137,6 +1137,70 @@ def merge_prok_taxonomy(gtdb_records, mmseqs_prok_records, checkm2_dict, *, low_
     return merged
 
 
+# ── Reads-only classification (Sylph + sylph-tax) ────────────────────────────
+
+def load_reads_classify(abundance_path, host_path, samples):
+    """Parse sylph-tax merged abundance and viral-by-host tables for the report.
+
+    abundance_path : merged_relative_abundance_filtered.tsv (wide format,
+                     first column = clade_name, remaining = samples)
+    host_path      : viral_abundance_by_host.tsv (host_genus | n_viral_taxa | samples)
+    samples        : ordered list of sample names
+
+    Returns dict with keys: viral, prok, archaea, host, has_data, samples
+    """
+    def _parse_prefix(clade, prefix):
+        for part in clade.split(';'):
+            if part.startswith(prefix):
+                return part[len(prefix):].strip()
+        return ''
+
+    viral, prok, archaea = [], [], []
+
+    if abundance_path and os.path.exists(abundance_path):
+        rows = list(load_tsv(abundance_path))
+        if rows:
+            taxon_col = list(rows[0].keys())[0]
+            for row in rows:
+                clade = row.get(taxon_col, '').strip()
+                if not clade:
+                    continue
+                domain = _parse_prefix(clade, 'd__')
+                record = {'clade': clade}
+                for s in samples:
+                    record[s] = safe_float(row.get(s, 0.0))
+                if 'Viruses' in domain or 'virus' in domain.lower() or 'Virus' in domain:
+                    viral.append(record)
+                elif 'Archaea' in domain:
+                    archaea.append(record)
+                elif domain:
+                    prok.append(record)
+
+    host = []
+    if host_path and os.path.exists(host_path):
+        for row in load_tsv(host_path):
+            h = row.get('host_genus', row.get('Host_genus', ''))
+            if not h:
+                continue
+            record = {
+                'host_genus': h,
+                'n_viral_taxa': safe_int(row.get('n_viral_taxa', 0)),
+            }
+            for s in samples:
+                record[s] = safe_float(row.get(s, 0.0))
+            host.append(record)
+        host.sort(key=lambda r: sum(r.get(s, 0) for s in samples), reverse=True)
+
+    return {
+        'viral':    viral,
+        'prok':     prok,
+        'archaea':  archaea,
+        'host':     host,
+        'samples':  samples,
+        'has_data': bool(viral or prok or archaea),
+    }
+
+
 # ── New loaders: diversity + functional ──────────────────────────────────────
 
 _ALPHA_DOMAIN_MAP = {'prokaryotic': 'prok', 'prok': 'prok', 'viral': 'viral', 'combined': 'combined'}

@@ -23,7 +23,7 @@ from .data_loaders import (
     build_host_defense_links, build_bin_annotation_summary,
     enrich_taxonomy_with_checkv, collapse_taxonomy_to_votu, merge_prok_taxonomy,
     load_alpha_diversity, load_pcoord, load_eggnog, load_phrogs,
-    load_genome_maps,
+    load_genome_maps, load_reads_classify,
     path_dict, collect_tool_versions,
 )
 
@@ -142,6 +142,11 @@ def _build(snakemake):
         defensefinder_data, antidefensefinder_data, amr_consensus_data)
     vibrant_data, vibrant_amg = load_vibrant(outdir, samples)
     mmseqs_prok_data = load_mmseqs_taxonomy_prok(mmseqs_prok_paths, samples)
+    reads_classify_data = load_reads_classify(
+        getattr(snakemake.input, 'reads_classify_abundance', None) or '',
+        getattr(snakemake.input, 'reads_classify_host', None) or '',
+        samples,
+    )
 
     # ── Merge vConTACT3 into tax_data ─────────────────────────────────────────
     tax_genome_keys = {(r.get('sample', ''), r.get('Genome', '')) for r in tax_data}
@@ -424,6 +429,7 @@ def _build(snakemake):
         "CFG_PARAMS":   cfg_params,
         "TOOL_VERSIONS":tool_versions,
         "BENCH_DATA":   bench_data,
+        "READS_CLASSIFY": reads_classify_data,
     })
 
     # ── Assemble HTML ─────────────────────────────────────────────────────────
@@ -434,7 +440,8 @@ def _build(snakemake):
 
     js_parts  = []
     for js_file in ["app.js", "export.js", "overview.js", "sequencing.js", "viral.js",
-                    "prokaryotic.js", "hostdefense.js", "diversity.js", "annotation.js", "about.js"]:
+                    "prokaryotic.js", "hostdefense.js", "diversity.js", "annotation.js",
+                    "reads_classify.js", "about.js"]:
         js_parts.append(_read(os.path.join(_COMP, js_file)))
     app_js = "\n".join(js_parts)
 
