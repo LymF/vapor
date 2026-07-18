@@ -362,17 +362,31 @@ def main():
         ]
         out_svg = Path.cwd() / "dag.svg"
         print(f"[VAPOR] Generating DAG → {out_svg}")
-        p1 = subprocess.Popen(dag_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        with open(out_svg, "w") as f:
-            p2 = subprocess.Popen(
-                [dot_bin, "-Tsvg"], stdin=p1.stdout, stdout=f, stderr=subprocess.PIPE
-            )
-            p1.stdout.close()
-            _, dot_err = p2.communicate()
+        # Capture full stdout; snakemake ≥8 may prefix DOT with JSON log lines.
+        p1 = subprocess.run(dag_cmd, capture_output=True, text=True)
+        raw = p1.stdout
+
+        # Extract only the DOT block (digraph ... { ... }) — skip any leading log lines.
+        dot_start = next(
+            (i for i, ln in enumerate(raw.splitlines())
+             if ln.lstrip().startswith("digraph") or ln.lstrip().startswith("strict digraph")),
+            None,
+        )
+        if dot_start is None:
+            print(p1.stderr or raw, file=sys.stderr)
+            sys.exit("ERROR: snakemake --dag produced no DOT graph. Run with --dry-run first to check for errors.")
+
+        dot_input = "\n".join(raw.splitlines()[dot_start:])
+
+        p2 = subprocess.run(
+            [dot_bin, "-Tsvg"], input=dot_input, capture_output=True, text=True
+        )
         if p2.returncode != 0:
             print(f"[VAPOR] WARNING: dot exited with code {p2.returncode}", file=sys.stderr)
-            if dot_err:
-                print(dot_err.decode(), file=sys.stderr)
+            if p2.stderr:
+                print(p2.stderr, file=sys.stderr)
+        else:
+            out_svg.write_text(p2.stdout)
         print(f"[VAPOR] DAG saved to {out_svg}")
         return
 
