@@ -15,7 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 DESCRIPTION = """\
 VAPOR — Viral And Prokaryotic genOme Recovery
@@ -33,6 +33,8 @@ Examples:
   vapor --forcerun quast viral_detection force specific rules to re-run
   vapor --dag                            generate workflow DAG (dag.svg)
   vapor --unlock                         unlock directory after crash
+  vapor --set use_spades=false           disable SPAdes (override config.yaml)
+  vapor --set use_cobra=true --set pharokka_min_completeness=70
 
 Config file (config.yaml) must be edited before running.
 See INSTALL.md for database setup instructions.
@@ -44,8 +46,8 @@ _PATH_KEYS = [
     "checkv_db", "vs2_db", "vibrant_base", "genomad_db",
     "checkm2_db", "inphared_db", "vcontact3_db", "gtdbtk_db",
     "gunc_db", "pharokka_db", "phold_db", "bakta_db", "eggnog_db",
-    "card_db", "deeparg_db", "apis_db", "defense_finder_models_db",
-    "custom_viral_dmnd", "custom_viral_meta", "custom_prok_mmseqs_db",
+    "card_db", "deeparg_db", "defense_finder_models_db", "apis_db",
+    "custom_prok_mmseqs_db", "custom_viral_mmseqs_db",
     "host_genome", "host_index",
 ]
 
@@ -179,6 +181,10 @@ def build_command(args, snakefile, config_path):
             flag = "--apptainer-args" if executor == "apptainer" else "--singularity-args"
             cmd += [flag, combined]
 
+    # --set KEY=VALUE overrides passed to Snakemake's --config mechanism.
+    if args.set_config:
+        cmd += ["--config"] + args.set_config
+
     if args.dry_run:
         cmd.append("--dry-run")
     if args.rerun_incomplete:
@@ -221,6 +227,19 @@ def main():
         metavar="FILE",
         default=None,
         help="Path to Snakefile (auto-detected if not specified)",
+    )
+    parser.add_argument(
+        "--set",
+        metavar="KEY=VALUE",
+        action="append",
+        dest="set_config",
+        default=[],
+        help=(
+            "Override a config.yaml value without editing the file. "
+            "Repeatable: --set use_spades=false --set threads=32. "
+            "Keys match config.yaml (e.g. use_spades, use_cobra, min_contig, "
+            "pharokka_min_completeness, votu_ani)."
+        ),
     )
 
     # ── Execution mode ────────────────────────────────────────────────
@@ -323,6 +342,8 @@ def main():
 
     cmd = build_command(args, snakefile, config_path)
     print(f"[VAPOR] Mode      : {args._resolved_executor}")
+    if args.set_config:
+        print(f"[VAPOR] Overrides : {' '.join(args.set_config)}")
     print(f"[VAPOR] Running   : {' '.join(cmd)}\n")
     result = subprocess.run(cmd)
     sys.exit(result.returncode)
