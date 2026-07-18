@@ -176,16 +176,15 @@ reads_classify: false
 
 reads_classify_dbs:
   imgvr:    "/media/nas1/LITRP.DBs/metagenDBs/sylph/imgvr_c200_v0.3.0.syldb"
-  uhgv:     ""    # fill in after download: uhgv_c100_dbv1.syldb (~0.4 GB)
-                  # wget https://zenodo.org/records/14884392/files/uhgv_c100_dbv1.syldb
+  uhgv:     ""    # not used for this dataset (gut-focused DB, skip for environmental samples)
   gtdb:     "/media/nas1/LITRP.DBs/metagenDBs/sylph/gtdb-r232-c200-dbv1.syldb"
-  gtdb_version: "r232"          # must match the downloaded DB filename
-  custom:   ""    # Any user-built .syldb (sylph sketch -c 100 -i *.fna -o custom_db)
-  custom_taxonomy: ""           # Path to custom taxonomy TSV (genome_id → lineage) for sylph-tax
+  gtdb_version: "r232"
+  custom:   ""
+  custom_taxonomy: ""
 
 # Where to store sylph-tax taxonomy annotation files (~50 MB, downloaded once).
 # Default: {outdir}/reads_classify/taxonomy
-reads_classify_tax_dir: ""
+reads_classify_tax_dir: "/media/nas1/LITRP.DBs/metagenDBs/sylph/taxonomy"
 
 # Minimum fraction of samples a taxon must appear in to be kept (0 = keep all).
 reads_classify_min_prevalence: 0.0
