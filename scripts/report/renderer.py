@@ -11,6 +11,7 @@ import traceback
 from .data_loaders import (
     safe_float, safe_int, parse_tsv, load_tsv, load_csv,
     parse_quast_all, parse_support, parse_fastp_json, parse_mapping_rate,
+    parse_total_reads, build_host_collapse,
     collect_depth_data, parse_fasta_lengths,
     collect_viral_tool_counts, collect_vrhyme_stats, collect_binner_counts,
     parse_checkm2_phyla,
@@ -200,6 +201,26 @@ def _build(snakemake):
     votu_abund  = {s: load_tsv(os.path.join(outdir, s, "viral", "votu", f"{s}_vOTU_abundance.tsv"))
                    for s in samples}
 
+    # Enrich votu_data rows with covered_fraction (breadth) and RPMPM.
+    # RPMPM = (raw_reads / length_mb) / (total_reads_sample / 1e6)
+    #       = raw_reads * 1e12 / (length_bp * total_reads_sample)
+    total_reads_per_sample = {s: parse_total_reads(outdir, s) for s in samples}
+    for s in samples:
+        abund_lookup = {r.get('representative', ''): r for r in votu_abund[s]}
+        tot = total_reads_per_sample[s] or 1
+        for row in votu_data[s]:
+            rep = row.get('representative', row.get('member', ''))
+            ab  = abund_lookup.get(rep, {})
+            breadth    = safe_float(ab.get('covered_fraction', 0))
+            raw_reads  = safe_float(ab.get('total_reads', 0))
+            length_bp  = safe_float(row.get('rep_length_bp', 0)) or safe_float(ab.get('length', 0)) or 1
+            rpmpm = raw_reads * 1e12 / (length_bp * tot) if raw_reads > 0 else 0.0
+            row['breadth']  = f"{breadth:.3f}"
+            row['rpmpm']    = f"{rpmpm:.4f}"
+
+    # Host collapse: viral RPKM aggregated by predicted host genus per sample.
+    host_collapse_data = build_host_collapse(phist_data, votu_abund, samples)
+
     # ── Diversity ─────────────────────────────────────────────────────────────
     div_base = os.path.join(outdir, "diversity")
     alpha_rows      = load_alpha_diversity(os.path.join(div_base, "alpha_diversity.tsv"))
@@ -253,6 +274,10 @@ def _build(snakemake):
             "archaea_bins":       das.get("archaea", 0),
             "taxonomy_classified":sum(1 for r in tax_data if r.get("sample") == s),
             "host_pred_total":    len({r["Virus"] for r in phist_data if r.get("sample") == s and r.get("Virus")}),
+            "lytic_count":        lifestyle_data[s]["lytic"],
+            "lysogenic_count":    lifestyle_data[s]["lysogenic"],
+            "lytic_ratio":        round(lifestyle_data[s]["lytic"] / lifestyle_data[s]["total"], 3)
+                                  if lifestyle_data[s]["total"] > 0 else 0.0,
         }
 
     # Back-fill Binette domain from GTDB-Tk
@@ -360,6 +385,7 @@ def _build(snakemake):
         "GTDB_DATA":    gtdb_data,
         "MERGED_PROK":  merged_prok,
         "PHIST_DATA":   phist_data,
+        "HOST_COLLAPSE":host_collapse_data,
         "DEFENSE_DATA": _drop_field(defensefinder_data, 'Proteins'),
         "ANTIDEFENSE_DATA": _drop_field(antidefensefinder_data, 'Proteins'),
         "ANTIDEFENSE_VIRAL_DF":     antidefense_viral_df_data,

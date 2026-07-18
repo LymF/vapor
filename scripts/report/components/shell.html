@@ -99,6 +99,7 @@
         <button class="sub-tab" data-sub="vir-binning">Binning &amp; Quality</button>
         <button class="sub-tab" data-sub="vir-taxonomy">Taxonomy</button>
         <button class="sub-tab" data-sub="vir-lifestyle">Lifestyle</button>
+        <button class="sub-tab" data-sub="vir-votu">vOTU Table</button>
       </div>
       <div id="sub-vir-detection" class="sub-panel active">
         <div class="grid-2">
@@ -149,6 +150,16 @@
           <h3 class="section-title">Auxiliary Metabolic Genes (VIBRANT AMG)</h3>
           <div class="toolbar"><input id="amg-search" type="search" placeholder="Filter…" class="search-input"></div>
           <div id="amg-table" class="table-wrap"></div>
+        </div>
+      </div>
+      <div id="sub-vir-votu" class="sub-panel" style="display:none">
+        <div class="toolbar">
+          <label>Sample: <select id="sample-sel-votu-table"></select></label>
+        </div>
+        <div class="chart-card">
+          <h3 class="section-title">vOTU Representatives</h3>
+          <div class="toolbar"><input id="votu-table-search" type="search" placeholder="Filter…" class="search-input"></div>
+          <div id="votu-table" class="table-wrap"></div>
         </div>
       </div>
     </section>
@@ -206,13 +217,18 @@
         <button class="sub-tab" data-sub="hd-matrix">Host–Virus–Defense–AMR Matrix</button>
       </div>
       <div id="sub-hd-hostpred" class="sub-panel active">
-        <div class="toolbar">
+        <div class="chart-card">
+          <h3 class="section-title">Viral Abundance by Predicted Host Genus</h3>
+          <p class="section-sub">Summed RPKM of viral contigs grouped by their PHIST-predicted bacterial host genus</p>
+          <div id="host-collapse-chart" class="echarts-box" style="height:340px"></div>
+        </div>
+        <div class="toolbar mt-md">
           <label>Sample: <select id="sample-sel-hostpred"></select></label>
           <button id="hostpred-zoom-in"  class="btn-sm" type="button">Zoom +</button>
           <button id="hostpred-zoom-out" class="btn-sm" type="button">Zoom −</button>
           <button id="hostpred-zoom-fit" class="btn-sm" type="button">Fit / Reset</button>
         </div>
-        <div class="chart-card">
+        <div class="chart-card mt-md">
           <h3 class="section-title">PHIST Virus &harr; Host Network</h3>
           <div id="hostpred-network-svg" style="height:520px;overflow:hidden"></div>
         </div>

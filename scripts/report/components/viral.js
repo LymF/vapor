@@ -9,6 +9,7 @@
     _renderBinning(samples);
     _renderLifestyle(samples);
     makeSampleDropdown('sample-sel-viral-tax', _renderTaxonomy, { allSamples: true });
+    makeSampleDropdown('sample-sel-votu-table', _renderVotuTable);
   };
 
   // ── Detection ─────────────────────────────────────────────────────────────
@@ -394,6 +395,26 @@
       { key: 'Total_AMGs',label: 'AMGs' },
       { key: 'KOs',       label: 'KO IDs' },
     ], { searchId: 'amg-search' });
+  }
+
+  // ── vOTU Table ───────────────────────────────────────────────────────────
+  function _renderVotuTable(sample) {
+    const all  = typeof VOTU_DATA !== 'undefined' ? VOTU_DATA : {};
+    const rows = (all[sample] || []).filter(r => String(r.is_rep).toLowerCase() === 'true');
+    makeTable('votu-table', rows, [
+      { key: 'representative',      label: 'Representative' },
+      { key: 'cluster_size',        label: 'Cluster' },
+      { key: 'rep_length_bp',       label: 'Length (bp)' },
+      { key: 'checkv_quality',      label: 'CheckV' },
+      { key: 'checkv_completeness', label: 'Completeness' },
+      { key: 'lifestyle',           label: 'Lifestyle' },
+      { key: 'n_AMGs',              label: 'AMGs' },
+      { key: 'breadth',             label: 'Breadth' },
+      { key: 'rpmpm',               label: 'RPMPM' },
+    ], {
+      searchId: 'votu-table-search',
+      format: { checkv_quality: qualBadge },
+    });
   }
 
 })();

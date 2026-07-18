@@ -151,6 +151,15 @@ def parse_mapping_rate(outdir, sample):
     return 0.0
 
 
+def parse_total_reads(outdir, sample):
+    """Return total read count from flagstat (first line: 'N + 0 in total')."""
+    flagstat_path = os.path.join(outdir, sample, "mapping", "flagstat.txt")
+    if not os.path.exists(flagstat_path): return 0
+    with open(flagstat_path) as f: content = f.read()
+    m = re.search(r"^(\d+) \+ \d+ in total", content, re.MULTILINE)
+    return int(m.group(1)) if m else 0
+
+
 # ── Depth / contig data ───────────────────────────────────────────────────────
 
 def collect_depth_data(depth_path):
@@ -595,6 +604,42 @@ def load_phist(paths, samples):
             records.append({'sample': s, 'Virus': virus_clean, 'Host': host_clean,
                             'Score': str(score), 'P_value': str(pval)})
     return records
+
+
+def build_host_collapse(phist_data, votu_abund_by_sample, samples):
+    """Collapse viral RPKM by predicted host genus per sample.
+
+    Returns {sample: [{genus, n_viruses, total_rpkm}]} sorted desc by total_rpkm.
+    Host genus is the first underscore-delimited token of the PHIST host filename
+    (e.g. 'Bacteroides_fragilis.fa' → 'Bacteroides').
+    """
+    result = {}
+    for s in samples:
+        abund_by_rep = {}
+        for row in votu_abund_by_sample.get(s, []):
+            rep = row.get('representative', '')
+            # votu_abundance.tsv last column is the coverm method name (e.g. 'rpkm')
+            rpkm = 0.0
+            for k, v in row.items():
+                if k.lower() in ('rpkm', 'tpm', 'mean') and k != 'representative':
+                    rpkm = safe_float(v); break
+            if rep:
+                abund_by_rep[rep] = rpkm
+
+        genus_data = {}
+        for row in phist_data:
+            if row.get('sample') != s: continue
+            virus = row.get('Virus', '')
+            host  = row.get('Host', '')
+            genus = host.split('_')[0] if host else 'Unknown'
+            if not genus: genus = 'Unknown'
+            rpkm  = abund_by_rep.get(virus, 0.0)
+            entry = genus_data.setdefault(genus, {'genus': genus, 'n_viruses': 0, 'total_rpkm': 0.0})
+            entry['n_viruses']  += 1
+            entry['total_rpkm'] += rpkm
+
+        result[s] = sorted(genus_data.values(), key=lambda x: x['total_rpkm'], reverse=True)
+    return result
 
 
 # ── Defense / anti-defense systems (DefenseFinder) ───────────────────────────

@@ -7,6 +7,7 @@
 
   window.renderHostDefense = function () {
     const samples = typeof SAMPLES !== 'undefined' ? SAMPLES : [];
+    _renderHostCollapseChart(samples);
     _renderDefenseBar(samples);
     _renderAmrBar(samples);
     _renderDefensePhylum();
@@ -22,6 +23,48 @@
     makeSampleDropdown('sample-sel-hostpred', _renderHostPrediction, { allSamples: true });
     makeSampleDropdown('sample-sel-hostdefense-matrix', _renderMatrix, { allSamples: true });
   };
+
+  // ── Host Collapse: viral RPKM by predicted host genus ────────────────────
+  function _renderHostCollapseChart(samples) {
+    const hc = typeof HOST_COLLAPSE !== 'undefined' ? HOST_COLLAPSE : {};
+
+    // Collect top-N genera across all samples (by max total_rpkm in any sample)
+    const genusMax = {};
+    samples.forEach(s => {
+      (hc[s] || []).forEach(d => {
+        genusMax[d.genus] = Math.max(genusMax[d.genus] || 0, d.total_rpkm);
+      });
+    });
+    const topGenera = Object.entries(genusMax)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(e => e[0]);
+
+    if (!topGenera.length) {
+      const el = document.getElementById('host-collapse-chart');
+      if (el) el.innerHTML = '<p style="color:var(--text-muted);padding:1rem">No host predictions available.</p>';
+      return;
+    }
+
+    const series = topGenera.map((genus, i) => ({
+      name: genus, type: 'bar', stack: 'hc',
+      color: PAL[i % PAL.length],
+      data: samples.map(s => {
+        const row = (hc[s] || []).find(d => d.genus === genus);
+        return row ? +row.total_rpkm.toFixed(2) : 0;
+      }),
+    }));
+
+    mkChart('host-collapse-chart', {
+      title: { text: 'Viral Abundance by Predicted Host Genus (RPKM)' },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      legend: { data: topGenera, type: 'scroll', bottom: 0 },
+      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
+      yAxis: { type: 'value', name: 'RPKM' },
+      series,
+      grid: { bottom: 90 },
+    });
+  }
 
   function _byCount(rows, key, samples) {
     const counts = {};

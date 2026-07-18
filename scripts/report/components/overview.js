@@ -162,6 +162,12 @@
       { val: fmt(ov.total_bins),       label: 'MAGs (Binette)' },
       { val: fmt(ov.hq_bins),          label: 'HQ MAGs (≥90/≤5)' },
       { val: fmt(ov.host_pred_total),  label: 'Host predictions' },
+      { val: ov.lytic_count != null
+              ? `${ov.lytic_count}L / ${ov.lysogenic_count}T`
+              : 'N/A',              label: 'Lytic / Temperate' },
+      { val: ov.lytic_ratio != null
+              ? `${(ov.lytic_ratio * 100).toFixed(0)}% lytic`
+              : 'N/A',              label: 'Lifestyle ratio' },
     ];
 
     const cards = document.getElementById('ov-sample-cards');
