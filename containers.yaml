@@ -227,3 +227,12 @@ argnorm:
 coverm:
   image: coverm
   version: "0.7.0"
+
+# ── Reads-only classification ───────────────────────────────────────────
+sylph:
+  image: sylph
+  version: "0.9.0"
+
+sylph_tax:
+  image: sylph-tax
+  version: "1.9.1"

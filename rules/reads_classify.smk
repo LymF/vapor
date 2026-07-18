@@ -69,7 +69,7 @@ rule sylph_tax_download:
     log:
         _os.path.join(OUTDIR, "logs", "sylph_tax_download.log"),
     conda:      "../envs/env_reads_classify.yaml"
-    container:  CONTAINERS.get("sylph")
+    container:  CONTAINERS.get("sylph_tax")
     params:
         tax_dir = _RC_TAX_DIR,
     shell:
@@ -144,7 +144,7 @@ rule sylph_tax:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/sylph_tax.tsv",
     conda:      "../envs/env_reads_classify.yaml"
-    container:  CONTAINERS.get("sylph")
+    container:  CONTAINERS.get("sylph_tax")
     params:
         tax_ids  = _RC_TAX_IDS,
         prefix   = lambda wc: f"{OUTDIR}/{wc.sample}/reads_classify/{wc.sample}_",
@@ -182,7 +182,7 @@ rule sylph_merge:
     log:
         f"{OUTDIR}/logs/sylph_merge.log",
     conda:      "../envs/env_reads_classify.yaml"
-    container:  CONTAINERS.get("sylph")
+    container:  CONTAINERS.get("sylph_tax")
     shell:
         """
         mkdir -p {OUTDIR}/reads_classify
@@ -217,7 +217,7 @@ rule reads_filter_prevalence:
     log:
         f"{OUTDIR}/logs/reads_filter_prevalence.log",
     conda:      "../envs/env_reads_classify.yaml"
-    container:  CONTAINERS.get("sylph")
+    container:  CONTAINERS.get("sylph_tax")
     params:
         min_prev = _RC_MIN_PREVALENCE,
         script   = _os.path.join(_RC_SCRIPTS, "filter_by_prevalence.py"),
@@ -245,7 +245,7 @@ rule reads_make_otu:
     log:
         f"{OUTDIR}/logs/reads_make_otu.log",
     conda:      "../envs/env_reads_classify.yaml"
-    container:  CONTAINERS.get("sylph")
+    container:  CONTAINERS.get("sylph_tax")
     params:
         script = _os.path.join(_RC_SCRIPTS, "make_otu.py"),
     shell:
@@ -266,7 +266,7 @@ rule reads_collapse_host:
     log:
         f"{OUTDIR}/logs/reads_collapse_host.log",
     conda:      "../envs/env_reads_classify.yaml"
-    container:  CONTAINERS.get("sylph")
+    container:  CONTAINERS.get("sylph_tax")
     params:
         script = _os.path.join(_RC_SCRIPTS, "collapse_by_host.py"),
     shell:
@@ -293,7 +293,7 @@ if _RC_GENOME_FASTA:
         benchmark:
             f"{OUTDIR}/{{sample}}/benchmarks/reads_bacphlip.tsv",
         conda:      "../envs/env_reads_classify.yaml"
-        container:  CONTAINERS.get("sylph")
+        container:  CONTAINERS.get("sylph_tax")
         params:
             out_dir   = f"{OUTDIR}/{{sample}}/reads_classify/bacphlip",
             vir_thresh = _RC_VIR_THRESHOLD,
