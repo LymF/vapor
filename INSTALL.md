@@ -13,9 +13,10 @@ Follow the steps in order — database downloads are the most time-consuming par
 4. [Create conda environments](#4-create-conda-environments)
 5. [Install Apptainer (container mode)](#5-install-apptainer-container-mode)
 6. [Install databases](#6-install-databases)
-7. [Optional: custom MMseqs2 seqTaxDBs](#7-optional-custom-mmseqs2-seqtaxdbs)
-8. [Configure config.yaml](#8-configure-configyaml)
-9. [Verify installation](#9-verify-installation)
+7. [Reads-only classification databases (reads_classify module, optional)](#7-reads-only-classification-databases-reads_classify-module-optional)
+8. [Optional: custom MMseqs2 seqTaxDBs](#8-optional-custom-mmseqs2-seqtaxdbs)
+9. [Configure config.yaml](#9-configure-configyaml)
+10. [Verify installation](#10-verify-installation)
 
 ---
 
@@ -177,6 +178,14 @@ mamba create -n env_gunc -c conda-forge -c bioconda \
 # skani + galah (vOTU clustering + MAG dereplication)
 mamba create -n env_derep -c conda-forge -c bioconda \
     "skani=0.3.1" "galah=0.4.2" -y
+
+# Reads-only classification (Sylph + sylph-tax + BACPHLIP)
+# Required only when reads_classify: true in config.yaml
+mamba create -n env_reads_classify -c conda-forge -c bioconda \
+    "sylph>=0.6" "sylph-tax>=1.7" python pandas biopython -y
+conda activate env_reads_classify
+pip install bacphlip
+conda deactivate
 ```
 
 ---
@@ -797,7 +806,136 @@ deeparg_db: "/path/to/your/databases/deeparg"
 
 ---
 
-## 7. Optional: custom MMseqs2 seqTaxDBs
+## 7. Reads-only classification databases (reads_classify module, optional)
+
+This module (BLOCK 15) uses **Sylph** for direct taxonomic profiling from raw reads.
+It runs independently of the assembly pipeline and is disabled by default (`reads_classify: false` in `config.yaml`).
+
+Up to four databases can be enabled simultaneously; configure each in `reads_classify_dbs` in `config.yaml`.
+
+> **Pre-built databases**: Sylph maintains official pre-built `.syldb` files for the most common databases.
+> For the current list and download links, see:
+> **https://sylph-docs.github.io/pre%E2%80%90built-databases/**
+
+---
+
+### UHGV (Unified Human Gut Virome, ~0.4 GB)
+
+Pre-built for gut virome studies — 171 k vOTUs at 100% ANI resolution.
+
+```bash
+mkdir -p "$DB_BASE/sylph"
+wget -O "$DB_BASE/sylph/uhgv_c100_dbv1.syldb" \
+    "https://zenodo.org/records/14884392/files/uhgv_c100_dbv1.syldb"
+```
+
+Set in `config.yaml`:
+```yaml
+reads_classify_dbs:
+  uhgv: "/path/to/databases/sylph/uhgv_c100_dbv1.syldb"
+```
+
+---
+
+### IMG/VR (pre-built v4.1, ~2 GB)
+
+2.9M viral genomes at 200-mer resolution. Note: your server may have IMG/VR 7.1 raw files — the pre-built DB covers v4.1. To use a local IMG/VR export instead, see [Custom syldb from own FASTA](#custom-syldb-from-own-fasta) below.
+
+```bash
+wget -O "$DB_BASE/sylph/imgvr_c200_v0.3.0.syldb" \
+    "https://zenodo.org/records/14884392/files/imgvr_c200_v0.3.0.syldb"
+```
+
+Set in `config.yaml`:
+```yaml
+reads_classify_dbs:
+  imgvr: "/path/to/databases/sylph/imgvr_c200_v0.3.0.syldb"
+```
+
+---
+
+### GTDB r232 (prokaryotes, ~4 GB)
+
+All GTDB r232 representative genomes, for prokaryotic profiling alongside viral DBs.
+
+```bash
+wget -O "$DB_BASE/sylph/gtdb-r232-c1000-dbv1.syldb" \
+    "https://zenodo.org/records/14884392/files/gtdb-r232-c1000-dbv1.syldb"
+```
+
+Set in `config.yaml`:
+```yaml
+reads_classify_dbs:
+  gtdb: "/path/to/databases/sylph/gtdb-r232-c1000-dbv1.syldb"
+  gtdb_version: "r232"
+```
+
+---
+
+### Custom syldb from own FASTA
+
+You can build a Sylph database from any collection of genome sequences (FASTA).
+For example, to use IMG/VR 7.1 nucleotide sequences you have locally:
+
+**Step 1 — Build the `.syldb`:**
+
+```bash
+# Requires sylph ≥0.6 (conda activate env_reads_classify)
+conda activate env_reads_classify
+sylph sketch -c 100 -i /path/to/IMGVR_v7.1_genomes/*.fna \
+    -o "$DB_BASE/sylph/imgvr_v71" -t 32
+# Output: $DB_BASE/sylph/imgvr_v71.syldb
+conda deactivate
+```
+
+> `-c 100` sets the compression factor (lower = more sensitive, larger file). Use `-c 200` for very large collections.
+
+**Step 2 — Build a taxonomy TSV for sylph-tax:**
+
+For IMG/VR exports that include a metadata TSV (`_meta.tsv`), use the helper script:
+
+```bash
+python3 scripts/reads_classify/build_imgvr_taxonomy.py \
+    IMGVR_v7.1_meta.tsv \
+    "$DB_BASE/sylph/imgvr_v71_taxonomy.tsv"
+```
+
+For any other source, build a two-column TSV (no header) where each row is:
+```
+genome_id    d__Domain;p__Phylum;c__Class;o__Order;f__Family;g__Genus;s__Species
+```
+Empty ranks are written as `p__`, `c__`, etc.
+
+**Step 3 — Set paths in `config.yaml`:**
+```yaml
+reads_classify_dbs:
+  custom: "/path/to/databases/sylph/imgvr_v71.syldb"
+  custom_taxonomy: "/path/to/databases/sylph/imgvr_v71_taxonomy.tsv"
+```
+
+---
+
+### Taxonomy files (one-time download, all databases)
+
+The first pipeline run automatically downloads sylph-tax taxonomy annotation files (~50 MB)
+via `rule sylph_tax_download`. To pre-fetch manually:
+
+```bash
+mkdir -p "$DB_BASE/sylph/taxonomy"
+conda activate env_reads_classify
+export SYLPH_TAXONOMY_CONFIG="$DB_BASE/sylph/taxonomy/config.json"
+sylph-tax download --download-to "$DB_BASE/sylph/taxonomy"
+conda deactivate
+```
+
+Then set in `config.yaml`:
+```yaml
+reads_classify_tax_dir: "/path/to/databases/sylph/taxonomy"
+```
+
+---
+
+## 8. Optional: custom MMseqs2 seqTaxDBs
 
 Custom databases allow classifying contigs and bins not covered by primary
 databases. Both the prokaryote and viral custom paths run exclusively
@@ -864,7 +1002,7 @@ conda deactivate
 
 ---
 
-## 8. Configure config.yaml
+## 9. Configure config.yaml
 
 ```yaml
 # Input / output
@@ -908,11 +1046,26 @@ apis_db:                     "/path/to/dbapis"
 # Custom MMseqs2 seqTaxDBs — leave "" to skip (no Diamond option for either)
 custom_prok_mmseqs_db:  ""   # e.g. IMG NR
 custom_viral_mmseqs_db: ""   # e.g. IMG/VR
+
+# Reads-only classification (BLOCK 15 — disabled by default)
+reads_classify: false
+reads_classify_dbs:
+  imgvr:    ""   # path to imgvr_c200_v0.3.0.syldb or custom IMG/VR syldb
+  uhgv:     ""   # path to uhgv_c100_dbv1.syldb
+  gtdb:     ""   # path to gtdb-r232-c1000-dbv1.syldb
+  gtdb_version: "r232"
+  custom:   ""   # any user-built .syldb
+  custom_taxonomy: ""   # two-column TSV (genome_id TAB lineage)
+reads_classify_tax_dir: ""          # leave "" to auto-populate under outdir
+reads_classify_min_prevalence: 0.0  # 0 = no filter; 0.1 = ≥10% of samples
+reads_classify_min_kmers: 20        # minimum k-mer matches per genome
+reads_classify_genome_fasta: ""     # optional: reference FASTA for BACPHLIP
+reads_classify_virulence_threshold: 0.5
 ```
 
 ---
 
-## 9. Verify installation
+## 10. Verify installation
 
 ```bash
 conda activate snakemake
@@ -935,7 +1088,8 @@ for env in env_qc env_assembly env_flye env_medaka env_lr_utils \
            env_mapping env_viral env_genomad phage_vibrant env_vrhyme \
            env_cobra env_binning env_comebin env_binette env_checkm2 \
            env_gtdbtk env_phist env_annotation env_vcontact3 env_coverm \
-           env_gunc env_derep env_defense env_rgi env_deeparg; do
+           env_gunc env_derep env_defense env_rgi env_deeparg \
+           env_reads_classify; do
     echo -n "$env: "
     conda run -n "$env" python --version 2>/dev/null || echo "MISSING"
 done
@@ -966,7 +1120,11 @@ done
 | DeepARG model + DB (auto) | ~2 GB |
 | IMG viral (optional) | 5–20 GB |
 | IMG prokaryote (optional) | 50–200 GB |
-| **Total (without custom)** | **~235 GB** |
+| Sylph UHGV (optional, reads_classify) | 0.4 GB |
+| Sylph IMG/VR 4.1 (optional, reads_classify) | 2 GB |
+| Sylph GTDB r232 (optional, reads_classify) | 4 GB |
+| Sylph taxonomy files (optional, reads_classify) | <0.1 GB |
+| **Total (without custom)** | **~242 GB** |
 
 ---
 

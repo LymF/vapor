@@ -36,7 +36,8 @@ vapor/
 │   ├── annotation.smk           # BLOCK 11 — Pharokka, Phold, Bakta, EggNOG, genome maps
 │   ├── abundance.smk            # BLOCK 12 — CoverM (viral + prok), diversity
 │   ├── finalize.smk             # BLOCK 13 — organize_outputs, benchmarks
-│   └── report.smk               # BLOCK 14 — interactive HTML report, MultiQC
+│   ├── report.smk               # BLOCK 14 — interactive HTML report, MultiQC
+│   └── reads_classify.smk       # BLOCK 15 — reads-only classification (Sylph + sylph-tax)
 │
 ├── scripts/                     ← auxiliary Python scripts
 │   ├── filter_checkv_hq.py      # filter viral FASTA for vConTACT3 input
@@ -50,6 +51,12 @@ vapor/
 │   ├── skani_cluster_votus.py   # greedy single-linkage vOTU BFS clustering (ICTV)
 │   ├── generate_report.py           # wrapper → scripts/report/ (ECharts + D3 HTML report)
 │   ├── pin_containers.py            # resolve quay.io tags → containers.lock.yaml
+│   └── reads_classify/              # reads-only classification helpers
+│       ├── filter_by_prevalence.py  #   filter taxa by minimum prevalence across samples
+│       ├── make_otu.py              #   reformat merged table to #OTU_ID (QIIME2/phyloseq)
+│       ├── collapse_by_host.py      #   aggregate viral abundance by predicted host genus
+│       ├── bacphlip_lifestyle.py    #   extract detected genomes + run BACPHLIP lifestyle
+│       └── build_imgvr_taxonomy.py  #   convert IMG/VR _meta.tsv to sylph-tax custom taxonomy TSV
 │
 ├── containers.yaml              ← container version definitions (edit to update)
 ├── containers.lock.yaml         ← resolved quay.io URIs (generated, commit this)
@@ -81,7 +88,8 @@ vapor/
     ├── env_vcontact3.yaml
     ├── env_coverm.yaml          # includes diversity (numpy + scipy)
     ├── env_gunc.yaml            # GUNC (MAG chimera detection)
-    └── env_derep.yaml           # skani + galah (vOTU clustering + MAG dereplication)
+    ├── env_derep.yaml           # skani + galah (vOTU clustering + MAG dereplication)
+    └── env_reads_classify.yaml  # sylph + sylph-tax + BACPHLIP (reads-only classification)
 ```
 
 ---
@@ -184,6 +192,13 @@ All parameters are defined in **`config.yaml`** — no `.smk` files need to be e
 | `cobra_enabled` | `true` to extend viral contigs with COBRA (SR PE only, default `false`) |
 | `cobra_megahit_maxk` | COBRA k-mer max for MEGAHIT contigs (default `141`) |
 | `cobra_spades_maxk` | COBRA k-mer max for SPAdes contigs (default `127`) |
+| `reads_classify` | `true` to enable reads-only classification module (Sylph, default `false`) |
+| `reads_classify_dbs` | Dict with up to 4 optional DB paths: `imgvr`, `uhgv`, `gtdb`, `custom` |
+| `reads_classify_tax_dir` | Directory for sylph-tax taxonomy files (auto-populated if empty) |
+| `reads_classify_min_prevalence` | Minimum fraction of samples a taxon must appear in (default `0.0`) |
+| `reads_classify_min_kmers` | Minimum k-mer matches for sylph profiling (default `20`) |
+| `reads_classify_genome_fasta` | Path to reference genome FASTA for BACPHLIP lifestyle prediction (optional) |
+| `reads_classify_virulence_threshold` | BACPHLIP score threshold for virulent classification (default `0.5`) |
 
 ### Database paths
 
@@ -241,6 +256,7 @@ snakemake --snakefile Snakefile --use-conda --cores 1 --create-envs-only
 | `env_coverm` | coverm, numpy, scipy |
 | `env_gunc` | gunc, diamond, prodigal (MAG chimera detection) |
 | `env_derep` | skani, galah (vOTU clustering + MAG dereplication) |
+| `env_reads_classify` | sylph, sylph-tax, pandas, biopython, bacphlip (reads-only classification) |
 
 ---
 
@@ -337,6 +353,21 @@ python3 scripts/split_viral_fastas.py \
 python3 scripts/skani_cluster_votus.py \
     skani_triangle.tsv viral.fasta 95.0 85.0 vOTU_clusters.tsv
 ```
+
+### `reads_classify/build_imgvr_taxonomy.py`
+
+Converts an IMG/VR `_meta.tsv` file (with columns: `accession`, `phylum`, `class`, `order`,
+`family`, `genus`, `organism`, `domain`) to the two-column TSV format required by
+`sylph-tax taxprof -t` for custom database annotation.
+
+```bash
+python3 scripts/reads_classify/build_imgvr_taxonomy.py \
+    IMGVR_v7.1_meta.tsv \
+    imgvr_v71_taxonomy.tsv
+```
+
+See [Sylph pre-built databases](https://sylph-docs.github.io/pre%E2%80%90built-databases/) for the
+list of pre-built sylph DBs (IMG/VR 4.1, UHGV, GTDB r232) and their download links.
 
 ---
 
