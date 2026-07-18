@@ -168,3 +168,35 @@ card_db:                  "/media/nas1/LITRP.DBs/metagenDBs/card"
 deeparg_db:               "/media/nas1/LITRP.DBs/metagenDBs/deeparg"
 defense_finder_models_db: "/media/nas1/LITRP.DBs/metagenDBs/defense_finder_models"
 apis_db:                  "/media/nas1/LITRP.DBs/metagenDBs/dbapis"
+
+# ── Reads-only classification (Sylph) ─────────────────────────────────
+# Set reads_classify: true to activate this module.
+# Configure at least one viral database (imgvr, uhgv, or custom).
+reads_classify: false
+
+reads_classify_dbs:
+  imgvr:    ""    # IMG/VR 4.1  — 2.9M viral genomes, ~2 GB disk
+                  # Download: wget http://faust.compbio.cs.cmu.edu/sylph-stuff/imgvr_c200_v0.3.0.syldb
+  uhgv:     ""    # UHGV        — 171k gut vOTUs,    ~0.4 GB disk (better taxonomy for human gut)
+                  # Download: wget http://faust.compbio.cs.cmu.edu/sylph-stuff/uhgv_c100_v0.3.0.syldb
+  gtdb:     ""    # GTDB r226   — prokaryotes,        ~4 GB disk (optional, for prokaryotic context)
+                  # Download: wget http://faust.compbio.cs.cmu.edu/sylph-stuff/gtdb-r226-c1000-dbv1.syldb
+  gtdb_version: "r226"          # r214 / r220 / r226 / r232 — must match the downloaded DB
+  custom:   ""    # Any user-built .syldb (e.g. from INPHARED: sylph sketch -c 100 inphared.fna)
+  custom_taxonomy: ""           # Path to custom taxonomy TSV (filename → lineage) for sylph-tax
+
+# Where to store sylph-tax taxonomy annotation files (~50 MB, downloaded once).
+# Default: {outdir}/reads_classify/taxonomy
+reads_classify_tax_dir: ""
+
+# Minimum fraction of samples a taxon must appear in to be kept (0 = keep all).
+reads_classify_min_prevalence: 0.0
+
+# Minimum number of k-mers required to report a genome match (20 suits viral genomes).
+reads_classify_min_kmers: 20
+
+# BACPHLIP lifestyle prediction — optional, requires genome FASTA source.
+# Set to path of a FASTA containing all reference genomes in your sylph DB.
+# Leave empty to skip lifestyle prediction.
+reads_classify_genome_fasta: ""
+reads_classify_virulence_threshold: 0.5   # BACPHLIP score above this = Virulent

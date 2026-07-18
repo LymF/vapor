@@ -1,0 +1,12 @@
+name: env_reads_classify
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - sylph >=0.6
+  - sylph-tax >=1.7
+  - python >=3.9
+  - pandas >=1.5
+  - biopython >=1.80
+  - pip:
+      - bacphlip  # lifestyle prediction — only used when reads_classify_genome_fasta is set

@@ -218,6 +218,9 @@ COBRA_MEGAHIT_MAXK = config.get("cobra_megahit_maxk", 141)
 COBRA_SPADES_MINK  = config.get("cobra_spades_mink", 21)
 COBRA_SPADES_MAXK  = config.get("cobra_spades_maxk", 127)
 
+# ── Reads-only classification (Sylph) ─────────────────────────────────
+READS_CLASSIFY_ENABLED = config.get("reads_classify", False)
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  SAMPLE DISCOVERY
@@ -310,6 +313,7 @@ include: "rules/annotation.smk"
 include: "rules/defense_amr.smk"
 include: "rules/finalize.smk"
 include: "rules/report.smk"
+include: "rules/reads_classify.smk"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -429,3 +433,7 @@ rule all:
         f"{OUTDIR}/benchmarks/pipeline_timing_summary.tsv",
         f"{OUTDIR}/report.html",
         *([ f"{OUTDIR}/multiqc_report/multiqc_report.html" ] if not LONG_READS else []),
+
+        # ── Reads-only classification (Sylph) — optional ──────────────
+        *([f"{OUTDIR}/reads_classify/reads_classify_done.txt"]
+          if READS_CLASSIFY_ENABLED else []),
