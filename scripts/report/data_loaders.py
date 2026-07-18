@@ -913,10 +913,15 @@ def _prok_genome_unit(qseqid):
     return prefix
 
 
-def load_amr_consensus(paths, samples):
+def load_amr_consensus(paths, samples, *, low_depth_mode=False):
     """Consolidated AMR hits from consolidate_amr.py (AMRFinderPlus + RGI +
     DeepARG merged by CDS locus via ARO).  One row per locus; consensus_score
-    = n_tools / 3."""
+    = n_tools / 3.
+
+    low_depth_mode: when True, contigs_pseudogenome is the analysis unit (no
+    real bins), so those rows are kept (still filtered to n_tools >= 2).
+    When False, contigs_pseudogenome is excluded entirely.
+    """
     records = []
     for p, s in zip(paths, samples):
         for row in load_tsv(p):
@@ -924,9 +929,7 @@ def load_amr_consensus(paths, samples):
             if not locus:
                 continue
             genome, _ = _split_genome_prefix(locus)
-            # contigs_pseudogenome = all-contig fallback, not a real bin; skip entirely.
-            # Only include consensus calls (≥2 tools) to keep the report manageable.
-            if genome == 'contigs_pseudogenome':
+            if genome == 'contigs_pseudogenome' and not low_depth_mode:
                 continue
             if safe_int(row.get('n_tools', 0)) < 2:
                 continue
@@ -1052,7 +1055,7 @@ def collapse_taxonomy_to_votu(tax_records, outdir, samples):
     return collapsed
 
 
-def merge_prok_taxonomy(gtdb_records, mmseqs_prok_records, checkm2_dict):
+def merge_prok_taxonomy(gtdb_records, mmseqs_prok_records, checkm2_dict, *, low_depth_mode=False):
     """Priority: GTDB-Tk (genome-level, most reliable) > MMseqs2 LCA (real
     per-genome lowest-common-ancestor against the custom IMG_NR DB -- see
     load_mmseqs_taxonomy_prok) > Unclassified. Replaces the old
@@ -1093,17 +1096,43 @@ def merge_prok_taxonomy(gtdb_records, mmseqs_prok_records, checkm2_dict):
             base['Genome_size']   = cm_row.get('Genome_Size', cm_row.get('genome_size', ''))
             merged.append(base)
 
-    # low_depth_mode only: if no CheckM2 bins were found at all, fall back to
-    # per-contig MMseqs2-LCA records. When real bins exist, skip this fallback
-    # to avoid flooding MERGED_PROK with tens-of-thousands of individual contigs.
-    if not merged:
+    # low_depth_mode: no bins exist; aggregate per-contig MMseqs2-LCA records
+    # by taxonomy string so the report stays manageable (one row per unique
+    # lineage per sample instead of one row per contig).
+    # Normal mode: skip this block to avoid flooding MERGED_PROK with raw contigs.
+    if low_depth_mode and not merged:
+        from collections import defaultdict
+        groups = defaultdict(lambda: {'count': 0, 'rec': None})
         for key, rec in mmseqs_bins.items():
-            if key in seen: continue
-            seen.add(key)
-            base = dict(rec)
-            base['Source_tax'] = 'MMseqs2-LCA'
-            base['Completeness'] = ''; base['Contamination'] = ''; base['Genome_size'] = ''
-            merged.append(base)
+            if key in seen:
+                continue
+            sample = key[0]
+            lineage = ';'.join(filter(None, [
+                rec.get('Domain', ''), rec.get('Phylum', ''), rec.get('Class', ''),
+                rec.get('Order', ''),  rec.get('Family', ''), rec.get('Genus', ''),
+                rec.get('Species', ''),
+            ])) or 'Unclassified'
+            gk = (sample, lineage)
+            groups[gk]['count'] += 1
+            groups[gk]['rec'] = rec
+        for (sample, lineage), val in groups.items():
+            rec = val['rec']
+            n   = val['count']
+            merged.append({
+                'sample':      sample,
+                'Bin':         f'{n} contigs',
+                'Domain':      rec.get('Domain', ''),
+                'Phylum':      rec.get('Phylum', ''),
+                'Class':       rec.get('Class', ''),
+                'Order':       rec.get('Order', ''),
+                'Family':      rec.get('Family', ''),
+                'Genus':       rec.get('Genus', ''),
+                'Species':     rec.get('Species', ''),
+                'Full_classification': lineage,
+                'Source_tax':  'MMseqs2-LCA',
+                'Completeness': '', 'Contamination': '', 'Genome_size': '',
+                'contig_count': n,
+            })
 
     return merged
 

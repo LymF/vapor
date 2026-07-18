@@ -61,6 +61,7 @@ rule generate_report:
         # seed_and_familyrep_all_infor.tsv family->gene/defense-system
         # mapping lives wherever that rule actually downloaded it.
         apis_db_dir      = APIS_DB or f"{OUTDIR}/dbapis_db",
+        low_depth_mode   = LOW_DEPTH_MODE,
     benchmark:
         f"{OUTDIR}/benchmarks/generate_report.tsv"
     script:
