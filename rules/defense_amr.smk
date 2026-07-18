@@ -791,7 +791,7 @@ rule amr_consensus:
     threads: 1
     params:
         enabled = AMR_CONSENSUS_ENABLED,
-        script  = srcdir("../scripts/consolidate_amr.py"),
+        script  = os.path.join(workflow.basedir, "scripts", "consolidate_amr.py"),
     run:
         import os
         from pathlib import Path
