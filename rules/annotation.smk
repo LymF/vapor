@@ -32,7 +32,7 @@ rule pharokka:
     Skipped if PHAROKKA_DB is not configured (empty string).
     """
     input:
-        viral_nr = rules.viral_nonredundant.output.fasta,
+        viral_nr = rules.viral_votu_reps.output.mq_fasta,
         checkv   = rules.checkv.output.summary,
     output:
         done = f"{OUTDIR}/{{sample}}/annotation/pharokka/done.txt",
@@ -458,7 +458,7 @@ rule genome_map_phage:
         phold_gbk    = rules.phold.output.gbk,
         pharokka_tsv = rules.pharokka.output.tsv,
         checkv       = rules.checkv.output.summary,
-        viral_nr     = rules.viral_nonredundant.output.fasta,
+        viral_nr     = rules.viral_votu_reps.output.mq_fasta,
     output:
         done = f"{OUTDIR}/{{sample}}/annotation/genome_maps/phage_maps_done.txt",
     log:
@@ -504,7 +504,7 @@ rule genome_map_virus:
     """
     input:
         checkv     = rules.checkv.output.summary,
-        viral_nr   = rules.viral_nonredundant.output.fasta,
+        viral_nr   = rules.viral_votu_reps.output.mq_fasta,
         phage_done = rules.genome_map_phage.output.done,
         genomad    = f"{OUTDIR}/{{sample}}/viral/genomad/done.txt",
     output:

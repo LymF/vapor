@@ -112,20 +112,7 @@ VCONTACT3_DB         = config["vcontact3_db"]
 VCONTACT3_VER        = config["vcontact3_ver"]
 GTDBTK_DB            = config["gtdbtk_db"]
 
-# MMseqs2 seqTaxDB, real per-genome LCA -- the only source for custom
-# prokaryote taxonomy (replaces the old diamond_custom_prok best-hit +
-# majority-vote rule entirely, removed). Avoids "spurious specificity"
-# (von Meijenfeldt et al. 2019, CAT/BAT) on the divergent/environmental
-# organisms IMG_NR is meant to classify in the first place. Built once via
-# scripts/prepare_mmseqs_taxdb.py. "" skips mmseqs_taxonomy_prok gracefully,
-# same as any other optional DB.
-CUSTOM_PROK_MMSEQS_DB = _expand(config.get("custom_prok_mmseqs_db", "")) if config.get("custom_prok_mmseqs_db", "") else ""
-
-# Same pattern for custom viral taxonomy (e.g. IMG/VR) -- replaces the old
-# diamond_custom_viral best-hit + majority-vote rule entirely (removed
-# 2026-06-23, see memory project_viral_taxonomy_merge). Built once via
-# scripts/prepare_mmseqs_taxdb.py --format imgvr (or any other format).
-# "" skips mmseqs_taxonomy_custom_viral gracefully.
+CUSTOM_PROK_MMSEQS_DB  = _expand(config.get("custom_prok_mmseqs_db",  "")) if config.get("custom_prok_mmseqs_db",  "") else ""
 CUSTOM_VIRAL_MMSEQS_DB = _expand(config.get("custom_viral_mmseqs_db", "")) if config.get("custom_viral_mmseqs_db", "") else ""
 
 SEMIBIN_ENV          = config["semibin_env"]
@@ -177,7 +164,7 @@ def _clean_lr(wc):
         return f"{OUTDIR}/{wc.sample}/host_removed/{wc.sample}_lr_clean.fastq.gz"
     return f"{OUTDIR}/{wc.sample}/lr_filtered/{wc.sample}_filtered.fastq.gz"
 
-COMEBIN_ENABLED      = config.get("comebin_enabled", True)
+COMEBIN_ENABLED      = config.get("use_comebin", True)
 USE_GPU              = config.get("use_gpu", False)
 COVERM_METHOD        = config.get("coverm_method", "rpkm")
 
@@ -190,14 +177,15 @@ BAKTA_MAX_CONTAMINATION   = config.get("bakta_max_contamination", 10.0)
 EGGNOG_DB                 = config.get("eggnog_db", "")
 
 # ── Defense systems + AMR (prokaryotic bins) ───────────────────────────
-DEFENSE_AMR_ENABLED          = config.get("defense_amr_enabled", True)
+DEFENSE_AMR_ENABLED          = config.get("use_defense_amr", True)
 CARD_DB                      = _expand(config.get("card_db", "")) if config.get("card_db", "") else ""
-DEEPARG_DB                    = _expand(config.get("deeparg_db", "")) if config.get("deeparg_db", "") else ""
+DEEPARG_DB                   = _expand(config.get("deeparg_db", "")) if config.get("deeparg_db", "") else ""
 DEFENSE_FINDER_MODELS_DB     = _expand(config.get("defense_finder_models_db", "")) if config.get("defense_finder_models_db", "") else ""
-ABRICATE_ENABLED            = config.get("abricate_enabled", True)
-ARGNORM_ENABLED             = config.get("argnorm_enabled", True)
-DEFENSE_AMR_VIRAL_ENABLED  = config.get("defense_amr_viral_enabled", True)
-APIS_DB                    = _expand(config.get("apis_db", "")) if config.get("apis_db", "") else ""
+ABRICATE_ENABLED             = config.get("use_abricate", True)
+ARGNORM_ENABLED              = config.get("use_argnorm", True)
+DEFENSE_AMR_VIRAL_ENABLED    = config.get("use_defense_viral", True)
+APIS_DB                      = _expand(config.get("apis_db", "")) if config.get("apis_db", "") else ""
+AMR_CONSENSUS_ENABLED        = config.get("use_amr_consensus", True)
 LOW_DEPTH_MODE              = config.get("low_depth_mode", False)
 
 GENOME_MAP_TOP_N           = config.get("genome_map_top_n", 5)
@@ -207,24 +195,24 @@ GENOME_MAP_MAX_CONT_PROK   = config.get("genome_map_max_contamination_prok", 5.0
 GENOME_MAP_MAX_CONTIGS_PROK = config.get("genome_map_max_contigs_prok", 5)
 
 # ── Viral filtering for prokaryotic binning ────────────────────────────
-PROK_FILTER_VIRAL          = config.get("prok_filter_viral", True)
-PROK_FILTER_KEEP_PROVIRUS  = config.get("prok_filter_keep_provirus", True)
+PROK_FILTER_VIRAL = config.get("prok_filter_viral", True)
+# Provirus-bearing contigs are always kept in prok binning (not configurable)
 
 # ── GUNC chimera detection ─────────────────────────────────────────────
-GUNC_ENABLED = config.get("gunc_enabled", True)
+GUNC_ENABLED = config.get("use_gunc", True)
 GUNC_DB      = _expand(config.get("gunc_db", "")) if config.get("gunc_db", "") else ""
 
 # ── vOTU clustering (skani / ICTV) ─────────────────────────────────────
-VOTU_CLUSTERING_ENABLED = config.get("votu_clustering_enabled", True)
+VOTU_CLUSTERING_ENABLED = config.get("use_votu", True)
 VOTU_ANI                = config.get("votu_ani", 95.0)
 VOTU_AF                 = config.get("votu_af", 85.0)
 
 # ── MAG dereplication (galah) ──────────────────────────────────────────
-MAG_DEREP_ENABLED = config.get("mag_derep_enabled", True)
+MAG_DEREP_ENABLED = config.get("use_mag_derep", True)
 MAG_DEREP_ANI     = config.get("mag_derep_ani", 95.0)
 
 # ── COBRA viral contig extension ───────────────────────────────────────
-COBRA_ENABLED      = config.get("cobra_enabled", False)
+COBRA_ENABLED      = config.get("use_cobra", False)
 COBRA_MEGAHIT_MINK = config.get("cobra_megahit_mink", 21)
 COBRA_MEGAHIT_MAXK = config.get("cobra_megahit_maxk", 141)
 COBRA_SPADES_MINK  = config.get("cobra_spades_mink", 21)
@@ -391,8 +379,10 @@ rule all:
         *(expand(f"{OUTDIR}/{{sample}}/bins/derep/done.txt",
                  sample=SAMPLES) if MAG_DEREP_ENABLED else []),
 
-        # ── vOTU clustering (skani) ──────────────────────────────────
+        # ── vOTU clustering (skani) + representative sets ────────────
         *(expand(f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv",
+                 sample=SAMPLES) if VOTU_CLUSTERING_ENABLED else []),
+        *(expand(f"{OUTDIR}/{{sample}}/viral/votu/votu_all_reps.fasta",
                  sample=SAMPLES) if VOTU_CLUSTERING_ENABLED else []),
 
         # ── vOTU table ────────────────────────────────────────────────
@@ -413,6 +403,7 @@ rule all:
         expand(f"{OUTDIR}/{{sample}}/bins/deeparg/done.txt",             sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/abricate/done.txt",            sample=SAMPLES),
         expand(f"{OUTDIR}/{{sample}}/bins/argnorm/done.txt",             sample=SAMPLES),
+        expand(f"{OUTDIR}/{{sample}}/bins/amr_consensus/done.txt",        sample=SAMPLES),
 
         # ── Viral-side defense/anti-defense (Han et al. 2026 cold seep paper) ──
         expand(f"{OUTDIR}/{{sample}}/viral/defensefinder/done.txt",      sample=SAMPLES),

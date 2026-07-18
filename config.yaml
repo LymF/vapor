@@ -1,239 +1,170 @@
 # ══════════════════════════════════════════════════════════════════════
 # VAPOR — Viral And Prokaryotic genOme Recovery
-# config.yaml — edit this file before running the pipeline
+# config.yaml — edit this file before running
 #
-# Run:
 #   vapor --dry-run          # validate
 #   vapor --threads 32       # execute
 #   vapor -h                 # full help
 # ══════════════════════════════════════════════════════════════════════
 
-# ── I/O ────────────────────────────────────────────────────────────────
+
+# ══ MODULE SWITCHES ════════════════════════════════════════════════════
+# Set false to disable entire modules.
+# All disabled modules write empty outputs so downstream rules never break.
+
+use_spades:        true    # metaSPAdes + metaviralSPAdes (disable on low-RAM servers)
+use_cobra:         false   # viral contig extension via k-mer overlap (PE only)
+use_comebin:       true    # COMEBin as 4th prokaryotic binner (GPU recommended)
+use_gunc:          true    # chimera detection on MAGs
+use_mag_derep:     true    # MAG dereplication with galah before GTDB-Tk
+use_votu:          true    # vOTU clustering with skani (95% ANI + 85% AF)
+
+use_pharokka:      true    # phage annotation with PHROGS
+use_phold:         true    # structure-based annotation of hypothetical proteins
+use_bakta:         true    # prokaryotic MAG annotation
+use_eggnog:        true    # COG/KEGG/CAZy/GO functional annotation of MAG proteins
+
+use_defense_amr:   true    # DefenseFinder + AMRFinderPlus + RGI + DeepARG (prok)
+use_abricate:      true    # VFDB (virulence) + PlasmidFinder screens (prok)
+use_argnorm:       true    # normalize AMRFinderPlus/DeepARG calls to ARO
+use_defense_viral: true    # DefenseFinder + dbAPIS on viral ORFs
+use_amr_consensus: true    # consolidate AMR calls across tools by CDS locus + ARO
+
+use_gpu:           false   # CUDA for VAMB, SemiBin2, COMEBin, GeNomad
+
+
+# ══ I/O ════════════════════════════════════════════════════════════════
+
 fastq_dir: "~/amazon/"
 outdir:    "~/amazon/results"
 threads:   55
 
-# ── Assembly — SPAdes ──────────────────────────────────────────────────
-use_spades:       true         # false to skip metaSPAdes + metaviralSPAdes (low-RAM servers)
-spades_mem:       120          # RAM limit in GB
+
+# ══ READ TYPE ══════════════════════════════════════════════════════════
+
+single_end:  true    # SE Illumina or Ion Torrent (false = paired-end)
+long_reads:  false   # true for ONT / PacBio HiFi
+
+# Long-read parameters (ignored when long_reads: false)
+lr_tech:         "ont"    # "ont" | "hifi"
+lr_min_len:      3000     # Filtlong minimum read length (bp)
+lr_min_mean_q:   10       # minimum mean quality (ONT only)
+lr_flye_overlap: 3000     # metaFlye --min-overlap (bp)
+lr_hifiasm_hom:  0.01     # hifiasm-meta --hom-cov (0 = auto)
+lr_medaka_model: "auto"   # "auto" = --bacteria | or explicit model string
+lr_ont_chem:     "hq"     # "hq" = R10/Q20+ | "raw" = R9 legacy
+lr_metaMDBG:     true     # 3rd LR assembler; skipped automatically for ONT R9
+
+
+# ══ HOST REMOVAL ═══════════════════════════════════════════════════════
+# Leave host_genome empty ("") to skip.
+
+host_genome: ""    # path to host reference FASTA
+host_index:  ""    # path to pre-built bwa-mem2 index prefix (built once if empty)
+
+
+# ══ ASSEMBLY ═══════════════════════════════════════════════════════════
+
+min_contig:  3000    # bp — minimum contig length post-assembly
+min_seq_id:  0.95   # MMseqs2 dedup clustering identity (0–1)
+
+# SPAdes (ignored when use_spades: false)
+spades_mem:       120          # RAM limit (GB)
 spades_kmers:     "default"   # "default" | "custom"
-spades_kmer_list: "21,33,55,77,99,127"  # used only when spades_kmers = "custom"
+spades_kmer_list: "21,33,55,77,99,127"   # used only when spades_kmers: "custom"
 
-# ── Assembly — MEGAHIT ────────────────────────────────────────────────
-megahit_mem_gb:       120      # RAM limit in GB (converted to bytes internally)
-megahit_preset:       "meta-sensitive"  # "default" | "meta-sensitive" | "meta-large" | "custom"
-megahit_custom_params: ""      # used only when megahit_preset = "custom"
-                               # e.g. "--k-list 21,29,39,59,79,99,119,141 --k-step 10"
+# MEGAHIT
+megahit_mem_gb:        120              # RAM limit (GB)
+megahit_preset:        "meta-sensitive" # "default" | "meta-sensitive" | "meta-large" | "custom"
+megahit_custom_params: ""               # used only when megahit_preset: "custom"
 
-# ── Contig filtering / deduplication ──────────────────────────────────
-min_contig: 3000    # bp — minimum contig length post-assembly
-min_seq_id: 0.95    # MMseqs2 clustering identity (0–1)
-
-# ── Databases ──────────────────────────────────────────────────────────
-checkv_db:   "/media/nas1/LITRP.DBs/metagenDBs/checkv/checkv-db-v1.5"
-vs2_db:      "/media/nas1/LITRP.DBs/metagenDBs/virsorter2"
-vibrant_base: "/media/nas1/LITRP.DBs/metagenDBs/vibrant-1.0.1"
-genomad_db:  "/media/nas1/LITRP.DBs/metagenDBs/genomad/genomad_db"
-checkm2_db:  "/media/nas1/LITRP.DBs/metagenDBs/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
-inphared_db: "/media/nas1/LITRP.DBs/metagenDBs/inphared"
-vcontact3_db: "/media/nas1/LITRP.DBs/metagenDBs/vcontact3"
-vcontact3_ver: "230"
-gtdbtk_db:   "/media/nas1/LITRP.DBs/metagenDBs/gtdbtk/release226"
-
-# ── Custom MMseqs2 seqTaxDBs (real per-genome LCA, avoids "spurious
-# specificity" on divergent/environmental genomes -- the whole reason these
-# custom DBs exist in the first place over RefSeq/standard references).
-# No Diamond option anymore for either custom DB -- both old
-# diamond_custom_prok/diamond_custom_viral best-hit+majority-vote rules were
-# removed entirely (prok: earlier; viral: 2026-06-23). Leave "" to skip the
-# corresponding rule gracefully. Build with scripts/prepare_mmseqs_taxdb.py:
-#   python3 scripts/prepare_mmseqs_taxdb.py --faa <img_nr.faa> --format img \
-#       --img-tax <taxonOId2Taxonomy.tsv> --out <dir>
-# Same script also supports --format ncbi (plain RefSeq/GenBank protein set
-# + lineage TSV), --format inphared (used by rule mmseqs_taxonomy_viral, see
-# INSTALL.md), and --format imgvr (IMG/VR's own *_Sequence_information*.tsv
-# "Taxonomic classification" column) -- each format hardcodes parsing for
-# its own header/lineage-table convention, not interchangeable.
-custom_prok_mmseqs_db:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR_mmseqs/seqTaxDB"
-custom_viral_mmseqs_db: "/media/nas1/LITRP.DBs/metagenDBs/img/IMG_VR/Cus_VR/imgvr_mmseqs/seqTaxDB"
-
-# ── Binning ─────────────────────────────────────────────────────────────
-semibin_env: "ocean"    # soil | ocean | gut | wastewater | global
-
-# Low-depth mode: skip binning entirely (MetaBAT2/VAMB/SemiBin2/COMEBin +
-# Binette all write empty output) and route gene-level prokaryotic analyses
-# (DefenseFinder/AMRFinderPlus/RGI/DeepARG/ABRicate, mmseqs_taxonomy_prok)
-# through a single-pseudo-genome path instead (whole contig set as one
-# Prodigal -p meta call). This is the ONLY way to reach that path -- there
-# is no automatic "zero bins -> fall back to contigs" behavior, on purpose:
-# a sample can produce bins that exist but are too low-quality to trust,
-# and an automatic check can't tell that apart from "no bins, contigs are
-# all we have" (GTDB-Tk/CheckM2/etc would still run on low-quality bins and
-# look confident). You decide, explicitly, per run.
-# Genome-level analyses that need a complete genome (GTDB-Tk, CheckM2,
-# GUNC, galah dereplication, Bakta, CoverM genome-mode abundance) are
-# skipped -- there is no meaningful fallback for those on a single contig
-# or a multi-species pseudo-genome.
-low_depth_mode: true
-
-# Filter viral contigs out of the input to prokaryotic binners.
-# Greatly reduces viral contamination in MAGs while keeping provirus regions
-# attached to their bacterial hosts (provirus-containing contigs are kept).
-prok_filter_viral:         true   # remove free-living viral contigs from prok binning
-prok_filter_keep_provirus: true   # keep contigs flagged as provirus by CheckV/GeNomad
-
-# ── GUNC (chimera detection on MAGs) ────────────────────────────────────
-# Runs in parallel with CheckM2 on Binette final_bins.
-# Database (~13 GB) must be downloaded once — see INSTALL.md.
-gunc_enabled: true
-gunc_db:      "/media/nas1/LITRP.DBs/metagenDBs/gunc/gunc_db_progenomes2.1.dmnd"
-
-# ── vOTU clustering (skani, ICTV 95% ANI + 85% AF) ──────────────────────
-# Replaces the MMseqs2 95% identity grouping for vOTU definition only.
-# The original mmseqs deduplication is still used for the assembly hub.
-votu_clustering_enabled: true
-votu_ani:                95.0   # %ANI threshold (ICTV/Roux 2019)
-votu_af:                 85.0   # %aligned fraction
-
-# ── MAG dereplication (galah, CheckM2-aware) ────────────────────────────
-# Dereplicates Binette final_bins by ANI; keeps the best representative
-# (highest CheckM2 quality score). Output feeds GTDB-Tk.
-mag_derep_enabled: true
-mag_derep_ani:     95.0   # %ANI threshold for clustering MAGs
-
-# ── Viral consensus ─────────────────────────────────────────────────────
-# 3 tools: VirSorter2, GeNomad, VIBRANT
-min_viral_tools:      2      # >= N tools must agree (count/hybrid mode)
-viral_consensus_mode: "hybrid"  # "count" | "score" | "hybrid"
-score_vs2_min:        0.5
-score_genomad_min:    0.5
-# VIBRANT: binary lytic/lysogenic call = high confidence (no numeric score)
-
-# ── COBRA — viral contig extension (Illumina PE only) ───────────────────
-# COBRA joins fragmented viral contigs using k-mer overlap from the assembly
-# graph. Runs twice (MEGAHIT params + SPAdes params) on rep_seq.fasta;
-# the longest extension wins. Safe to leave false for diverse communities
-# where most contigs are genuine ORPhANs.
-# Requires paired-end reads — set false for single_end: true or long_reads: true.
-cobra_enabled:      false
+# COBRA — viral contig extension (ignored when use_cobra: false)
 cobra_megahit_mink: 21
 cobra_megahit_maxk: 141
 cobra_spades_mink:  21
 cobra_spades_maxk:  127
 
-# ── Single-end short read mode ──────────────────────────────────────────
-# Set single_end: true for SE Illumina or Ion Torrent data.
-# Assembly: SPAdes runs without --meta (standard mode); MEGAHIT uses -r.
-# metaviralSPAdes is skipped (requires PE). All downstream steps unchanged.
-single_end: true
 
-# ── Long read mode ──────────────────────────────────────────────────────
-# Set long_reads: true to use NanoPlot/Filtlong/Flye/hifiasm/minimap2.
-# All downstream steps (viral, binning, taxonomy) remain unchanged.
-long_reads:      false       # true for long read metagenomics
-lr_tech:         "ont"       # "ont" (Nanopore) | "hifi" (PacBio HiFi/CCS)
-lr_min_len:      3000        # Filtlong minimum read length (bp)
-lr_min_mean_q:   10          # Filtlong minimum mean quality (ONT only)
-lr_flye_overlap: 3000        # metaFlye --min-overlap (bp)
-lr_hifiasm_hom:  0.01        # hifiasm-meta --hom-cov (0 = auto)
-lr_medaka_model: "auto"      # "auto" = --bacteria | or explicit model string
-lr_ont_chem:     "hq"        # "hq" = R10/Q20+ | "raw" = R9 legacy
-lr_metaMDBG:     true        # add metaMDBG as 3rd LR assembler (HiFi or ONT R10+)
-                             # automatically skipped for ONT R9 (lr_ont_chem: "raw")
+# ══ VIRAL DETECTION ════════════════════════════════════════════════════
 
-# ── Host genome removal (optional) ──────────────────────────────────────
-# Map reads against a host reference; keep only unmapped reads.
-# Recommended for clinical, gut, plant-associated or any host-contaminated samples.
-# Leave host_genome empty ("") to skip this step entirely.
-#
-# SR: bwa-mem2 keeps pairs where BOTH mates are unmapped (-f 12)
-# LR: minimap2 keeps reads where the read is unmapped (-f 4)
-#
-host_genome: ""    # path to host reference FASTA (e.g., /path/to/hg38.fa)
-host_index:  ""    # path to pre-built bwa-mem2 index prefix (optional)
-                   # if empty, the index is built once in {outdir}/host_index/
+viral_consensus_mode: "hybrid"   # "count" | "score" | "hybrid"
+min_viral_tools:      2          # >= N tools must agree (count/hybrid mode)
+score_vs2_min:        0.5
+score_genomad_min:    0.5
+# VIBRANT: binary call (no numeric score)
 
-# ── GPU acceleration ────────────────────────────────────────────────────
-# Enables GPU for all tools that support it:
-#   VAMB       — --cuda          (PyTorch VAE; large speedup on binning)
-#   SemiBin2   — --engine gpu    (PyTorch; large speedup on training)
-#   COMEBin    — CUDA_VISIBLE_DEVICES=0 (PyTorch transformer; very large speedup)
-#   GeNomad    — auto (PyTorch NN classifier re-enabled; moderate speedup)
-# Requires: NVIDIA GPU + CUDA drivers + PyTorch with CUDA in each conda env.
-# Leave false if no GPU is available — all tools fall back to CPU gracefully.
-use_gpu: false
 
-# ── Prokaryotic binning — extra binner ─────────────────────────────────
-comebin_enabled: true        # add COMEBin as 4th binner (rank 1 in 2025 benchmark)
-                             # requires more RAM; GPU highly recommended (see use_gpu)
+# ══ VIRAL QC + vOTU ════════════════════════════════════════════════════
 
-# ── Abundance normalisation ─────────────────────────────────────────────
-coverm_method: "rpkm"        # rpkm | tpm | mean | covered_fraction
+# vOTU clustering thresholds (ignored when use_votu: false)
+votu_ani: 95.0   # % ANI threshold (ICTV standard)
+votu_af:  85.0   # % aligned fraction
 
-# ── Annotation ─────────────────────────────────────────────────────────
-pharokka_db:              "/media/nas1/LITRP.DBs/metagenDBs/pharokka"
-phold_db:                 "/media/nas1/LITRP.DBs/metagenDBs/phold_db"
-pharokka_min_completeness: 90.0   # % CheckV completeness to include in annotation
-                                   # (no cap on genome count — every qualifying sequence
-                                   # is annotated; PHROGS hallmark genes decide phage vs.
-                                   # non-phage virus in genome_map_universal.py)
-bakta_db:                 "/media/nas1/LITRP.DBs/metagenDBs/bakta/db"
-bakta_min_completeness:   70.0   # % CheckM2 completeness threshold for MAG annotation
-bakta_max_contamination:  10.0   # % CheckM2 contamination threshold for MAG annotation
-eggnog_db:                "/media/nas1/LITRP.DBs/metagenDBs/eggnog"
 
-# ── Defense systems + AMR (prokaryotic bins) ────────────────────────────
-# DefenseFinder (+ built-in AntiDefenseFinder) runs per-genome (MAG or, in
-# low-depth fallback, the whole contig set) -- needs gene order within a
-# replicon. AMRFinderPlus, RGI/CARD and DeepARG run once on the concatenated
-# protein set (gene-level, no operon context needed).
-# DeepARG = exploratory/sensitivity-oriented (deep learning, more divergent
-# hits, no accuracy benchmark); AMRFinderPlus+RGI = curated/specificity-
-# oriented. The report keeps these labelled separately, never merged.
-# DefenseFinder/AMRFinderPlus databases are small and self-managed (auto-
-# downloaded on first run); CARD and DeepARG (legacy Python2/Theano build --
-# no auto-download, no --threads) need an explicit path.
-defense_amr_enabled:         true
-card_db:                     "/media/nas1/LITRP.DBs/metagenDBs/card"  # auto-populated on first run
-deeparg_db:                  "/media/nas1/LITRP.DBs/metagenDBs/deeparg"  # auto-populated on first run (deeparg download_data)
-defense_finder_models_db:    "/media/nas1/LITRP.DBs/metagenDBs/defense_finder_models"  # auto-populated on first run
-# ^ explicit --models-dir for defense-finder -- without it, the model cache
-# location depends on $HOME, which isn't stable across conda/apptainer/cwd
-# (confirmed on litrp4 2026-06-20: a batch left every sample with 0 systems
-# because of this). Pinning a shared path makes the cache reliable across
-# every run/sample.
+# ══ PROKARYOTIC BINNING ════════════════════════════════════════════════
 
-# ABRicate screens VFDB (virulence factors) + PlasmidFinder (plasmid
-# replicons) only -- NOT used for AMR: its bundled AMR databases are flat
-# BLASTN screens with no point-mutation detection (AMRFinderPlus) or
-# SNP/variant models (RGI/CARD), so they would be a downgrade if used to
-# replace either tool. Bundled DB files ship with the conda/container
-# package itself -- no download step needed, just `abricate --setupdb`.
-abricate_enabled:            true
+# Low-depth mode: skips MetaBAT2/VAMB/SemiBin2/COMEBin/Binette and routes
+# prokaryotic analyses through the whole contig set as a pseudo-genome.
+# Enable explicitly — there is no automatic fallback (see INSTALL.md).
+low_depth_mode: true
 
-# Viral-side defense/anti-defense (Han et al. 2026, Nat Commun -- cold seep
-# defensome paper): DefenseFinder --antidefensefinder reused on viral
-# proteins (same models, host-side rule pattern) + dbAPIS (Yan et al. 2023,
-# NAR -- github.com/yuchen-yan/dbAPIS) via DIAMOND, since dbAPIS is
-# sequence-similarity-based (no genetic-architecture rule), better suited to
-# single scattered anti-defense genes in small phage genomes than
-# MacSyFinder's per-system architecture matching. Reported separately, never
-# merged (same "never merge tiers" rule as AMR curated/exploratory).
-defense_amr_viral_enabled:   true
-apis_db:                     "/media/nas1/LITRP.DBs/metagenDBs/dbapis"  # auto-populated on first run (wget anti_defense.pep)
+prok_filter_viral: true   # remove free-living viral contigs from binner input
+                          # (provirus-bearing contigs are always kept)
+semibin_env: "ocean"      # "soil" | "ocean" | "gut" | "wastewater" | "global"
 
-# argNorm maps AMRFinderPlus/DeepARG gene calls onto the Antibiotic
-# Resistance Ontology (ARO) so they can be compared with each other and
-# with RGI -- RGI is NOT routed through argNorm: it's built on CARD, so
-# its native output already speaks ARO (a hAMRonization bridge was tried
-# and dropped -- argNorm 1.1.0 has no working RGI support despite the
-# docs implying otherwise). Normalized tables stay separate per tool,
-# same "never merged" rule as the raw AMR outputs.
-argnorm_enabled:              true
+# MAG dereplication (ignored when use_mag_derep: false)
+mag_derep_ani: 95.0   # % ANI threshold for clustering MAGs
 
-# ── Genome maps (annotation/genome_maps/) ──────────────────────────────
-genome_map_top_n:                   5     # max maps per category per sample
-genome_map_min_completeness_viral: 90.0  # % CheckV completeness (phage + virus modes)
-genome_map_min_completeness_prok:  90.0  # % CheckM2 completeness (prok mode)
+
+# ══ ANNOTATION ═════════════════════════════════════════════════════════
+
+pharokka_min_completeness: 90.0   # % CheckV completeness to annotate a phage
+bakta_min_completeness:    70.0   # % CheckM2 completeness threshold for MAG annotation
+bakta_max_contamination:   10.0   # % CheckM2 contamination threshold for MAG annotation
+
+# Genome maps
+genome_map_top_n:                  5     # max maps per category per sample
+genome_map_min_completeness_viral: 90.0  # % CheckV completeness (phage + virus)
+genome_map_min_completeness_prok:  90.0  # % CheckM2 completeness (prok)
 genome_map_max_contamination_prok:  5.0  # % CheckM2 contamination threshold
-genome_map_max_contigs_prok:         5   # max contigs per MAG (skip fragmented genomes)
+genome_map_max_contigs_prok:         5   # max contigs per MAG
+
+
+# ══ ABUNDANCE ══════════════════════════════════════════════════════════
+
+coverm_method: "rpkm"   # "rpkm" | "tpm" | "mean" | "covered_fraction"
+
+
+# ══ DATABASES ══════════════════════════════════════════════════════════
+# Set correct paths for your system. See INSTALL.md for download instructions.
+
+# Core (required)
+checkv_db:    "/media/nas1/LITRP.DBs/metagenDBs/checkv/checkv-db-v1.5"
+vs2_db:       "/media/nas1/LITRP.DBs/metagenDBs/virsorter2"
+vibrant_base: "/media/nas1/LITRP.DBs/metagenDBs/vibrant-1.0.1"
+genomad_db:   "/media/nas1/LITRP.DBs/metagenDBs/genomad/genomad_db"
+checkm2_db:   "/media/nas1/LITRP.DBs/metagenDBs/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
+inphared_db:  "/media/nas1/LITRP.DBs/metagenDBs/inphared"
+vcontact3_db: "/media/nas1/LITRP.DBs/metagenDBs/vcontact3"
+vcontact3_ver: "230"
+gtdbtk_db:    "/media/nas1/LITRP.DBs/metagenDBs/gtdbtk/release226"
+
+# Optional — leave "" to skip the corresponding rule
+gunc_db:      "/media/nas1/LITRP.DBs/metagenDBs/gunc/gunc_db_progenomes2.1.dmnd"
+
+# Custom MMseqs2 seqTaxDBs for per-query LCA taxonomy.
+# Build once with scripts/prepare_mmseqs_taxdb.py (see INSTALL.md).
+custom_prok_mmseqs_db:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR_mmseqs/seqTaxDB"
+custom_viral_mmseqs_db: "/media/nas1/LITRP.DBs/metagenDBs/img/IMG_VR/Cus_VR/imgvr_mmseqs/seqTaxDB"
+
+# Annotation (ignored when corresponding use_* flag is false)
+pharokka_db: "/media/nas1/LITRP.DBs/metagenDBs/pharokka"
+phold_db:    "/media/nas1/LITRP.DBs/metagenDBs/phold_db"
+bakta_db:    "/media/nas1/LITRP.DBs/metagenDBs/bakta/db"
+eggnog_db:   "/media/nas1/LITRP.DBs/metagenDBs/eggnog"
+
+# Defense + AMR (auto-downloaded on first run when path is set)
+card_db:                  "/media/nas1/LITRP.DBs/metagenDBs/card"
+deeparg_db:               "/media/nas1/LITRP.DBs/metagenDBs/deeparg"
+defense_finder_models_db: "/media/nas1/LITRP.DBs/metagenDBs/defense_finder_models"
+apis_db:                  "/media/nas1/LITRP.DBs/metagenDBs/dbapis"

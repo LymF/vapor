@@ -22,11 +22,15 @@ rule checkv:
     Input is COBRA-extended FASTA when cobra_enabled, else viral_consensus.
     NOTE: always removes output dir before running — CheckV skips gene calling
     if it finds existing files, causing KeyError when contig names changed.
+    Outputs viruses.fna (complete viruses) and proviruses.fna (trimmed provirus
+    regions — host DNA flanks removed) for use in viral_nonredundant.
     """
     input:
         viral = _viral_qc_input,
     output:
-        summary = f"{OUTDIR}/{{sample}}/viral/checkv/quality_summary.tsv",
+        summary   = f"{OUTDIR}/{{sample}}/viral/checkv/quality_summary.tsv",
+        viruses   = f"{OUTDIR}/{{sample}}/viral/checkv/viruses.fna",
+        proviruses = f"{OUTDIR}/{{sample}}/viral/checkv/proviruses.fna",
     log:
         f"{OUTDIR}/{{sample}}/logs/checkv.log"
     benchmark:
@@ -43,6 +47,7 @@ rule checkv:
             -d {CHECKV_DB} \
             -t {threads} \
             > {log} 2>&1
+        touch {output.viruses} {output.proviruses}
         """
 
 
@@ -127,17 +132,21 @@ rule checkv_vrhyme:
 rule viral_nonredundant:
     """
     Non-redundant viral genome set for all downstream analyses.
-    Strategy (bins-first):
+    Strategy (bins-first, CheckV-trimmed):
       1. vRhyme bins  — each bin = one assembled viral genome (may span multiple contigs)
       2. Unbinned     — contigs from the viral QC input NOT in any vRhyme bin
-    This replaces viral_consensus.fasta in taxonomy, host prediction and vConTACT3
-    so that each viral genome is analysed exactly once.
-    CheckV quality from rule checkv covers every contig in this set since the
-    QC input contains all contig sequences.
+    For every contig (binned or unbinned): if CheckV trimmed it (provirus), the
+    trimmed sequence from viruses.fna / proviruses.fna replaces the original so
+    that host DNA flanking proviruses is always removed. Sequences not processed
+    by CheckV (rare, e.g. below CheckV internal length threshold) fall back to
+    the original. One contig may yield >1 trimmed entry when CheckV found
+    multiple provirus regions within it.
     """
     input:
-        viral = _viral_qc_input,
-        done  = rules.vrhyme.output.done,
+        viral             = _viral_qc_input,
+        done              = rules.vrhyme.output.done,
+        checkv_viruses    = rules.checkv.output.viruses,
+        checkv_proviruses = rules.checkv.output.proviruses,
     output:
         fasta = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_nonredundant.fasta",
     log:
@@ -148,34 +157,87 @@ rule viral_nonredundant:
         vrhyme_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/vrhyme",
     run:
         import glob, os
+        from collections import defaultdict
+
+        # Build CheckV trimmed dict: orig_contig_id -> list of (header_line, seq_lines)
+        # viruses.fna: header = original ID (no trimming needed, but use this file to
+        #   be consistent — avoids re-reading the consensus for non-provirus sequences)
+        # proviruses.fna: header = "orig_id|start_end" (trimmed region only)
+        trimmed = defaultdict(list)
+        for fna_path, is_provirus in [
+            (str(input.checkv_viruses), False),
+            (str(input.checkv_proviruses), True),
+        ]:
+            if not os.path.exists(fna_path) or os.path.getsize(fna_path) == 0:
+                continue
+            curr_hdr, curr_seq = None, []
+            with open(fna_path) as fh:
+                for line in fh:
+                    if line.startswith('>'):
+                        if curr_hdr:
+                            hdr_id = curr_hdr[1:].split()[0]
+                            orig = hdr_id.rsplit('|', 1)[0] if is_provirus else hdr_id
+                            trimmed[orig].append((curr_hdr, curr_seq))
+                        curr_hdr = line; curr_seq = []
+                    else:
+                        curr_seq.append(line)
+                if curr_hdr:
+                    hdr_id = curr_hdr[1:].split()[0]
+                    orig = hdr_id.rsplit('|', 1)[0] if is_provirus else hdr_id
+                    trimmed[orig].append((curr_hdr, curr_seq))
+
+        # Fallback: original sequences for anything CheckV didn't process
+        orig_seqs = {}
+        with open(str(input.viral)) as fh:
+            curr_hdr, curr_seq = None, []
+            for line in fh:
+                if line.startswith('>'):
+                    if curr_hdr:
+                        orig_seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
+                    curr_hdr = line; curr_seq = []
+                else:
+                    curr_seq.append(line)
+            if curr_hdr:
+                orig_seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
+
+        def emit(name, out_lines):
+            if name in trimmed:
+                for hdr, seq in trimmed[name]:
+                    out_lines.append(hdr)
+                    out_lines.extend(seq)
+            elif name in orig_seqs:
+                hdr, seq = orig_seqs[name]
+                out_lines.append(hdr)
+                out_lines.extend(seq)
+
+        # Process vRhyme bins first (bins-first strategy)
         vbins_dir = params.vrhyme_dir
         binned    = set()
         out_lines = []
 
         for vbin in sorted(glob.glob(os.path.join(vbins_dir, 'vRhyme_best_bins.*.fasta'))):
-            with open(vbin) as f:
-                for line in f:
+            with open(vbin) as fh:
+                for line in fh:
                     if line.startswith('>'):
-                        binned.add(line[1:].split()[0])
-                    out_lines.append(line)
+                        name = line[1:].split()[0]
+                        if name not in binned:
+                            binned.add(name)
+                            emit(name, out_lines)
 
-        skip = False
-        with open(str(input.viral)) as f:
-            for line in f:
-                if line.startswith('>'):
-                    name = line[1:].split()[0]
-                    skip = name in binned
-                if not skip:
-                    out_lines.append(line)
+        # Unbinned: emit CheckV-trimmed version or original
+        for name in orig_seqs:
+            if name not in binned:
+                emit(name, out_lines)
 
-        with open(str(output.fasta), 'w') as f:
-            f.writelines(out_lines)
+        with open(str(output.fasta), 'w') as fh:
+            fh.writelines(out_lines)
 
         n_bins  = len(glob.glob(os.path.join(vbins_dir, 'vRhyme_best_bins.*.fasta')))
         n_total = sum(1 for l in out_lines if l.startswith('>'))
+        n_trimmed = sum(1 for n in binned | set(orig_seqs) if n in trimmed)
         with open(str(log[0]), 'w') as lf:
             lf.write(f'vRhyme bins: {n_bins} ({len(binned)} binned contigs)\n')
-            lf.write(f'Unbinned contigs: {n_total - len(binned)}\n')
+            lf.write(f'CheckV-trimmed sequences: {n_trimmed}\n')
             lf.write(f'Total non-redundant set: {n_total}\n')
 
 
@@ -324,13 +386,117 @@ rule skani_cluster:
                 print(msg, end="")
 
 
+rule viral_votu_reps:
+    """
+    Extract vOTU representative sequences from viral_nonredundant.fasta and
+    produce quality-filtered subsets used by all downstream analyses.
+
+    Outputs:
+      all_fasta      — all representatives (one per vOTU cluster), for reporting
+      mq_fasta       — MQ+ (Complete/HQ/MQ or completeness>=50%) representatives,
+                       for prodigal_viral, PHIST, Pharokka, genome maps
+      hq_10kb_fasta  — HQ+/Complete AND >= 10 kb representatives, for vConTACT3
+
+    Why only representatives?
+      skani_cluster picks the highest-completeness member per cluster as the
+      canonical genome. Running taxonomy/PHIST/etc. on all members would inflate
+      compute by ~20–40% and produce duplicate annotations for near-identical
+      sequences, with no scientific gain. The make_votu_table rule propagates
+      representative annotations to all cluster members.
+    """
+    input:
+        fasta    = rules.viral_nonredundant.output.fasta,
+        clusters = rules.skani_cluster.output.clusters,
+        checkv   = rules.checkv.output.summary,
+    output:
+        all_fasta     = f"{OUTDIR}/{{sample}}/viral/votu/votu_all_reps.fasta",
+        mq_fasta      = f"{OUTDIR}/{{sample}}/viral/votu/votu_mq_reps.fasta",
+        hq_10kb_fasta = f"{OUTDIR}/{{sample}}/viral/votu/votu_hq_10kb_reps.fasta",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/viral_votu_reps.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/viral_votu_reps.tsv"
+    params:
+        hq_min_len = 10000,
+    run:
+        import csv, os
+
+        # Collect unique representatives from cluster TSV
+        reps = set()
+        with open(str(input.clusters)) as fh:
+            for row in csv.DictReader(fh, delimiter='\t'):
+                reps.add(row['representative'])
+
+        # CheckV quality sets for filtering
+        mq_plus = set()   # Complete / HQ / MQ or completeness >= 50%
+        hq_plus = set()   # Complete / HQ only
+        with open(str(input.checkv)) as fh:
+            for row in csv.DictReader(fh, delimiter='\t'):
+                cid = row.get('contig_id', '').strip()
+                q   = row.get('checkv_quality', '').strip()
+                try:
+                    comp = float(row.get('completeness', '0') or 0)
+                except (ValueError, TypeError):
+                    comp = 0.0
+                if q in ('Complete', 'High-quality', 'Medium-quality') or comp >= 50:
+                    mq_plus.add(cid)
+                if q in ('Complete', 'High-quality'):
+                    hq_plus.add(cid)
+
+        # Parse viral_nonredundant.fasta into dict
+        seqs = {}
+        with open(str(input.fasta)) as fh:
+            curr_hdr, curr_seq = None, []
+            for line in fh:
+                if line.startswith('>'):
+                    if curr_hdr:
+                        seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
+                    curr_hdr = line; curr_seq = []
+                else:
+                    curr_seq.append(line)
+            if curr_hdr:
+                seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
+
+        def write_filtered(names, path, length_min=0):
+            written = 0
+            with open(path, 'w') as out:
+                for name in names:
+                    if name not in seqs:
+                        continue
+                    hdr, seq_lines = seqs[name]
+                    if length_min > 0:
+                        length = sum(len(s.rstrip()) for s in seq_lines)
+                        if length < length_min:
+                            continue
+                    out.write(hdr)
+                    out.writelines(seq_lines)
+                    written += 1
+            return written
+
+        n_all      = write_filtered(reps, str(output.all_fasta))
+        mq_reps    = reps & mq_plus
+        n_mq       = write_filtered(mq_reps, str(output.mq_fasta))
+        hq_reps    = reps & hq_plus
+        n_hq_10kb  = write_filtered(hq_reps, str(output.hq_10kb_fasta),
+                                    length_min=params.hq_min_len)
+
+        with open(str(log[0]), 'w') as lf:
+            lf.write(f'[viral_votu_reps] Total vOTU reps: {n_all}\n')
+            lf.write(f'[viral_votu_reps] MQ+ reps (taxonomy/PHIST/Pharokka): {n_mq}\n')
+            lf.write(f'[viral_votu_reps] HQ+/>=10kb reps (vConTACT3): {n_hq_10kb}\n')
+
+
 rule make_votu_table:
     """
-    Build the per-sample vOTU summary table.
+    Build the per-sample vOTU membership table — one row per cluster member.
+
+    Representative-level annotations (CheckV, taxonomy, lifestyle, host) are
+    propagated to all members; cluster_size and is_rep columns let the report
+    reconstruct full cluster structure without a separate join.
 
     Crosses:
-      - viral_nonredundant.fasta (vOTU representatives)
-      - mmseqs cluster.tsv       (cluster size / n_members)
+      - vOTU_clusters.tsv        (skani representative/member pairs)
+      - votu_all_reps.fasta      (representative lengths)
       - CheckV quality_summary   (completeness, quality tier, genome type)
       - VIBRANT output           (lifestyle: lytic/lysogenic; AMG count)
       - viral_taxonomy_merged    (family, genus, taxonomy source)
@@ -339,12 +505,12 @@ rule make_votu_table:
     Output: viral/votu/{sample}_vOTU_table.tsv
     """
     input:
-        viral_nr = rules.viral_nonredundant.output.fasta,
-        cluster  = rules.mmseqs2.output.cluster,
-        checkv   = rules.checkv.output.summary,
-        vibrant  = rules.vibrant.output.done,
-        taxonomy = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",
-        phist    = f"{OUTDIR}/{{sample}}/viral/phist/done.txt",
+        votu_clusters = rules.skani_cluster.output.clusters,
+        votu_reps     = rules.viral_votu_reps.output.all_fasta,
+        checkv        = rules.checkv.output.summary,
+        vibrant       = rules.vibrant.output.done,
+        taxonomy      = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",
+        phist         = f"{OUTDIR}/{{sample}}/viral/phist/done.txt",
     output:
         tsv = f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv",
     log:

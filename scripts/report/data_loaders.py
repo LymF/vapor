@@ -838,11 +838,7 @@ def compute_defense_islands(manifest_paths, samples, defense_data, min_genes=5, 
     return islands
 
 
-# ── AMR: curated (AMRFinderPlus + RGI/CARD) vs. exploratory (DeepARG) ────────
-# Per Serrana et al. 2026 (iMetaOmics): deep-learning AMR calls are more
-# sensitive to divergent/novel environmental ARGs but have no accuracy
-# benchmark, so they carry Tier='exploratory' and must stay visually and
-# numerically separate from the curated alignment-based calls.
+# ── AMR ──────────────────────────────────────────────────────────────────────
 
 def _split_genome_prefix(value, sep="__"):
     """Split a '{genome}__{protein_id}' identifier produced by the
@@ -872,95 +868,58 @@ def _prok_genome_unit(qseqid):
     return prefix
 
 
-def load_amrfinder(paths, samples):
+def load_amr_consensus(paths, samples):
+    """Consolidated AMR hits from consolidate_amr.py (AMRFinderPlus + RGI +
+    DeepARG merged by CDS locus via ARO).  One row per locus; consensus_score
+    = n_tools / 3."""
     records = []
     for p, s in zip(paths, samples):
         for row in load_tsv(p):
-            prot = row.get('Protein identifier', row.get('Protein id', ''))
-            genome, _ = _split_genome_prefix(prot)
-            gene = row.get('Gene symbol', row.get('Element symbol', ''))
-            if not gene: continue
-            records.append({'sample': s, 'Bin': genome, 'Gene': gene,
-                             'Class': row.get('Class', ''),
-                             'Subclass': row.get('Subclass', ''),
-                             'Source': 'AMRFinderPlus', 'Tier': 'curated'})
-    return records
-
-
-def load_rgi_card(paths, samples):
-    """RGI's own rule runs --include_loose (rules/defense_amr.smk) so the
-    raw TSV on disk keeps every confidence tier for manual inspection, but
-    'Loose' hits are explicitly below CARD's curated bitscore cutoff per
-    model -- RGI's own docs call them "for novel discovery, requires manual
-    curation", not curated-confidence calls. Embedding them under
-    Tier='curated' both mislabels them and was the single largest
-    contributor to report size on a real metagenome (Loose is typically
-    10-100x more hits than Perfect+Strict combined) -- confirmed via a
-    byte-length-per-JS-constant breakdown of a real generated report.html
-    (AMR_DATA alone was 285 MB of a 400 MB file). Only Perfect/Strict are
-    kept here; Loose stays on disk in rgi_results.txt, just not embedded."""
-    records = []
-    for p, s in zip(paths, samples):
-        for row in load_tsv(p):
-            if row.get('Cut_Off', '') not in ('Perfect', 'Strict'): continue
-            orf = row.get('ORF_ID', row.get('Contig', ''))
-            genome, _ = _split_genome_prefix(orf)
-            gene = row.get('Best_Hit_ARO', row.get('ARO', ''))
-            if not gene: continue
-            records.append({'sample': s, 'Bin': genome, 'Gene': gene,
-                             'Class': row.get('Drug Class', row.get('AMR Gene Family', '')),
-                             'Subclass': '', 'Source': 'RGI/CARD', 'Tier': 'curated'})
-    return records
-
-
-def load_deeparg(paths, samples):
-    records = []
-    for p, s in zip(paths, samples):
-        for row in load_tsv(p):
-            query = row.get('#ARG', row.get('query-name', row.get('read_id', '')))
-            genome, _ = _split_genome_prefix(query)
-            gene = row.get('ARG-name', row.get('best-hit', ''))
-            arg_class = row.get('ARG-group', row.get('predicted_ARG-class', ''))
-            if not gene and not arg_class: continue
-            records.append({'sample': s, 'Bin': genome, 'Gene': gene or arg_class,
-                             'Class': arg_class, 'Subclass': '',
-                             'Source': 'DeepARG', 'Tier': 'exploratory'})
+            locus = row.get('locus', '')
+            if not locus:
+                continue
+            genome, _ = _split_genome_prefix(locus)
+            records.append({
+                'sample':               s,
+                'Bin':                  genome,
+                'Gene':                 row.get('gene_name', ''),
+                'ARO':                  row.get('aro_accession', ''),
+                'Class':                row.get('drug_class', ''),
+                'Resistance_mechanism': row.get('resistance_mechanism', ''),
+                'n_tools':              safe_int(row.get('n_tools', 0)),
+                'consensus_score':      safe_float(row.get('consensus_score', 0.0)),
+                'tools_detected':       row.get('tools_detected', ''),
+            })
     return records
 
 
 # ── Host <-> Defense/AMR cross-link (Host & Defense report tab) ──────────────
 
-def build_bin_annotation_summary(defense_data, antidefense_data, amr_data):
+def build_bin_annotation_summary(defense_data, antidefense_data, amr_consensus_data):
     """Defense/antidefense/AMR hits grouped once per (sample, bin) -- used as
     a small lookup table so the cross-link rows below don't have to embed
     (and duplicate) a host bin's full system/gene list in every row that
-    references it. AMR hits keep their curated (AMRFinderPlus+RGI) vs.
-    exploratory (DeepARG) split so the report never merges the two."""
-    def _add(target, key_field, records, list_field, filter_fn=None):
+    references it."""
+    def _add(target, key_field, records):
         for r in records:
-            if filter_fn and not filter_fn(r):
-                continue
             value = r.get(key_field)
             if not value:
                 continue
             target.setdefault((r['sample'], r['Bin']), set()).add(value)
 
-    defense_sets, antidefense_sets = {}, {}
-    amr_curated_sets, amr_exploratory_sets = {}, {}
-    _add(defense_sets, 'System', defense_data, 'Defense_systems')
-    _add(antidefense_sets, 'System', antidefense_data, 'Antidefense_systems')
-    _add(amr_curated_sets, 'Gene', amr_data, 'AMR_curated', lambda r: r.get('Tier') == 'curated')
-    _add(amr_exploratory_sets, 'Gene', amr_data, 'AMR_exploratory', lambda r: r.get('Tier') == 'exploratory')
+    defense_sets, antidefense_sets, amr_sets = {}, {}, {}
+    _add(defense_sets,     'System', defense_data)
+    _add(antidefense_sets, 'System', antidefense_data)
+    _add(amr_sets,         'Gene',   amr_consensus_data)
 
-    keys = set(defense_sets) | set(antidefense_sets) | set(amr_curated_sets) | set(amr_exploratory_sets)
+    keys = set(defense_sets) | set(antidefense_sets) | set(amr_sets)
     summary = {}
     for sample, bin_name in keys:
         k = (sample, bin_name)
         summary[f"{sample}::{bin_name}"] = {
-            'Defense_systems': sorted(defense_sets.get(k, ())),
-            'Antidefense_systems': sorted(antidefense_sets.get(k, ())),
-            'AMR_curated': sorted(amr_curated_sets.get(k, ())),
-            'AMR_exploratory': sorted(amr_exploratory_sets.get(k, ())),
+            'Defense_systems':    sorted(defense_sets.get(k, ())),
+            'Antidefense_systems':sorted(antidefense_sets.get(k, ())),
+            'AMR_genes':          sorted(amr_sets.get(k, ())),
         }
     return summary
 

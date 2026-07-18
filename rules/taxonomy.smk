@@ -75,9 +75,9 @@ def _mmseqs_lca_rollup(hits_path, ranks):
 
 
 rule prodigal_viral:
-    """Predict ORFs from the non-redundant viral genome set for taxonomy searches."""
+    """Predict ORFs from the vOTU MQ+ representatives for taxonomy searches."""
     input:
-        viral = rules.viral_nonredundant.output.fasta,
+        viral = rules.viral_votu_reps.output.mq_fasta,
     output:
         faa  = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_proteins.faa",
         done = f"{OUTDIR}/{{sample}}/viral/taxonomy/prodigal_done.txt",
@@ -337,13 +337,13 @@ rule vcontact3:
     vConTACT3: protein-sharing network clustering, genus-level.
     Generally the most specific source when it resolves (compared by rank
     depth against other sources in viral_taxonomy, not a fixed priority).
-    Only runs on CheckV >= MQ (>= 50% complete) to reduce noise.
-    Filtering: scripts/filter_checkv_hq.py (Tier1=MQ+, Tier2=length>=5kb).
-    Options: SqRoot metric, 5 iterations, --reduce-memory, family+genus ranks.
+    Runs on HQ+/Complete vOTU representatives >= 10 kb only (viral_votu_reps
+    hq_10kb_fasta) — shorter or lower-quality sequences add noise to the
+    protein-sharing network without meaningful genus-level signal.
+    Options: SqRoot metric, 10 iterations, --reduce-memory, family+genus ranks.
     """
     input:
-        viral  = rules.viral_nonredundant.output.fasta,
-        checkv = rules.checkv.output.summary,
+        viral = rules.viral_votu_reps.output.hq_10kb_fasta,
     output:
         done    = f"{OUTDIR}/{{sample}}/viral/vcontact3/done.txt",
         network = f"{OUTDIR}/{{sample}}/viral/vcontact3/genome_clusters.tsv",
@@ -353,36 +353,27 @@ rule vcontact3:
     container:  CONTAINERS.get("vcontact3")
     threads: THREADS
     params:
-        outdir      = f"{OUTDIR}/{{sample}}/viral/vcontact3",
-        hq_fa       = f"{OUTDIR}/{{sample}}/viral/vcontact3/hq_viral.fasta",
-        vc3_db      = VCONTACT3_DB,
-        vc3_ver     = VCONTACT3_VER,
-        scripts_dir = SCRIPTS_DIR,
+        outdir  = f"{OUTDIR}/{{sample}}/viral/vcontact3",
+        vc3_db  = VCONTACT3_DB,
+        vc3_ver = VCONTACT3_VER,
     shell:
         """
         set -euo pipefail
         mkdir -p {params.outdir}
 
-        python3 {params.scripts_dir}/filter_checkv_hq.py \
-            {input.checkv} {input.viral} {params.hq_fa} \
-            >> {log} 2>&1
-        # Note: filter_checkv_hq.py keeps Complete/HQ/MQ + completeness>=50%
-        # Unbinned short contigs (<50% complete) are still classified by
-        # MMseqs2/INPHARED and GeNomad in rule viral_taxonomy
-
-        if [ ! -s {params.hq_fa} ]; then
-            echo "[vcontact3] No HQ/MQ genomes — skipping" | tee -a {log}
+        if [ ! -s {input.viral} ]; then
+            echo "[vcontact3] No HQ+/>=10kb genomes — skipping" | tee -a {log}
             mkdir -p {params.outdir}/vConTACT3_results
             printf "genome\tVC\tVC_status\tgenus\tfamily\torder\n" > {output.network}
             touch {output.done}; exit 0
         fi
 
-        N=$(grep -c "^>" {params.hq_fa} || echo 0)
-        echo "[vcontact3] Running on $N genomes" | tee -a {log}
+        N=$(grep -c "^>" {input.viral} || echo 0)
+        echo "[vcontact3] Running on $N genomes (HQ+/>=10kb)" | tee -a {log}
 
         VC3_EXIT=0
         vcontact3 run \
-            --nucleotide      {params.hq_fa} \
+            --nucleotide      {input.viral} \
             --output          {params.outdir}/vConTACT3_results \
             --threads         {threads} \
             --db-path         {params.vc3_db} \
@@ -440,7 +431,7 @@ rule viral_taxonomy:
         custom_done     = rules.mmseqs_taxonomy_custom_viral.output.done,
         vcontact3_net   = rules.vcontact3.output.network,
         vcontact3_done  = rules.vcontact3.output.done,
-        viral           = rules.viral_nonredundant.output.fasta,
+        viral           = rules.viral_votu_reps.output.mq_fasta,
     output:
         tsv  = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",
         done = f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",

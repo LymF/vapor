@@ -45,11 +45,10 @@ rule filter_viral_for_prok:
     Strategy:
       1. viral_consensus.fasta              → set of viral contigs
       2. CheckV `provirus=Yes` + GeNomad `|provirus_` suffix → set of provirus contigs
-      3. remove = viral_consensus MINUS provirus     (when keep_provirus=True)
-                = viral_consensus                    (when keep_provirus=False)
+      3. remove = viral_consensus MINUS provirus
       4. {sample}_rep_seq.fasta MINUS remove → {sample}_rep_seq_nonviral.fasta
 
-    Provirus-bearing contigs stay in the prok input because the provirus
+    Provirus-bearing contigs always stay in the prok input because the provirus
     region is integrated within a bacterial host contig — removing it would
     drop the host genome with the prophage. Free-living viruses (no host
     chromosome context) are removed to clean up MAGs.
@@ -71,8 +70,7 @@ rule filter_viral_for_prok:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/filter_viral_for_prok.tsv"
     params:
-        keep_provirus = PROK_FILTER_KEEP_PROVIRUS,
-        genomad_dir   = lambda wc: f"{OUTDIR}/{wc.sample}/viral/genomad",
+        genomad_dir = lambda wc: f"{OUTDIR}/{wc.sample}/viral/genomad",
     run:
         import os, glob, csv
 
@@ -82,33 +80,31 @@ rule filter_viral_for_prok:
                 if line.startswith(">"):
                     viral_set.add(line[1:].strip().split()[0])
 
+        # Always keep provirus-bearing contigs in prok binning
         provirus_set = set()
-        if params.keep_provirus:
-            # CheckV column: provirus=Yes
+        try:
+            with open(input.checkv) as f:
+                rdr = csv.DictReader(f, delimiter="\t")
+                for row in rdr:
+                    if (row.get("provirus", "") or "").strip().lower() == "yes":
+                        cid = (row.get("contig_id", "") or "").strip()
+                        if cid:
+                            provirus_set.add(cid)
+        except Exception:
+            pass
+
+        for gf in glob.glob(os.path.join(str(params.genomad_dir),
+                                         "**", "*_virus_summary.tsv"),
+                            recursive=True):
             try:
-                with open(input.checkv) as f:
+                with open(gf) as f:
                     rdr = csv.DictReader(f, delimiter="\t")
                     for row in rdr:
-                        if (row.get("provirus", "") or "").strip().lower() == "yes":
-                            cid = (row.get("contig_id", "") or "").strip()
-                            if cid:
-                                provirus_set.add(cid)
+                        seq = (row.get("seq_name", "") or "").strip()
+                        if "|provirus_" in seq:
+                            provirus_set.add(seq.split("|")[0])
             except Exception:
                 pass
-
-            # GeNomad: virus_summary entries with "|provirus_" suffix in seq_name
-            for gf in glob.glob(os.path.join(str(params.genomad_dir),
-                                             "**", "*_virus_summary.tsv"),
-                                recursive=True):
-                try:
-                    with open(gf) as f:
-                        rdr = csv.DictReader(f, delimiter="\t")
-                        for row in rdr:
-                            seq = (row.get("seq_name", "") or "").strip()
-                            if "|provirus_" in seq:
-                                provirus_set.add(seq.split("|")[0])
-                except Exception:
-                    pass
 
         # Contigs we will remove from the prok input
         remove_set = viral_set - provirus_set

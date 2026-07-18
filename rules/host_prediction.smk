@@ -20,7 +20,7 @@ rule phist:
     Script: scripts/split_viral_fastas.py
     """
     input:
-        viral  = rules.viral_nonredundant.output.fasta,
+        viral  = rules.viral_votu_reps.output.mq_fasta,
         gtdbtk = rules.gtdbtk.output.done,
     output:
         done    = f"{OUTDIR}/{{sample}}/viral/phist/done.txt",

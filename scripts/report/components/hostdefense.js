@@ -112,8 +112,7 @@
         Phylum: tax.Phylum || 'Unclassified',
         n_defense,
         n_antidefense:    (ann.Antidefense_systems || []).length,
-        n_amr_curated:    (ann.AMR_curated || []).length,
-        n_amr_exploratory:(ann.AMR_exploratory || []).length,
+        n_amr:            (ann.AMR_genes || []).length,
         genome_size_mb:        genomeSizeMb,
         defense_density_per_mb: genomeSizeMb > 0 ? n_defense / genomeSizeMb : null,
       };
@@ -264,37 +263,42 @@
     ], { searchId: 'defense-search' });
   }
 
-  // ── AMR (curated vs. exploratory) ────────────────────────────────────────
+  // ── AMR consensus ─────────────────────────────────────────────────────────
   function _renderAmrBar(samples) {
-    const curated     = typeof AMR_DATA !== 'undefined' ? AMR_DATA : [];
-    const exploratory  = typeof DEEPARG_DATA !== 'undefined' ? DEEPARG_DATA : [];
+    const rows = typeof AMR_CONSENSUS !== 'undefined' ? AMR_CONSENSUS : [];
 
+    // Hits per sample, stacked by number of tools that agreed
+    const byNTools = s => ({
+      three: rows.filter(r => r.sample === s && +r.n_tools === 3).length,
+      two:   rows.filter(r => r.sample === s && +r.n_tools === 2).length,
+      one:   rows.filter(r => r.sample === s && +r.n_tools === 1).length,
+    });
     mkChart('amr-bar-chart', {
-      title: { text: 'AMR Genes per Sample — Curated vs. Exploratory' },
+      title: { text: 'AMR Loci per Sample — Consensus' },
       tooltip: { trigger: 'axis' },
-      legend: { data: ['Curated (AMRFinderPlus + RGI/CARD)', 'Exploratory (DeepARG)'] },
+      legend: { data: ['3 tools', '2 tools', '1 tool'] },
       xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'AMR gene hits' },
+      yAxis: { type: 'value', name: 'AMR loci' },
       series: [
-        { name: 'Curated (AMRFinderPlus + RGI/CARD)', type: 'bar', color: '#0891b2',
-          data: _byCount(curated, 'Gene', samples) },
-        { name: 'Exploratory (DeepARG)', type: 'bar', color: '#ef4444',
-          data: _byCount(exploratory, 'Gene', samples) },
+        { name: '3 tools', type: 'bar', stack: 'amr', color: '#0d9488',
+          data: samples.map(s => byNTools(s).three) },
+        { name: '2 tools', type: 'bar', stack: 'amr', color: '#0891b2',
+          data: samples.map(s => byNTools(s).two) },
+        { name: '1 tool',  type: 'bar', stack: 'amr', color: '#94a3b8',
+          data: samples.map(s => byNTools(s).one) },
       ],
       grid: { bottom: 70 },
     });
 
-    const allRows = [
-      ...curated.map(r => ({ ...r, Tier_label: 'Curated' })),
-      ...exploratory.map(r => ({ ...r, Tier_label: 'Exploratory' })),
-    ];
-    makeTable('amr-table', allRows, [
-      { key: 'sample', label: 'Sample' },
-      { key: 'Bin',    label: 'Bin / Genome unit' },
-      { key: 'Source', label: 'Tool' },
-      { key: 'Tier_label', label: 'Tier' },
-      { key: 'Gene',   label: 'Gene' },
-      { key: 'Class',  label: 'Drug class' },
+    makeTable('amr-table', rows, [
+      { key: 'sample',         label: 'Sample' },
+      { key: 'Bin',            label: 'Bin / Genome unit' },
+      { key: 'Gene',           label: 'Gene' },
+      { key: 'ARO',            label: 'ARO' },
+      { key: 'Class',          label: 'Drug class' },
+      { key: 'n_tools',        label: 'N tools' },
+      { key: 'consensus_score',label: 'Score' },
+      { key: 'tools_detected', label: 'Tools' },
     ], { searchId: 'amr-search' });
   }
 
@@ -507,40 +511,38 @@
     });
   }
 
-  // ── AMR Gene Classes — curated vs. exploratory ────────────────────────────
+  // ── AMR Drug Classes (consensus) ──────────────────────────────────────────
   function _renderAmrClasses() {
-    const curated     = typeof AMR_DATA !== 'undefined' ? AMR_DATA : [];
-    const exploratory  = typeof DEEPARG_DATA !== 'undefined' ? DEEPARG_DATA : [];
+    const rows = typeof AMR_CONSENSUS !== 'undefined' ? AMR_CONSENSUS : [];
     const byClass = new Map();
-    const add = (rows, tier) => rows.forEach(r => {
+    rows.forEach(r => {
       const cls = (r.Class || 'Unclassified').trim() || 'Unclassified';
-      const e = byClass.get(cls) || { curated: 0, exploratory: 0 };
-      e[tier] += 1;
+      const e = byClass.get(cls) || { three: 0, two: 0, one: 0 };
+      const n = +r.n_tools;
+      if (n === 3) e.three += 1; else if (n === 2) e.two += 1; else e.one += 1;
       byClass.set(cls, e);
     });
-    add(curated, 'curated');
-    add(exploratory, 'exploratory');
     const sorted = Array.from(byClass.entries())
-      .sort((a, b) => (b[1].curated + b[1].exploratory) - (a[1].curated + a[1].exploratory))
+      .sort((a, b) => (b[1].three + b[1].two + b[1].one) - (a[1].three + a[1].two + a[1].one))
       .slice(0, 12);
 
     mkChart('amr-class-chart', {
       tooltip: { trigger: 'axis' },
-      legend: { data: ['Curated', 'Exploratory'], top: 0 },
+      legend: { data: ['3 tools', '2 tools', '1 tool'], top: 0 },
       grid: { bottom: 90, left: 50, right: 20, top: 55 },
       xAxis: { type: 'category', data: sorted.map(d => d[0]), axisLabel: { rotate: 40 } },
-      yAxis: { type: 'value', name: 'AMR gene hits' },
+      yAxis: { type: 'value', name: 'AMR loci' },
       series: [
-        { name: 'Curated',     type: 'bar', stack: 'amr', color: '#0891b2', data: sorted.map(d => d[1].curated) },
-        { name: 'Exploratory', type: 'bar', stack: 'amr', color: '#ef4444', data: sorted.map(d => d[1].exploratory) },
+        { name: '3 tools', type: 'bar', stack: 'amr', color: '#0d9488', data: sorted.map(d => d[1].three) },
+        { name: '2 tools', type: 'bar', stack: 'amr', color: '#0891b2', data: sorted.map(d => d[1].two) },
+        { name: '1 tool',  type: 'bar', stack: 'amr', color: '#94a3b8', data: sorted.map(d => d[1].one) },
       ],
     });
   }
 
   // ── AMR by Contig Origin (viral genome vs. prokaryotic MAG vs. unbinned) ──
   function _renderAmrOrigin() {
-    const curated     = typeof AMR_DATA !== 'undefined' ? AMR_DATA : [];
-    const exploratory  = typeof DEEPARG_DATA !== 'undefined' ? DEEPARG_DATA : [];
+    const rows   = typeof AMR_CONSENSUS !== 'undefined' ? AMR_CONSENSUS : [];
     const checkv = typeof CHECKV !== 'undefined' ? CHECKV : {};
     const gtdb   = typeof GTDB_DATA !== 'undefined' ? GTDB_DATA : [];
 
@@ -560,26 +562,22 @@
     }
 
     const byOrigin = new Map();
-    const add = (rows, tier) => rows.forEach(r => {
+    const add = (rows_) => rows_.forEach(r => {
       const o = origin(r);
-      const e = byOrigin.get(o) || { curated: 0, exploratory: 0 };
-      e[tier] += 1;
+      const e = byOrigin.get(o) || { count: 0 };
+      e.count += 1;
       byOrigin.set(o, e);
     });
-    add(curated, 'curated');
-    add(exploratory, 'exploratory');
     const cats = ['Viral genome', 'Prokaryotic MAG', 'Unbinned / mixed contigs', 'Other / unbinned']
       .filter(c => byOrigin.has(c));
 
     mkChart('amr-origin-chart', {
       tooltip: { trigger: 'axis' },
-      legend: { data: ['Curated', 'Exploratory'], top: 0 },
-      grid: { bottom: 70, left: 50, right: 20, top: 55 },
+      grid: { bottom: 70, left: 50, right: 20, top: 20 },
       xAxis: { type: 'category', data: cats, axisLabel: { rotate: 20 } },
-      yAxis: { type: 'value', name: 'AMR gene hits' },
+      yAxis: { type: 'value', name: 'AMR loci' },
       series: [
-        { name: 'Curated',     type: 'bar', stack: 'amr', color: '#0891b2', data: cats.map(c => byOrigin.get(c).curated) },
-        { name: 'Exploratory', type: 'bar', stack: 'amr', color: '#ef4444', data: cats.map(c => byOrigin.get(c).exploratory) },
+        { type: 'bar', color: '#0891b2', data: cats.map(c => byOrigin.get(c).count) },
       ],
     });
   }
@@ -589,21 +587,21 @@
     const matrix = _buildBinMatrix();
     const domainColor = { Bacteria: '#0d9488', Archaea: '#7c3aed', Unclassified: '#94a3b8' };
 
-    // Defense vs. AMR (curated) per bin
-    const withAmr = matrix.filter(r => r.n_defense > 0 || r.n_amr_curated > 0);
-    const r1 = _pearson(withAmr.map(r => r.n_defense), withAmr.map(r => r.n_amr_curated));
+    // Defense vs. AMR (consensus) per bin
+    const withAmr = matrix.filter(r => r.n_defense > 0 || r.n_amr > 0);
+    const r1 = _pearson(withAmr.map(r => r.n_defense), withAmr.map(r => r.n_amr));
     _renderCorrBanner('cross-corr-defense-amr', r1,
-      'defense systems', 'curated AMR genes', withAmr.length,
+      'defense systems', 'AMR loci', withAmr.length,
       'A negative trend would suggest bins investing more in anti-phage defense tend to carry fewer AMR genes.');
 
     mkChart('defense-amr-scatter', {
-      tooltip: { trigger: 'item', formatter: p => `${p.data[3]} (${p.data[2]})<br/>Defense systems: ${p.data[0]}<br/>AMR genes (curated): ${p.data[1]}` },
+      tooltip: { trigger: 'item', formatter: p => `${p.data[3]} (${p.data[2]})<br/>Defense systems: ${p.data[0]}<br/>AMR loci: ${p.data[1]}` },
       legend: { data: Object.keys(domainColor) },
       xAxis: { type: 'value', name: 'Defense systems / bin', minInterval: 1 },
-      yAxis: { type: 'value', name: 'AMR genes (curated) / bin', minInterval: 1 },
+      yAxis: { type: 'value', name: 'AMR loci / bin', minInterval: 1 },
       series: Object.keys(domainColor).map(dom => ({
         name: dom, type: 'scatter', symbolSize: 9, color: domainColor[dom],
-        data: withAmr.filter(r => r.Domain === dom).map(r => [r.n_defense, r.n_amr_curated, r.Bin, r.sample]),
+        data: withAmr.filter(r => r.Domain === dom).map(r => [r.n_defense, r.n_amr, r.Bin, r.sample]),
       })),
     });
 
@@ -826,8 +824,7 @@
         Host_taxonomy_display: r.Host_genus || r.Host_species || r.Host_taxonomy || '—',
         Defense_display:       (ann.Defense_systems || []).join(', ') || '—',
         Antidefense_display:   (ann.Antidefense_systems || []).join(', ') || '—',
-        AMR_curated_display:   (ann.AMR_curated || []).join(', ') || '—',
-        AMR_exploratory_display: (ann.AMR_exploratory || []).join(', ') || '—',
+        AMR_display:           (ann.AMR_genes || []).join(', ') || '—',
         Viral_antidefense_display: [...va.DefenseFinder, ...va.dbAPIS].filter(Boolean).join(', ') || '—',
         Pair_flag: ((ann.Defense_systems || []).length > 0 && (va.DefenseFinder.size + va.dbAPIS.size) > 0) ? 'Host defends & virus counters' : '',
       };
@@ -842,8 +839,7 @@
       { key: 'Antidefense_display',   label: 'Anti-Defense Systems (host)' },
       { key: 'Viral_antidefense_display', label: 'Anti-Defense Genes (virus)' },
       { key: 'Pair_flag', label: 'Arms-race pair' },
-      { key: 'AMR_curated_display',   label: 'AMR (curated)' },
-      { key: 'AMR_exploratory_display', label: 'AMR (exploratory)' },
+      { key: 'AMR_display', label: 'AMR genes' },
     ], { searchId: 'hostdefense-matrix-search' });
   }
 

@@ -762,3 +762,68 @@ rule argnorm_normalize:
         with open(str(log[0]), "a") as lf:
             lf.write("[argnorm] Done\n")
         Path(str(output.done)).touch()
+
+
+rule amr_consensus:
+    """
+    AMR consensus -- merge AMRFinderPlus + RGI/CARD + DeepARG hits by CDS
+    locus using ARO as the common vocabulary.  Consensus score = number of
+    tools that detected the locus divided by 3.  The curated tools
+    (RGI > AMRFinderPlus) supply the canonical annotation fields; DeepARG
+    contributes to the score but is not used as the preferred annotation
+    source.  argNorm-normalized files are used for AMRFinderPlus/DeepARG so
+    all three tools share a common ARO namespace.
+    """
+    input:
+        argnorm_done   = rules.argnorm_normalize.output.done,
+        rgi_done       = rules.rgi_card.output.done,
+        amrfinder_normed = rules.argnorm_normalize.output.amrfinder_normed,
+        deeparg_normed   = rules.argnorm_normalize.output.deeparg_normed,
+        rgi_results      = rules.rgi_card.output.results,
+    output:
+        done      = f"{OUTDIR}/{{sample}}/bins/amr_consensus/done.txt",
+        consensus = f"{OUTDIR}/{{sample}}/bins/amr_consensus/amr_consensus.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/amr_consensus.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/amr_consensus.tsv"
+    conda: "../envs/env_argnorm.yaml"
+    threads: 1
+    params:
+        enabled = AMR_CONSENSUS_ENABLED,
+        script  = srcdir("../scripts/consolidate_amr.py"),
+    run:
+        import os
+        from pathlib import Path
+
+        os.makedirs(os.path.dirname(str(output.done)), exist_ok=True)
+
+        def write_empty(msg):
+            with open(str(log[0]), "a") as lf:
+                lf.write(msg + "\n")
+            cols = "\t".join([
+                "locus", "aro_accession", "gene_name", "drug_class",
+                "resistance_mechanism", "n_tools", "consensus_score", "tools_detected",
+            ])
+            Path(str(output.consensus)).write_text(cols + "\n")
+            Path(str(output.done)).touch()
+
+        if not params.enabled:
+            write_empty("[amr_consensus] use_amr_consensus=False -- skipping")
+            return
+
+        shell(
+            "python {params.script} "
+            "--amrfinder-normed {input.amrfinder_normed} "
+            "--rgi-results {input.rgi_results} "
+            "--deeparg-normed {input.deeparg_normed} "
+            "-o {output.consensus} >> {log} 2>&1"
+        )
+
+        if not os.path.exists(str(output.consensus)) or os.path.getsize(str(output.consensus)) == 0:
+            write_empty("[amr_consensus] WARNING: script produced no output")
+            return
+
+        with open(str(log[0]), "a") as lf:
+            lf.write("[amr_consensus] Done\n")
+        Path(str(output.done)).touch()

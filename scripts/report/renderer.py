@@ -18,7 +18,7 @@ from .data_loaders import (
     load_mmseqs_taxonomy_prok, load_phist,
     load_defensefinder, load_antidefensefinder,
     load_antidefensefinder_viral, load_dbapis_viral, compute_defense_islands,
-    load_amrfinder, load_rgi_card, load_deeparg,
+    load_amr_consensus,
     build_host_defense_links, build_bin_annotation_summary,
     enrich_taxonomy_with_checkv, collapse_taxonomy_to_votu, merge_prok_taxonomy,
     load_alpha_diversity, load_pcoord, load_eggnog, load_phrogs,
@@ -89,9 +89,7 @@ def _build(snakemake):
     antidefense_viral_paths_l = [path_dict(_inp('antidefense_viral'), samples).get(s, '') for s in samples]
     dbapis_viral_paths_l      = [path_dict(_inp('dbapis_viral'), samples).get(s, '') for s in samples]
     prok_protein_manifest_l   = [path_dict(_inp('prok_protein_manifest'), samples).get(s, '') for s in samples]
-    amrfinder_paths_l         = [path_dict(_inp('amrfinder'), samples).get(s, '') for s in samples]
-    rgi_paths_l               = [path_dict(_inp('rgi'), samples).get(s, '') for s in samples]
-    deeparg_paths_l           = [path_dict(_inp('deeparg'), samples).get(s, '') for s in samples]
+    amr_consensus_paths_l     = [path_dict(_inp('amr_consensus'), samples).get(s, '') for s in samples]
 
     # vConTACT3: prefer exports/final_assignments.csv
     vc3_raw = path_dict(_inp('vcontact3'), samples)
@@ -135,11 +133,10 @@ def _build(snakemake):
     antidefense_viral_dbapis_data = load_dbapis_viral(
         dbapis_viral_paths_l, samples, getattr(snakemake.params, 'apis_db_dir', ''))
     defense_islands = compute_defense_islands(prok_protein_manifest_l, samples, defensefinder_data)
-    amr_data     = load_amrfinder(amrfinder_paths_l, samples) + load_rgi_card(rgi_paths_l, samples)
-    deeparg_data = load_deeparg(deeparg_paths_l, samples)
+    amr_consensus_data = load_amr_consensus(amr_consensus_paths_l, samples)
     host_defense_links = build_host_defense_links(phist_data, gtdb_data)
     bin_annotations = build_bin_annotation_summary(
-        defensefinder_data, antidefensefinder_data, amr_data + deeparg_data)
+        defensefinder_data, antidefensefinder_data, amr_consensus_data)
     vibrant_data, vibrant_amg = load_vibrant(outdir, samples)
     mmseqs_prok_data = load_mmseqs_taxonomy_prok(mmseqs_prok_paths, samples)
 
@@ -181,11 +178,14 @@ def _build(snakemake):
     lifestyle_data = {}
     for s in samples:
         lytic = lysogenic = 0
-        for row in votu_data[s]:
+        reps = [r for r in votu_data[s] if str(r.get('is_rep', 'True')).lower() in ('true', '1', 'yes')]
+        if not reps:
+            reps = votu_data[s]  # fallback: old table without is_rep column
+        for row in reps:
             ls = (row.get('lifestyle', '') or '').lower()
             if 'lytic' in ls or 'virulent' in ls: lytic += 1
             elif 'lysogenic' in ls or 'temperate' in ls: lysogenic += 1
-        total = len(votu_data[s])
+        total = len(reps)
         lifestyle_data[s] = {
             'lytic': lytic, 'lysogenic': lysogenic,
             'unknown': total - lytic - lysogenic, 'total': total,
@@ -365,8 +365,7 @@ def _build(snakemake):
         "ANTIDEFENSE_VIRAL_DF":     antidefense_viral_df_data,
         "ANTIDEFENSE_VIRAL_DBAPIS": antidefense_viral_dbapis_data,
         "DEFENSE_ISLANDS": defense_islands,
-        "AMR_DATA":     amr_data,
-        "DEEPARG_DATA": deeparg_data,
+        "AMR_CONSENSUS": amr_consensus_data,
         "HOST_DEFENSE_LINKS": host_defense_links,
         "BIN_ANNOTATIONS": bin_annotations,
         "VIBRANT_DATA": vibrant_data,
