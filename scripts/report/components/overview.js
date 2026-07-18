@@ -20,13 +20,17 @@
 
     // Aggregate
     let totalReads = 0, totalViral = 0, totalMAGs = 0;
-    let hqViral = 0;
+    let hqViral = 0, totalDefense = 0, totalAmrHq = 0, totalAmgs = 0, totalVmags = 0;
     samples.forEach(s => {
       const d = ov[s] || {};
-      totalReads += Number(d.total_raw_reads)  || 0;
-      totalViral += Number(d.viral_consensus)  || 0;
-      totalMAGs  += Number(d.total_bins)       || 0;
-      hqViral    += Number(d.complete_viral)   || 0;
+      totalReads   += Number(d.total_raw_reads)    || 0;
+      totalViral   += Number(d.viral_consensus)    || 0;
+      totalMAGs    += Number(d.total_bins)         || 0;
+      hqViral      += Number(d.complete_viral)     || 0;
+      totalDefense += Number(d.total_defense)      || 0;
+      totalAmrHq   += Number(d.total_amr_hq)       || 0;
+      totalAmgs    += Number(d.total_amgs)         || 0;
+      totalVmags   += Number(d.vmags)              || 0;
     });
 
     const mimag = typeof MIMAG !== 'undefined' ? MIMAG : {};
@@ -37,12 +41,16 @@
     });
 
     const kpis = [
-      { val: samples.length, label: 'Samples' },
-      { val: fmt(totalReads), label: 'Total reads', sub: 'raw' },
-      { val: fmt(totalViral), label: 'Viral OTUs',  sub: 'consensus' },
-      { val: fmt(totalMAGs),  label: 'MAGs',        sub: 'Binette final' },
-      { val: fmt(hqViral),  label: 'HQ viral',   sub: 'CheckV' },
-      { val: fmt(hqMqMags), label: 'HQ+MQ MAGs', sub: 'CheckM2' },
+      { val: samples.length,    label: 'Samples' },
+      { val: fmt(totalReads),   label: 'Total reads',       sub: 'raw' },
+      { val: fmt(totalViral),   label: 'Viral vOTUs',       sub: 'consensus' },
+      { val: fmt(totalVmags),   label: 'vMAGs',             sub: 'vRhyme bins' },
+      { val: fmt(totalMAGs),    label: 'MAGs',              sub: 'Binette final' },
+      { val: fmt(hqViral),      label: 'HQ viral',          sub: 'CheckV Complete/HQ' },
+      { val: fmt(hqMqMags),     label: 'HQ+MQ MAGs',        sub: 'CheckM2 MIMAG' },
+      { val: fmt(totalDefense), label: 'Defense systems',   sub: 'DefenseFinder' },
+      { val: fmt(totalAmrHq),   label: 'AMR genes (3-tool)',sub: 'consensus' },
+      { val: fmt(totalAmgs),    label: 'AMGs',              sub: 'VIBRANT' },
     ];
 
     const grid = document.getElementById('kpi-grid');
@@ -154,20 +162,39 @@
     const binner= (typeof BINNER  !== 'undefined' ? BINNER  : {})[sample] || {};
 
     const kpis = [
+      // ── Sequencing & Assembly ──────────────────────────────────────────────
       { val: fmt(ov.total_raw_reads),  label: 'Raw reads' },
+      { val: ov.mean_qual || 'N/A',    label: 'Mean quality (Q)' },
+      { val: ov.gc_pct    || 'N/A',    label: 'GC content' },
       { val: ov.mapping_rate || 'N/A', label: 'Mapping rate' },
       { val: fmt(ov.n_contigs),        label: 'Contigs' },
+      { val: fmt(ov.n50),              label: 'N50 (bp)' },
+      // ── Viral ─────────────────────────────────────────────────────────────
       { val: fmt(ov.viral_consensus),  label: 'Viral vOTUs' },
+      { val: fmt(ov.complete_viral),   label: 'HQ/Complete viral' },
+      { val: ov.pct_novel != null
+              ? `${ov.pct_novel}%`
+              : 'N/A',              label: '% novel vOTUs' },
       { val: fmt(ov.vmags),            label: 'vMAGs (vRhyme)' },
-      { val: fmt(ov.total_bins),       label: 'MAGs (Binette)' },
-      { val: fmt(ov.hq_bins),          label: 'HQ MAGs (≥90/≤5)' },
-      { val: fmt(ov.host_pred_total),  label: 'Host predictions' },
       { val: ov.lytic_count != null
               ? `${ov.lytic_count}L / ${ov.lysogenic_count}T`
               : 'N/A',              label: 'Lytic / Temperate' },
       { val: ov.lytic_ratio != null
               ? `${(ov.lytic_ratio * 100).toFixed(0)}% lytic`
               : 'N/A',              label: 'Lifestyle ratio' },
+      { val: fmt(ov.total_amgs),       label: 'AMGs (VIBRANT)' },
+      // ── Taxonomy & Hosts ──────────────────────────────────────────────────
+      { val: fmt(ov.taxonomy_classified), label: 'Viral taxa classified' },
+      { val: fmt(ov.host_pred_total),  label: 'Host predictions (PHIST)' },
+      // ── Prokaryotes ───────────────────────────────────────────────────────
+      { val: fmt(ov.total_bins),       label: 'MAGs (Binette)' },
+      { val: fmt(ov.hq_bins),          label: 'HQ MAGs (≥90/≤5)' },
+      { val: fmt(ov.bacteria_bins),    label: 'Bacterial MAGs' },
+      { val: fmt(ov.archaea_bins),     label: 'Archaeal MAGs' },
+      { val: fmt(ov.gtdb_classified),  label: 'GTDB-classified bins' },
+      // ── Defense & AMR ─────────────────────────────────────────────────────
+      { val: fmt(ov.total_defense),    label: 'Defense systems' },
+      { val: fmt(ov.total_amr_hq),     label: 'AMR genes (3-tool)' },
     ];
 
     const cards = document.getElementById('ov-sample-cards');

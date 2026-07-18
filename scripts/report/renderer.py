@@ -278,6 +278,14 @@ def _build(snakemake):
             "lysogenic_count":    lifestyle_data[s]["lysogenic"],
             "lytic_ratio":        round(lifestyle_data[s]["lytic"] / lifestyle_data[s]["total"], 3)
                                   if lifestyle_data[s]["total"] > 0 else 0.0,
+            "gtdb_classified":    len({r["Bin"] for r in gtdb_data
+                                       if r.get("sample") == s and r.get("Bin")}),
+            "total_defense":      sum(1 for r in defensefinder_data if r.get("sample") == s),
+            "total_amr_hq":       sum(1 for r in amr_consensus_data
+                                      if r.get("sample") == s
+                                      and safe_int(r.get("n_tools", 0)) == 3),
+            "total_amgs":         sum(safe_int(r.get("Total_AMGs", 0))
+                                      for r in vibrant_amg if r.get("sample") == s),
         }
 
     # Back-fill Binette domain from GTDB-Tk
@@ -303,11 +311,13 @@ def _build(snakemake):
         total_viral  = overview[s].get("viral_consensus", 0)
         classified   = overview[s].get("taxonomy_classified", 0)
         unclassified = max(0, total_viral - classified)
+        pct_novel = round(100.0 * unclassified / total_viral, 1) if total_viral > 0 else 0.0
         novelty_data[s] = {
             'total': total_viral, 'classified': classified,
             'unclassified': unclassified,
-            'pct_novel': round(100.0 * unclassified / total_viral, 1) if total_viral > 0 else 0.0,
+            'pct_novel': pct_novel,
         }
+        overview[s]['pct_novel'] = pct_novel
 
     mimag_data = {}
     for s in samples:
