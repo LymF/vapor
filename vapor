@@ -338,6 +338,22 @@ def main():
     print(f"[VAPOR {__version__}] Config    : {config_path}")
 
     if args.dag:
+        import shutil
+        # Resolve dot binary: PATH first, then active conda env, then common prefixes.
+        dot_bin = shutil.which("dot")
+        if not dot_bin:
+            for prefix_env in ("CONDA_PREFIX", "CONDA_EXE"):
+                prefix = os.environ.get(prefix_env, "")
+                if prefix:
+                    # CONDA_EXE points to the conda binary; walk up to the env root.
+                    root = Path(prefix) if prefix_env == "CONDA_PREFIX" else Path(prefix).parent.parent
+                    candidate = root / "bin" / "dot"
+                    if candidate.is_file():
+                        dot_bin = str(candidate)
+                        break
+        if not dot_bin:
+            sys.exit("ERROR: 'dot' not found. Install graphviz: conda install -c conda-forge graphviz")
+
         dag_cmd = [
             "snakemake",
             "--snakefile", str(snakefile),
@@ -346,20 +362,17 @@ def main():
         ]
         out_svg = Path.cwd() / "dag.svg"
         print(f"[VAPOR] Generating DAG → {out_svg}")
-        try:
-            p1 = subprocess.Popen(dag_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            with open(out_svg, "w") as f:
-                p2 = subprocess.Popen(
-                    ["dot", "-Tsvg"], stdin=p1.stdout, stdout=f, stderr=subprocess.PIPE
-                )
-                p1.stdout.close()
-                _, dot_err = p2.communicate()
-            if p2.returncode != 0:
-                print(f"[VAPOR] WARNING: dot exited with code {p2.returncode}", file=sys.stderr)
-                if dot_err:
-                    print(dot_err.decode(), file=sys.stderr)
-        except FileNotFoundError:
-            sys.exit("ERROR: 'dot' not found. Install graphviz: conda install -c conda-forge graphviz")
+        p1 = subprocess.Popen(dag_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        with open(out_svg, "w") as f:
+            p2 = subprocess.Popen(
+                [dot_bin, "-Tsvg"], stdin=p1.stdout, stdout=f, stderr=subprocess.PIPE
+            )
+            p1.stdout.close()
+            _, dot_err = p2.communicate()
+        if p2.returncode != 0:
+            print(f"[VAPOR] WARNING: dot exited with code {p2.returncode}", file=sys.stderr)
+            if dot_err:
+                print(dot_err.decode(), file=sys.stderr)
         print(f"[VAPOR] DAG saved to {out_svg}")
         return
 
