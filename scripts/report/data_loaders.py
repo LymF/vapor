@@ -1157,12 +1157,14 @@ def load_reads_classify(abundance_path, host_path, samples):
         return name
 
     def _is_viral(clade):
-        # Viral taxonomy starts with r__ (ICTV realm), e.g. r__Duplodnaviria
+        # ICTV realm taxonomy: r__Duplodnaviria, r__Monodnaviria, etc.
         first = clade.split('|')[0]
         if first.startswith('r__') and first not in ('r__', ):
             return True
-        # Fallback: d__Viruses in NCBI-style taxonomy
+        # UNKNOWN|...|t__IMGVR_* — IMG/VR hits with no realm annotation
         for part in clade.split('|'):
+            if part.startswith('t__IMGVR_') or part.startswith('t__UHGV_'):
+                return True
             if part.startswith('d__') and 'virus' in part.lower():
                 return True
         return False

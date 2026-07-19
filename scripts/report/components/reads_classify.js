@@ -29,7 +29,15 @@
     };
     const prefix = map[rank] || 'f__';
     const parts = (clade || '').split('|');
-    for (const p of parts) if (p.startsWith(prefix)) return p.slice(3).trim() || '—';
+    for (const p of parts) {
+      if (p.startsWith(prefix)) {
+        const name = p.slice(3).trim();
+        return name || 'Unclassified';
+      }
+    }
+    // If the rank prefix doesn't exist but there are UNKNOWN entries at that depth,
+    // fall back to 'Unclassified' so viral rows with partial taxonomy still group.
+    if (parts.some(p => p === 'UNKNOWN')) return 'Unclassified';
     return '';
   }
 
@@ -65,11 +73,11 @@
     chart.setOption({
       title: { text: title, textStyle: { fontSize: 13 } },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
-        formatter: params => params.map(p => `${p.marker}${p.seriesName}: ${(p.value*100).toFixed(3)}%`).join('<br>') },
+        formatter: params => params.map(p => `${p.marker}${p.seriesName}: ${(+p.value).toFixed(3)}%`).join('<br>') },
       legend: { type: 'scroll', bottom: 0, textStyle: { fontSize: 11 } },
       grid: { top: 40, bottom: 60, left: 80, right: 20 },
       xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30, fontSize: 10 } },
-      yAxis: { type: 'value', name: 'Relative abundance', axisLabel: { formatter: v => `${(v*100).toFixed(1)}%` } },
+      yAxis: { type: 'value', name: 'Relative abundance (%)', axisLabel: { formatter: v => `${(+v).toFixed(1)}%` } },
       series,
     });
   }
@@ -82,7 +90,7 @@
       title: { text: title, textStyle: { fontSize: 13 } },
       tooltip: { trigger: 'axis' },
       grid: { left: 120, right: 20, top: 40, bottom: 40 },
-      xAxis: { type: 'value', axisLabel: { formatter: v => `${(v*100).toFixed(2)}%` } },
+      xAxis: { type: 'value', axisLabel: { formatter: v => `${(+v).toFixed(2)}%` } },
       yAxis: { type: 'category', data: labels, axisLabel: { fontSize: 10 } },
       series: [{ type: 'bar', data: values, itemStyle: { color: color || '#5b8ff9' } }],
     });
@@ -134,7 +142,7 @@
         Genus:  _rankField(r.clade, 'genus')  || '—',
         Species: _rankField(r.clade, 'species') || '—',
         Clade: r.clade,
-        ...Object.fromEntries(samples.map(s => [s, `${((r[s]||0)*100).toFixed(4)}%`])),
+        ...Object.fromEntries(samples.map(s => [s, `${(+(r[s]||0)).toFixed(4)}%`])),
       }))
       .sort((a, b) => {
         const sa = samples.reduce((t,s) => t + parseFloat(a[s]||0), 0);
@@ -176,7 +184,7 @@
         Family: _rankField(r.clade, 'family') || '—',
         Genus:  _rankField(r.clade, 'genus')  || '—',
         Domain: _rankField(r.clade, 'domain') || '—',
-        ...Object.fromEntries(samples.map(s => [s, `${((r[s]||0)*100).toFixed(4)}%`])),
+        ...Object.fromEntries(samples.map(s => [s, `${(+(r[s]||0)).toFixed(4)}%`])),
       }))
       .sort((a, b) => {
         const sa = samples.reduce((t,s) => t + parseFloat(a[s]||0), 0);

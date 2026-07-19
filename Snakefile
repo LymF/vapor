@@ -435,5 +435,6 @@ rule all:
         *([ f"{OUTDIR}/multiqc_report/multiqc_report.html" ] if not LONG_READS else []),
 
         # ── Reads-only classification (Sylph) — optional ──────────────
-        *([f"{OUTDIR}/reads_classify/reads_classify_done.txt"]
+        *([f"{OUTDIR}/reads_classify/reads_classify_done.txt",
+           f"{OUTDIR}/final/reads_classify/done.txt"]
           if READS_CLASSIFY_ENABLED else []),

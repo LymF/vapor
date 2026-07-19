@@ -41,6 +41,13 @@
 #       plasmidfinder_results.tsv   — replicons plasmidiais (ABRicate/PlasmidFinder)
 #       amrfinderplus_normed.tsv    — AMRFinderPlus normalizado ARO (argNorm)
 #       deeparg_normed.tsv          — DeepARG normalizado ARO (argNorm)
+#
+#   final/reads_classify/           — opcional (reads_classify: true em config)
+#     merged_relative_abundance_filtered.tsv — abundância relativa sylph-tax (filtrada)
+#     merged_relative_abundance.tsv
+#     merged_sequence_abundance.tsv
+#     otu_table.tsv
+#     viral_abundance_by_host.tsv   — abundância viral por hospedeiro predito
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -270,3 +277,32 @@ rule organize_outputs:
 
         with open(output.done, 'w') as f:
             f.write('ok\n')
+
+
+if READS_CLASSIFY_ENABLED:
+    rule finalize_reads_classify:
+        """
+        Copia outputs do reads_classify (sylph) para final/reads_classify/.
+        Executa uma vez por pipeline (global, não por sample).
+        """
+        input:
+            done     = f"{OUTDIR}/reads_classify/reads_classify_done.txt",
+        output:
+            sentinel = f"{OUTDIR}/final/reads_classify/done.txt",
+        run:
+            import os, shutil
+            src = f"{OUTDIR}/reads_classify"
+            dst = f"{OUTDIR}/final/reads_classify"
+            os.makedirs(dst, exist_ok=True)
+            for fname in [
+                "merged_relative_abundance_filtered.tsv",
+                "merged_relative_abundance.tsv",
+                "merged_sequence_abundance.tsv",
+                "otu_table.tsv",
+                "viral_abundance_by_host.tsv",
+            ]:
+                src_f = os.path.join(src, fname)
+                if os.path.exists(src_f):
+                    shutil.copy(src_f, os.path.join(dst, fname))
+            with open(output.sentinel, 'w') as f:
+                f.write('ok\n')
