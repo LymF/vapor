@@ -415,13 +415,15 @@
         <div id="rc-viral-content">
           <div class="chart-card">
             <h3 class="section-title">Top Viral Families — Relative Abundance</h3>
-            <p class="section-sub">Sylph profiling against IMG/VR / UHGV / custom viral DB — top 15 families per sample</p>
+            <p class="section-sub">Sylph profiling against IMG/VR / UHGV / custom viral DB — top 15 groups per sample at the selected rank</p>
             <div class="toolbar">
               <label>Rank:
                 <select id="rc-viral-rank-sel">
-                  <option value="family">Family</option>
+                  <option value="class" selected>Class</option>
                   <option value="order">Order</option>
+                  <option value="family">Family</option>
                   <option value="genus">Genus</option>
+                  <option value="realm">Realm</option>
                 </select>
               </label>
               <label>Min abundance (%):

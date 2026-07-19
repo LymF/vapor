@@ -41,11 +41,23 @@
     return '';
   }
 
+  // Map rank name → prefix; ordered shallowest→deepest for comparison
+  const RANK_PREFIX = {
+    realm: 'r__', kingdom: 'k__', phylum: 'p__', class: 'c__',
+    order: 'o__', family: 'f__', genus: 'g__', species: 's__',
+  };
+
   function _aggregateByRank(rows, rank, topN) {
+    // Filter to rows whose effective rank (deepest recognized rank prefix) matches
+    // the requested rank. This avoids double-counting across hierarchy levels:
+    // a c__-level row is only used for 'class' charts, an f__-level row only for
+    // 'family' charts, etc.
+    const prefix = RANK_PREFIX[rank] || 'f__';
     const samples = _samples();
     const agg = {};
     for (const r of rows) {
-      const label = _rankField(r.clade, rank) || 'Unknown';
+      if (r._eff_rank !== prefix) continue;  // skip wrong level
+      const label = _rankField(r.clade, rank) || 'Unclassified';
       if (!agg[label]) { agg[label] = { label }; for (const s of samples) agg[label][s] = 0; }
       for (const s of samples) agg[label][s] += (r[s] || 0);
     }
@@ -119,7 +131,7 @@
   function _renderViral() {
     const viral = (RC.viral || []);
     const samples = _samples();
-    const rank = (document.getElementById('rc-viral-rank-sel') || {}).value || 'family';
+    const rank = (document.getElementById('rc-viral-rank-sel') || {}).value || 'class';
     const minPct = parseFloat((document.getElementById('rc-viral-min-abund') || {}).value || 0) / 100;
 
     const filtered = minPct > 0 ? viral.filter(r => samples.some(s => (r[s] || 0) >= minPct)) : viral;
@@ -130,18 +142,19 @@
     const richness = samples.map(s => viral.filter(r => (r[s] || 0) > 0).length);
     _barChart('rc-viral-richness-chart', samples, richness, 'Detected Viral Taxa per Sample', '#5ad8a6');
 
-    // Domain breakdown (always Viruses here, but sub-realm if available)
-    const realms = _aggregateByRank(viral, 'order', 8);
-    _stackedBar('rc-viral-domain-chart', realms, samples, 'Viral Orders');
+    // Class breakdown — most environmental viromes are Caudoviricetes-dominated
+    const classes = _aggregateByRank(viral, 'class', 8);
+    _stackedBar('rc-viral-domain-chart', classes, samples, 'Viral Classes');
 
     // Table: top taxa
-    const tableRows = filtered
+    // Table: all effective-rank viral rows sorted by total abundance
+    const tableRows = (RC.viral || [])
       .map(r => ({
-        Family: _rankField(r.clade, 'family') || '—',
+        Class:  _rankField(r.clade, 'class')  || '—',
         Order:  _rankField(r.clade, 'order')  || '—',
+        Family: _rankField(r.clade, 'family') || '—',
         Genus:  _rankField(r.clade, 'genus')  || '—',
-        Species: _rankField(r.clade, 'species') || '—',
-        Clade: r.clade,
+        Rank: r._eff_rank || '—',
         ...Object.fromEntries(samples.map(s => [s, `${(+(r[s]||0)).toFixed(4)}%`])),
       }))
       .sort((a, b) => {
@@ -150,7 +163,7 @@
         return sb - sa;
       })
       .slice(0, 200);
-    const tableCols = ['Family', 'Order', 'Genus', 'Species', ...samples];
+    const tableCols = ['Rank', 'Class', 'Order', 'Family', 'Genus', ...samples];
     _makeTable('rc-viral-table', tableRows, tableCols, 'rc-viral-search');
   }
 

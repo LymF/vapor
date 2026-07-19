@@ -1175,6 +1175,27 @@ def load_reads_classify(abundance_path, host_path, samples):
                 return True
         return False
 
+    # Standard rank prefixes for sylph-tax / sylphmpa format (ordered shallowest→deepest)
+    _STD_RANKS = ('r__', 'k__', 'p__', 'c__', 'o__', 'f__', 'g__', 's__')
+
+    def _last_std_rank_seg(clade):
+        """Return the deepest standard-rank segment in the clade, or ''."""
+        last = ''
+        for seg in clade.split('|'):
+            if any(seg.startswith(p) for p in _STD_RANKS):
+                last = seg
+        return last
+
+    def _parent_has_same_eff(clade, cache, my_eff):
+        """True if a shallower row shares the same deepest std-rank value.
+        Identifies UNKNOWN-chain duplicates that repeat the parent's aggregate."""
+        parts = clade.split('|')
+        for i in range(1, len(parts)):
+            parent = '|'.join(parts[:i])
+            if cache.get(parent) == my_eff:
+                return True
+        return False
+
     viral, prok, archaea = [], [], []
     col_to_sample = {}  # merged TSV column header → sample name
 
@@ -1193,19 +1214,29 @@ def load_reads_classify(abundance_path, host_path, samples):
                 elif col in samples:
                     col_to_sample[col] = col
 
-            # Identify leaf nodes: rows that have no child row (no other clade
-            # starts with this clade + '|'). Avoids double-counting parent rows.
             all_clades = {row.get(taxon_col, '') for row in rows}
+            eff_cache = {c: _last_std_rank_seg(c) for c in all_clades}
 
             for row in rows:
                 clade = row.get(taxon_col, '').strip()
                 if not clade:
                     continue
-                # Skip parent rows — their abundance is already in the children
-                if any(other.startswith(clade + '|') for other in all_clades if other != clade):
+
+                # Keep "effective-rank rows": rows whose last std-rank segment is
+                # their canonical rank label. Skip:
+                # • all-UNKNOWN/t__ chains with no std rank → uninformative
+                # • UNKNOWN-chain duplicates: a shallower row has the same eff rank
+                #   (e.g., c__|UNKNOWN repeats c__ aggregate abundance)
+                # This keeps one row per distinct recognized-rank node.
+                # The JS then filters by _eff_rank to select the right level for
+                # each chart without double-counting across ranks.
+                my_eff = eff_cache.get(clade, '')
+                if not my_eff:
+                    continue
+                if _parent_has_same_eff(clade, eff_cache, my_eff):
                     continue
 
-                record = {'clade': clade}
+                record = {'clade': clade, '_eff_rank': my_eff[:3]}  # e.g. 'c__'
                 for col, sname in col_to_sample.items():
                     record[sname] = safe_float(row.get(col, 0.0))
                 for s in samples:
