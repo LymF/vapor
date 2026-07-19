@@ -93,7 +93,7 @@
       stack: 'total',
       data: samples.map(s => +(g[s] || 0).toFixed(5)),
     }));
-    window.renderChart(chartId, {
+    window.mkChart(chartId, {
       title: { text: title, textStyle: { fontSize: 13 } },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
         formatter: params => params.map(p => `${p.marker}${p.seriesName}: ${(+p.value).toFixed(3)}%`).join('<br>') },
@@ -108,7 +108,7 @@
   function _barChart(chartId, labels, values, title, color) {
     const el = document.getElementById(chartId);
     if (!el) return;
-    window.renderChart(chartId, {
+    window.mkChart(chartId, {
       title: { text: title, textStyle: { fontSize: 13 } },
       tooltip: { trigger: 'axis' },
       grid: { left: 120 },
