@@ -41,22 +41,33 @@
     return '';
   }
 
-  // Map rank name → prefix; ordered shallowest→deepest for comparison
+  // Standard rank prefixes in order shallowest→deepest (mirrors Python _STD_RANKS)
+  const STD_RANK_PREFIXES = ['r__', 'k__', 'p__', 'c__', 'o__', 'f__', 'g__', 's__'];
+
+  // Map rank name → prefix
   const RANK_PREFIX = {
     realm: 'r__', kingdom: 'k__', phylum: 'p__', class: 'c__',
     order: 'o__', family: 'f__', genus: 'g__', species: 's__',
   };
 
+  /** Derive effective rank prefix from clade string (mirrors Python _last_std_rank_seg). */
+  function _effRank(clade) {
+    let last = '';
+    for (const seg of (clade || '').split('|')) {
+      if (STD_RANK_PREFIXES.some(p => seg.startsWith(p))) last = seg.slice(0, 3);
+    }
+    return last;
+  }
+
   function _aggregateByRank(rows, rank, topN) {
-    // Filter to rows whose effective rank (deepest recognized rank prefix) matches
-    // the requested rank. This avoids double-counting across hierarchy levels:
-    // a c__-level row is only used for 'class' charts, an f__-level row only for
-    // 'family' charts, etc.
+    // Use only rows at the requested rank level (by recomputing effective rank from
+    // the clade string — more robust than relying on the serialized _eff_rank field).
+    // Rows at a shallower or deeper rank are skipped to avoid double-counting.
     const prefix = RANK_PREFIX[rank] || 'f__';
     const samples = _samples();
     const agg = {};
     for (const r of rows) {
-      if (r._eff_rank !== prefix) continue;  // skip wrong level
+      if (_effRank(r.clade) !== prefix) continue;
       const label = _rankField(r.clade, rank) || 'Unclassified';
       if (!agg[label]) { agg[label] = { label }; for (const s of samples) agg[label][s] = 0; }
       for (const s of samples) agg[label][s] += (r[s] || 0);
@@ -72,22 +83,22 @@
   function _stackedBar(chartId, groups, samples, title) {
     const el = document.getElementById(chartId);
     if (!el) return;
-    const chart = echarts.init(el, _theme());
-    const COLORS = ['#5b8ff9','#5ad8a6','#5d7092','#f6bd16','#e8684a','#6dc8ec',
-                    '#9867bc','#8d684b','#f2b4b8','#87e8de','#ffd591','#b7eb8f'];
-    const series = groups.map((g, i) => ({
+    if (!groups.length) {
+      el.innerHTML = '<p class="muted" style="padding:20px;text-align:center">No data at this rank level</p>';
+      return;
+    }
+    const series = groups.map(g => ({
       name: g.label,
       type: 'bar',
       stack: 'total',
       data: samples.map(s => +(g[s] || 0).toFixed(5)),
-      itemStyle: { color: COLORS[i % COLORS.length] },
     }));
-    chart.setOption({
+    window.renderChart(chartId, {
       title: { text: title, textStyle: { fontSize: 13 } },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
         formatter: params => params.map(p => `${p.marker}${p.seriesName}: ${(+p.value).toFixed(3)}%`).join('<br>') },
-      legend: { type: 'scroll', bottom: 0, textStyle: { fontSize: 11 } },
-      grid: { top: 40, bottom: 60, left: 80, right: 20 },
+      legend: { type: 'scroll', bottom: 0, textStyle: { fontSize: 11 }, show: true },
+      grid: { bottom: 60 },
       xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30, fontSize: 10 } },
       yAxis: { type: 'value', name: 'Relative abundance (%)', axisLabel: { formatter: v => `${(+v).toFixed(1)}%` } },
       series,
@@ -97,12 +108,11 @@
   function _barChart(chartId, labels, values, title, color) {
     const el = document.getElementById(chartId);
     if (!el) return;
-    const chart = echarts.init(el, _theme());
-    chart.setOption({
+    window.renderChart(chartId, {
       title: { text: title, textStyle: { fontSize: 13 } },
       tooltip: { trigger: 'axis' },
-      grid: { left: 120, right: 20, top: 40, bottom: 40 },
-      xAxis: { type: 'value', axisLabel: { formatter: v => `${(+v).toFixed(2)}%` } },
+      grid: { left: 120 },
+      xAxis: { type: 'value', axisLabel: { formatter: v => `${(+v).toFixed(2)}` } },
       yAxis: { type: 'category', data: labels, axisLabel: { fontSize: 10 } },
       series: [{ type: 'bar', data: values, itemStyle: { color: color || '#5b8ff9' } }],
     });
@@ -125,14 +135,13 @@
     }
   }
 
-  function _theme() { return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'; }
-
   /* ── Viral ── */
   function _renderViral() {
     const viral = (RC.viral || []);
     const samples = _samples();
     const rank = (document.getElementById('rc-viral-rank-sel') || {}).value || 'class';
-    const minPct = parseFloat((document.getElementById('rc-viral-min-abund') || {}).value || 0) / 100;
+    // values are in % scale (0-100) — threshold is applied directly in %
+    const minPct = parseFloat((document.getElementById('rc-viral-min-abund') || {}).value || 0);
 
     const filtered = minPct > 0 ? viral.filter(r => samples.some(s => (r[s] || 0) >= minPct)) : viral;
     const groups = _aggregateByRank(filtered, rank, 15);
