@@ -353,8 +353,7 @@ def _t_foundation():
 
 
 def _t_reads():
-    if not READS_CLASSIFY_ENABLED and not TRACK_READS:
-        return []
+    # reads track roda se explicitamente selecionada OU se reads_classify legado ligado
     if not (TRACK_READS or READS_CLASSIFY_ENABLED):
         return []
     return [
