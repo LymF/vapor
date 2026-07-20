@@ -10,6 +10,7 @@ Run 'vapor -h' for full help.
 """
 
 import argparse
+import json as _json
 import os
 import subprocess
 import sys
@@ -73,6 +74,29 @@ _PATH_KEYS = [
     "custom_prok_mmseqs_db", "custom_viral_mmseqs_db",
     "host_genome", "host_index",
 ]
+
+_VALID_TRACKS = ("reads", "viral", "prok")
+
+# Friendly stage name → representative rule for `--until`.
+_STAGE_ALIASES = {
+    "qc":       "fastp",
+    "assembly": "mmseqs2",
+    "viral":    "viral_consensus",
+    "binning":  "binette",
+}
+
+
+def _track_overrides(track_csv: str) -> list[str]:
+    """Translate --track viral,prok into a Snakemake --config tracks={...} override."""
+    wanted = {t.strip().lower() for t in track_csv.split(",") if t.strip()}
+    unknown = wanted - set(_VALID_TRACKS)
+    if unknown:
+        raise SystemExit(
+            f"ERROR: unknown track(s): {', '.join(sorted(unknown))}. "
+            f"Valid: {', '.join(_VALID_TRACKS)}."
+        )
+    d = {t: (t in wanted) for t in _VALID_TRACKS}
+    return [f"tracks={_json.dumps(d)}"]
 
 
 def find_snakefile(cli_path):
@@ -204,9 +228,21 @@ def build_command(args, snakefile, config_path):
             flag = "--apptainer-args" if executor == "apptainer" else "--singularity-args"
             cmd += [flag, combined]
 
-    # --set KEY=VALUE overrides passed to Snakemake's --config mechanism.
-    if args.set_config:
-        cmd += ["--config"] + args.set_config
+    # --set KEY=VALUE + --track overrides, both via Snakemake's --config mechanism.
+    config_overrides = list(args.set_config)
+    if getattr(args, "track", None):
+        config_overrides += _track_overrides(args.track)
+    if config_overrides:
+        cmd += ["--config"] + config_overrides
+
+    if getattr(args, "until", None):
+        stage = args.until.strip().lower()
+        if stage not in _STAGE_ALIASES:
+            raise SystemExit(
+                f"ERROR: unknown --until stage '{stage}'. "
+                f"Valid: {', '.join(_STAGE_ALIASES)}."
+            )
+        cmd += ["--until", _STAGE_ALIASES[stage]]
 
     if args.dry_run:
         cmd.append("--dry-run")
@@ -279,6 +315,20 @@ def main():
         default="",
         dest="singularity_args",
         help='Extra args for Singularity/Apptainer, e.g. "--nv" for GPU pass-through',
+    )
+    parser.add_argument(
+        "--track",
+        metavar="LIST",
+        default=None,
+        help="Run only these tracks (comma-separated): reads,viral,prok. "
+             "Overrides config.yaml tracks. Example: --track viral,prok",
+    )
+    parser.add_argument(
+        "--until",
+        metavar="STAGE",
+        default=None,
+        help="Stop after a stage: qc | assembly | viral | binning "
+             "(maps to Snakemake --until on a representative rule).",
     )
 
     # ── Execution control ─────────────────────────────────────────────
