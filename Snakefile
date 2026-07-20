@@ -345,114 +345,142 @@ if LONG_READS:
 
 
 # ══════════════════════════════════════════════════════════════════════
+#  TARGET BUILDERS — cada track contribui sua fatia de alvos ao rule all.
+#  Includes permanecem; só o rule all decide o que efetivamente roda.
+# ══════════════════════════════════════════════════════════════════════
+
+def _t_foundation():
+    t = []
+    if not LONG_READS:
+        t += expand(f"{OUTDIR}/{{sample}}/qc_raw/done.txt", sample=SAMPLES)
+    else:
+        t += expand(f"{OUTDIR}/{{sample}}/qc_lr/nanoplot_done.txt", sample=SAMPLES)
+    if TRACK_VIRAL or TRACK_PROK:
+        t += expand(f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta", sample=SAMPLES)
+        t += expand(f"{OUTDIR}/{{sample}}/quast/report.tsv", sample=SAMPLES)
+        if LONG_READS:
+            t += expand(f"{OUTDIR}/{{sample}}/assembly/lr/merged/done.txt", sample=SAMPLES)
+        # mapping/depth feeds both viral (vRhyme coverage) and prok (binning depth)
+        t += expand(f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam", sample=SAMPLES)
+        t += expand(f"{OUTDIR}/{{sample}}/mapping/{{sample}}_depth.txt", sample=SAMPLES)
+        if not LONG_READS:
+            t += expand(f"{OUTDIR}/{{sample}}/mapping/bwa_mem_done.txt", sample=SAMPLES)
+    return t
+
+
+def _t_reads():
+    # reads track roda se explicitamente selecionada OU se reads_classify legado ligado
+    if not (TRACK_READS or READS_CLASSIFY_ENABLED):
+        return []
+    return [
+        f"{OUTDIR}/reads_classify/reads_classify_done.txt",
+        f"{OUTDIR}/final/reads_classify/done.txt",
+    ]
+
+
+def _t_viral():
+    if not TRACK_VIRAL:
+        return []
+    t = []
+    t += expand(f"{OUTDIR}/{{sample}}/viral/virsorter2/final-viral-combined.fa", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/genomad/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/vibrant/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_consensus.fasta", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_tool_support.tsv", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/checkv/quality_summary.tsv", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/bins/vrhyme/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme/quality_summary.tsv", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_nonredundant.fasta", sample=SAMPLES)
+    if VOTU_CLUSTERING_ENABLED:
+        t += expand(f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv", sample=SAMPLES)
+        t += expand(f"{OUTDIR}/{{sample}}/viral/votu/votu_all_reps.fasta", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_abundance.tsv", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/done.txt", sample=SAMPLES)
+    if DEFENSE_AMR_VIRAL_ENABLED:
+        t += expand(f"{OUTDIR}/{{sample}}/viral/defensefinder/done.txt", sample=SAMPLES)
+        t += expand(f"{OUTDIR}/{{sample}}/viral/dbapis/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/abundance/viral_abundance.tsv", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/annotation/pharokka/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/annotation/phold/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/phage_maps_done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/virus_maps_done.txt", sample=SAMPLES)
+    return t
+
+
+def _t_prok():
+    if not TRACK_PROK:
+        return []
+    t = []
+    t += expand(f"{OUTDIR}/{{sample}}/bins/metabat2/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/bins/semibin2/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/bins/comebin/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/bins/binette/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/bins/checkm2/quality_report.tsv", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/done.txt", sample=SAMPLES)
+    if GUNC_ENABLED:
+        t += expand(f"{OUTDIR}/{{sample}}/bins/gunc/GUNC.progenomes_2.1.maxCSS_level.tsv", sample=SAMPLES)
+    if MAG_DEREP_ENABLED:
+        t += expand(f"{OUTDIR}/{{sample}}/bins/derep/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/bins/proteins/done.txt", sample=SAMPLES)
+    if DEFENSE_AMR_ENABLED:
+        t += expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/done.txt", sample=SAMPLES)
+        t += expand(f"{OUTDIR}/{{sample}}/bins/amrfinderplus/done.txt", sample=SAMPLES)
+        t += expand(f"{OUTDIR}/{{sample}}/bins/rgi/done.txt", sample=SAMPLES)
+        t += expand(f"{OUTDIR}/{{sample}}/bins/deeparg/done.txt", sample=SAMPLES)
+        if AMR_CONSENSUS_ENABLED:
+            t += expand(f"{OUTDIR}/{{sample}}/bins/amr_consensus/done.txt", sample=SAMPLES)
+    if ABRICATE_ENABLED:
+        t += expand(f"{OUTDIR}/{{sample}}/bins/abricate/done.txt", sample=SAMPLES)
+    if ARGNORM_ENABLED:
+        t += expand(f"{OUTDIR}/{{sample}}/bins/argnorm/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/abundance/prok_abundance.tsv", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/annotation/bakta/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/annotation/eggnog/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/annotation/kegg_decoder/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/prok_maps_done.txt", sample=SAMPLES)
+    return t
+
+
+def _t_integration():
+    if not INTEGRATION_ENABLED:
+        return []
+    return expand(f"{OUTDIR}/{{sample}}/viral/phist/done.txt", sample=SAMPLES)
+
+
+def _t_coassembly():
+    # Execução de co-assembly/co-binning é do Plano 2. Stub por ora.
+    return []
+
+
+def _t_report():
+    t = [
+        f"{OUTDIR}/diversity/diversity_done.txt",
+        expand(f"{OUTDIR}/{{sample}}/final/done.txt", sample=SAMPLES),
+        f"{OUTDIR}/benchmarks/pipeline_timing_summary.tsv",
+        f"{OUTDIR}/report.html",
+    ]
+    if not LONG_READS:
+        t.append(f"{OUTDIR}/multiqc_report/multiqc_report.html")
+    # flatten (expand returns lists)
+    flat = []
+    for x in t:
+        flat += x if isinstance(x, list) else [x]
+    return flat
+
+
+# ══════════════════════════════════════════════════════════════════════
 #  RULE ALL — final targets
 # ══════════════════════════════════════════════════════════════════════
 
 rule all:
     input:
-        # ── QC ────────────────────────────────────────────────────────
-        *(expand(f"{OUTDIR}/{{sample}}/qc_raw/done.txt",
-                 sample=SAMPLES) if not LONG_READS else []),
-        *(expand(f"{OUTDIR}/{{sample}}/qc_lr/nanoplot_done.txt",
-                 sample=SAMPLES) if LONG_READS else []),
-
-        # ── Assembly ──────────────────────────────────────────────────
-        expand(f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta",
-               sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/quast/report.tsv",
-               sample=SAMPLES),
-        *(expand(f"{OUTDIR}/{{sample}}/assembly/lr/merged/done.txt",
-                 sample=SAMPLES) if LONG_READS else []),
-
-        # ── Viral detection ───────────────────────────────────────────
-        expand(f"{OUTDIR}/{{sample}}/viral/virsorter2/final-viral-combined.fa",
-               sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/genomad/done.txt",           sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/vibrant/done.txt",           sample=SAMPLES),
-
-        # ── Viral QC ──────────────────────────────────────────────────
-        expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_consensus.fasta",
-               sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_tool_support.tsv",
-               sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/checkv/quality_summary.tsv",                         sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/vrhyme/done.txt",                                     sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme/quality_summary.tsv",                 sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_nonredundant.fasta",     sample=SAMPLES),
-
-        # ── Mapping ───────────────────────────────────────────────────
-        expand(f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",    sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/mapping/{{sample}}_depth.txt",     sample=SAMPLES),
-        *(expand(f"{OUTDIR}/{{sample}}/mapping/bwa_mem_done.txt",
-                 sample=SAMPLES) if not LONG_READS else []),
-
-        # ── Prokaryote binning ────────────────────────────────────────
-        expand(f"{OUTDIR}/{{sample}}/bins/metabat2/done.txt",           sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/vamb/done.txt",               sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/semibin2/done.txt",           sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/comebin/done.txt",            sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/binette/done.txt",            sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/checkm2/quality_report.tsv",  sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/done.txt",             sample=SAMPLES),
-
-        # ── MAG quality refinement (optional) ─────────────────────────
-        *(expand(f"{OUTDIR}/{{sample}}/bins/gunc/GUNC.progenomes_2.1.maxCSS_level.tsv",
-                 sample=SAMPLES) if GUNC_ENABLED else []),
-        *(expand(f"{OUTDIR}/{{sample}}/bins/derep/done.txt",
-                 sample=SAMPLES) if MAG_DEREP_ENABLED else []),
-
-        # ── vOTU clustering (skani) + representative sets ────────────
-        *(expand(f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv",
-                 sample=SAMPLES) if VOTU_CLUSTERING_ENABLED else []),
-        *(expand(f"{OUTDIR}/{{sample}}/viral/votu/votu_all_reps.fasta",
-                 sample=SAMPLES) if VOTU_CLUSTERING_ENABLED else []),
-
-        # ── vOTU table ────────────────────────────────────────────────
-        expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv",      sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_abundance.tsv",  sample=SAMPLES),
-
-        # ── Taxonomy + host prediction ────────────────────────────────
-        expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",           sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/done.txt",         sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/done.txt",                   sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/phist/done.txt",                       sample=SAMPLES),
-
-        # ── Defense systems + AMR (prokaryotic bins) ──────────────────
-        expand(f"{OUTDIR}/{{sample}}/bins/proteins/done.txt",            sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/done.txt",       sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/amrfinderplus/done.txt",       sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/rgi/done.txt",                 sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/deeparg/done.txt",             sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/abricate/done.txt",            sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/argnorm/done.txt",             sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/bins/amr_consensus/done.txt",        sample=SAMPLES),
-
-        # ── Viral-side defense/anti-defense (Han et al. 2026 cold seep paper) ──
-        expand(f"{OUTDIR}/{{sample}}/viral/defensefinder/done.txt",      sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/viral/dbapis/done.txt",             sample=SAMPLES),
-
-        # ── Abundance + Diversity ─────────────────────────────────────
-        expand(f"{OUTDIR}/{{sample}}/abundance/viral_abundance.tsv",     sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/abundance/prok_abundance.tsv",      sample=SAMPLES),
-        f"{OUTDIR}/diversity/diversity_done.txt",
-
-        # ── Annotation ────────────────────────────────────────────────
-        expand(f"{OUTDIR}/{{sample}}/annotation/pharokka/done.txt",      sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/annotation/phold/done.txt",         sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/annotation/bakta/done.txt",         sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/annotation/eggnog/done.txt",        sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/annotation/kegg_decoder/done.txt",  sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/phage_maps_done.txt", sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/virus_maps_done.txt", sample=SAMPLES),
-        expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/prok_maps_done.txt",  sample=SAMPLES),
-
-        # ── Final outputs ─────────────────────────────────────────────
-        expand(f"{OUTDIR}/{{sample}}/final/done.txt",                    sample=SAMPLES),
-        f"{OUTDIR}/benchmarks/pipeline_timing_summary.tsv",
-        f"{OUTDIR}/report.html",
-        *([ f"{OUTDIR}/multiqc_report/multiqc_report.html" ] if not LONG_READS else []),
-
-        # ── Reads-only classification (Sylph) — optional ──────────────
-        *([f"{OUTDIR}/reads_classify/reads_classify_done.txt",
-           f"{OUTDIR}/final/reads_classify/done.txt"]
-          if READS_CLASSIFY_ENABLED else []),
+        *_t_foundation(),
+        *_t_reads(),
+        *_t_viral(),
+        *_t_prok(),
+        *_t_integration(),
+        *_t_coassembly(),
+        *_t_report(),
