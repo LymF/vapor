@@ -25,3 +25,4 @@ def test_stage_alias_maps_to_rule():
     assert vapor._STAGE_ALIASES["assembly"] == "mmseqs2"
     assert vapor._STAGE_ALIASES["qc"] == "fastp"
     assert vapor._STAGE_ALIASES["viral"] == "viral_consensus"
+    assert vapor._STAGE_ALIASES["binning"] == "binette"
