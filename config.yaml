@@ -169,6 +169,22 @@ deeparg_db:               "/media/nas1/LITRP.DBs/metagenDBs/deeparg"
 defense_finder_models_db: "/media/nas1/LITRP.DBs/metagenDBs/defense_finder_models"
 apis_db:                  "/media/nas1/LITRP.DBs/metagenDBs/dbapis"
 
+# ── Seleção de tracks ──────────────────────────
+tracks:
+  reads:  false
+  viral:  true
+  prok:   true
+
+use_host_defense: true
+
+# ── Co-assembly / co-binning (opt-in; execução no Plano 2) ──
+coassembly:
+  enabled:  false
+  grouping: metadata     # metadata | all | none
+  viral:    true
+  binning:  true
+cobinning_multisplit: false
+
 # ── Reads-only classification (Sylph) ─────────────────────────────────
 # Set reads_classify: true to activate this module.
 # Configure at least one viral database (imgvr, uhgv, or custom).
