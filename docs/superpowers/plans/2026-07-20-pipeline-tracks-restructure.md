@@ -849,3 +849,21 @@ definidas na Task 1. `_track_overrides`/`_STAGE_ALIASES` na Task 5 batem com os 
 e de DBs. Onde os DBs não estiverem presentes, o critério é a **ausência de erro de
 config/DAG** (ValueError/NameError), não a resolução completa de inputs de ferramentas.
 ```
+
+---
+
+### Task 3.5 (AMENDMENT — added during execution): Agregadores track-aware
+
+**Motivo:** verificação por dry-run (Snakemake 9) revelou que `_t_report()` sempre pede
+`report.html`, `final/done.txt`, `diversity_done.txt` e benchmarks, e que `generate_report`
+(report.smk), `organize_outputs` (finalize.smk) e `compute_diversity` (abundance.smk) têm
+`input:` incondicionais que puxam o pipeline viral+prok inteiro — anulando o gating das
+Tasks 1–3. Sem esta task, selecionar tracks NÃO reduz o DAG.
+
+**Escopo:** tornar condicionais aos flags TRACK_VIRAL/TRACK_PROK/INTEGRATION_ENABLED os
+inputs de `generate_report`, `organize_outputs` e `compute_diversity` (padrão
+`**({...} if COND else {})`), tornar o run-block de `organize_outputs` tolerante a inputs
+ausentes (getattr + cp None-safe), tornar `compute_diversity.py` tolerante a um domínio
+vazio, e gatear `diversity_done.txt` em `_t_report()` sob (TRACK_VIRAL or TRACK_PROK).
+Brief completo: `.superpowers/sdd/task-3b-brief.md`. Verificado por dry-run: viral-only
+deixa de puxar checkm2/gtdbtk/phist; reads-only deixa de puxar assembly.
