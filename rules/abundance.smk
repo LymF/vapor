@@ -257,10 +257,14 @@ rule compute_diversity:
     Triggered only after all per-sample CoverM jobs finish.
     """
     input:
-        viral_tables = expand(f"{OUTDIR}/{{sample}}/abundance/viral_abundance.tsv",
-                              sample=SAMPLES),
-        prok_tables  = expand(f"{OUTDIR}/{{sample}}/abundance/prok_abundance.tsv",
-                              sample=SAMPLES),
+        **({
+            "viral_tables": expand(f"{OUTDIR}/{{sample}}/abundance/viral_abundance.tsv",
+                                   sample=SAMPLES),
+        } if TRACK_VIRAL else {}),
+        **({
+            "prok_tables": expand(f"{OUTDIR}/{{sample}}/abundance/prok_abundance.tsv",
+                                  sample=SAMPLES),
+        } if TRACK_PROK else {}),
     output:
         alpha     = f"{OUTDIR}/diversity/alpha_diversity.tsv",
         pcoa_v    = f"{OUTDIR}/diversity/beta_pcoord_viral.tsv",

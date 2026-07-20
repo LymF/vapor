@@ -457,11 +457,12 @@ def _t_coassembly():
 
 def _t_report():
     t = [
-        f"{OUTDIR}/diversity/diversity_done.txt",
         expand(f"{OUTDIR}/{{sample}}/final/done.txt", sample=SAMPLES),
         f"{OUTDIR}/benchmarks/pipeline_timing_summary.tsv",
         f"{OUTDIR}/report.html",
     ]
+    if TRACK_VIRAL or TRACK_PROK:
+        t.append(f"{OUTDIR}/diversity/diversity_done.txt")
     if not LONG_READS:
         t.append(f"{OUTDIR}/multiqc_report/multiqc_report.html")
     # flatten (expand returns lists)

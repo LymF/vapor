@@ -296,8 +296,8 @@ def write_tsv(path, rows, fieldnames=None):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def main():
-    viral_tables = list(snakemake.input.viral_tables)
-    prok_tables  = list(snakemake.input.prok_tables)
+    viral_tables = list(getattr(snakemake.input, 'viral_tables', []) or [])
+    prok_tables  = list(getattr(snakemake.input, 'prok_tables', []) or [])
     samples      = list(snakemake.params.samples)
     method       = snakemake.params.method
     out_alpha    = snakemake.output.alpha

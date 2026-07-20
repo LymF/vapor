@@ -510,7 +510,13 @@ rule make_votu_table:
         checkv        = rules.checkv.output.summary,
         vibrant       = rules.vibrant.output.done,
         taxonomy      = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",
-        phist         = f"{OUTDIR}/{{sample}}/viral/phist/done.txt",
+        # PHIST (host prediction) requires the prok bins/GTDB-Tk chain — only
+        # pull it in when the integration between viral+prok tracks is on,
+        # otherwise this single hard input drags the whole prok pipeline
+        # into a viral-only run. Script already soft-fails when absent.
+        **({
+            "phist": f"{OUTDIR}/{{sample}}/viral/phist/done.txt",
+        } if INTEGRATION_ENABLED else {}),
     output:
         tsv = f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv",
     log:

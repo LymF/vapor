@@ -15,32 +15,43 @@ rule generate_report:
     Aggregates all samples in one multi-tab page.
     """
     input:
-        quast             = expand(f"{OUTDIR}/{{sample}}/quast/report.tsv",                                sample=SAMPLES),
-        checkv            = expand(f"{OUTDIR}/{{sample}}/viral/checkv/quality_summary.tsv",                sample=SAMPLES),
-        checkv_vrhyme     = expand(f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme/quality_summary.tsv",         sample=SAMPLES),
-        checkm2           = expand(f"{OUTDIR}/{{sample}}/bins/checkm2/quality_report.tsv",                 sample=SAMPLES),
-        support           = expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_tool_support.tsv",     sample=SAMPLES),
-        depth             = expand(f"{OUTDIR}/{{sample}}/mapping/{{sample}}_depth.txt",                    sample=SAMPLES),
-        binette           = expand(f"{OUTDIR}/{{sample}}/bins/binette/binette_results.tsv",                sample=SAMPLES),
-        taxonomy          = expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",        sample=SAMPLES),
-        vcontact3         = expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/genome_clusters.tsv",             sample=SAMPLES),
-        mmseqs_prok       = expand(f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/taxonomy.tsv",          sample=SAMPLES),
-        gtdbtk_bac        = expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.bac120.summary.tsv", sample=SAMPLES),
-        gtdbtk_arc        = expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.ar53.summary.tsv",   sample=SAMPLES),
-        phist             = expand(f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv",                   sample=SAMPLES),
-        defensefinder     = expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/defensefinder_systems.tsv",     sample=SAMPLES),
-        antidefensefinder = expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/antidefensefinder_systems.tsv",  sample=SAMPLES),
-        antidefense_viral = expand(f"{OUTDIR}/{{sample}}/viral/defensefinder/viral_antidefense_systems.tsv", sample=SAMPLES),
-        dbapis_viral      = expand(f"{OUTDIR}/{{sample}}/viral/dbapis/dbapis_hits.tsv",                     sample=SAMPLES),
-        amr_consensus     = expand(f"{OUTDIR}/{{sample}}/bins/amr_consensus/amr_consensus.tsv",             sample=SAMPLES),
-        prok_protein_manifest = expand(f"{OUTDIR}/{{sample}}/bins/proteins/manifest.txt",                   sample=SAMPLES),
-        org               = expand(f"{OUTDIR}/{{sample}}/final/done.txt",                                  sample=SAMPLES),
-        benchmark_summary = f"{OUTDIR}/benchmarks/pipeline_timing_summary.tsv",
-        # New: diversity + annotation outputs
-        alpha_div         = f"{OUTDIR}/diversity/alpha_diversity.tsv",
-        pcoa_viral        = f"{OUTDIR}/diversity/beta_pcoord_viral.tsv",
-        pcoa_prok         = f"{OUTDIR}/diversity/beta_pcoord_prok.tsv",
-        pcoa_combined     = f"{OUTDIR}/diversity/beta_pcoord_combined.tsv",
+        # Viral track
+        **({
+            "checkv":             expand(f"{OUTDIR}/{{sample}}/viral/checkv/quality_summary.tsv",                sample=SAMPLES),
+            "checkv_vrhyme":      expand(f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme/quality_summary.tsv",         sample=SAMPLES),
+            "support":            expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_tool_support.tsv",     sample=SAMPLES),
+            "taxonomy":           expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",        sample=SAMPLES),
+            "vcontact3":          expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/genome_clusters.tsv",             sample=SAMPLES),
+            "antidefense_viral":  expand(f"{OUTDIR}/{{sample}}/viral/defensefinder/viral_antidefense_systems.tsv", sample=SAMPLES),
+            "dbapis_viral":       expand(f"{OUTDIR}/{{sample}}/viral/dbapis/dbapis_hits.tsv",                     sample=SAMPLES),
+        } if TRACK_VIRAL else {}),
+        # Prokaryotic track
+        **({
+            "checkm2":                expand(f"{OUTDIR}/{{sample}}/bins/checkm2/quality_report.tsv",                 sample=SAMPLES),
+            "binette":                expand(f"{OUTDIR}/{{sample}}/bins/binette/binette_results.tsv",                sample=SAMPLES),
+            "mmseqs_prok":            expand(f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/taxonomy.tsv",          sample=SAMPLES),
+            "gtdbtk_bac":             expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.bac120.summary.tsv", sample=SAMPLES),
+            "gtdbtk_arc":             expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/classify/gtdbtk.ar53.summary.tsv",   sample=SAMPLES),
+            "defensefinder":          expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/defensefinder_systems.tsv",     sample=SAMPLES),
+            "antidefensefinder":      expand(f"{OUTDIR}/{{sample}}/bins/defensefinder/antidefensefinder_systems.tsv",  sample=SAMPLES),
+            "amr_consensus":          expand(f"{OUTDIR}/{{sample}}/bins/amr_consensus/amr_consensus.tsv",             sample=SAMPLES),
+            "prok_protein_manifest":  expand(f"{OUTDIR}/{{sample}}/bins/proteins/manifest.txt",                   sample=SAMPLES),
+        } if TRACK_PROK else {}),
+        # Host prediction / integration
+        **({
+            "phist": expand(f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv", sample=SAMPLES),
+        } if INTEGRATION_ENABLED else {}),
+        # Assembly QC + mapping depth + diversity + finalize (either track)
+        **({
+            "quast":             expand(f"{OUTDIR}/{{sample}}/quast/report.tsv",             sample=SAMPLES),
+            "depth":             expand(f"{OUTDIR}/{{sample}}/mapping/{{sample}}_depth.txt",  sample=SAMPLES),
+            "alpha_div":         f"{OUTDIR}/diversity/alpha_diversity.tsv",
+            "pcoa_viral":        f"{OUTDIR}/diversity/beta_pcoord_viral.tsv",
+            "pcoa_prok":         f"{OUTDIR}/diversity/beta_pcoord_prok.tsv",
+            "pcoa_combined":     f"{OUTDIR}/diversity/beta_pcoord_combined.tsv",
+            "org":               expand(f"{OUTDIR}/{{sample}}/final/done.txt",                sample=SAMPLES),
+            "benchmark_summary": f"{OUTDIR}/benchmarks/pipeline_timing_summary.tsv",
+        } if (TRACK_VIRAL or TRACK_PROK) else {}),
         # reads_classify module (optional — only wired when enabled)
         **({
             "reads_classify_abundance": f"{OUTDIR}/reads_classify/merged_relative_abundance_filtered.tsv",
