@@ -78,6 +78,13 @@ rule generate_report:
         # mapping lives wherever that rule actually downloaded it.
         apis_db_dir      = APIS_DB or f"{OUTDIR}/dbapis_db",
         low_depth_mode   = LOW_DEPTH_MODE,
+        tracks = {
+            "reads":       bool(TRACK_READS or READS_CLASSIFY_ENABLED),
+            "viral":       bool(TRACK_VIRAL),
+            "prok":        bool(TRACK_PROK),
+            "integration": bool(INTEGRATION_ENABLED),
+            "coassembly":  bool(COASSEMBLY_ENABLED),
+        },
     benchmark:
         f"{OUTDIR}/benchmarks/generate_report.tsv"
     script:

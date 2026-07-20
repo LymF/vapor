@@ -71,6 +71,13 @@ def _build(snakemake):
     low_depth_mode = bool(getattr(snakemake.params, 'low_depth_mode', False))
     out_html       = snakemake.output.html
 
+    tracks_param = dict(getattr(snakemake.params, "tracks", {}) or {})
+    tracks_param.setdefault("reads", True)
+    tracks_param.setdefault("viral", True)
+    tracks_param.setdefault("prok", True)
+    tracks_param.setdefault("integration", True)
+    tracks_param.setdefault("coassembly", False)
+
     def _inp(name):
         return list(getattr(snakemake.input, name, []) or [])
 
@@ -430,6 +437,7 @@ def _build(snakemake):
         "TOOL_VERSIONS":tool_versions,
         "BENCH_DATA":   bench_data,
         "READS_CLASSIFY": reads_classify_data,
+        "TRACKS":       tracks_param,
     })
 
     # ── Assemble HTML ─────────────────────────────────────────────────────────

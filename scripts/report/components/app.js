@@ -214,6 +214,21 @@
     });
   });
 
+  // Hide nav tabs whose track did not run (TRACKS injected from the report data).
+  (function hideDisabledTrackTabs() {
+    if (typeof TRACKS === 'undefined' || !TRACKS) return;
+    const TAB_TRACK = {
+      viral: 'viral',
+      prokaryotic: 'prok',
+      hostdefense: 'integration',
+      'reads-classify': 'reads',
+    };
+    document.querySelectorAll('.nav-tab').forEach(btn => {
+      const key = TAB_TRACK[btn.dataset.tab];
+      if (key && TRACKS[key] === false) btn.style.display = 'none';
+    });
+  })();
+
   // ── Sub-tab switching ─────────────────────────────────────────────────────
   document.querySelectorAll('.sub-nav').forEach(nav => {
     const stabs   = nav.querySelectorAll('.sub-tab');
