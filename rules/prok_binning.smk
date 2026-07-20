@@ -6,7 +6,6 @@
 #
 # Binners:
 #   metabat2          — tetranucleotide + coverage
-#   vamb              — Variational Autoencoder (v5 interface)
 #   semibin2          — semi-supervised with environment priors
 #   comebin           — transformer + contrastive learning (optional)
 #
@@ -189,64 +188,6 @@ rule metabat2:
         """
 
 
-rule vamb:
-    """
-    VAMB v5 — Variational Autoencoder binning.
-    IMPORTANT v5 changes from v4:
-      - Subcommand: vamb bin default
-      - No --bamfiles; requires --abundance_tsv
-      - TSV header must be: contigname <TAB> sample_name
-    NOTE: VAMB creates its output dir itself — rm -rf before run.
-    Input FASTA is viral-filtered when PROK_FILTER_VIRAL is enabled.
-    """
-    input:
-        contigs = _prok_input_contigs,
-        depth   = rules.calc_depth.output.depth,
-    output:
-        done = f"{OUTDIR}/{{sample}}/bins/vamb/done.txt",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/vamb.log"
-    benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/vamb.tsv"
-    conda: "../envs/env_binning.yaml"
-    container:  CONTAINERS.get("vamb")
-    threads: THREADS
-    params:
-        outdir     = f"{OUTDIR}/{{sample}}/bins/vamb",
-        low_depth  = LOW_DEPTH_MODE,
-    shell:
-        """
-        mkdir -p {params.outdir}
-        if [ "{params.low_depth}" = "True" ]; then
-            echo "[VAMB] Skipped -- low_depth_mode enabled" | tee {log}
-            touch {output.done}; exit 0
-        fi
-        rm -rf {params.outdir}
-        mkdir -p $(dirname {params.outdir}_abundance.tsv)
-        # Build abundance TSV filtered to only contigs present in the (viral-filtered) FASTA.
-        # The depth file covers all contigs (viral + non-viral); VAMB requires an exact match
-        # with the FASTA sequence set — any surplus rows cause a ValueError.
-        grep "^>" {input.contigs} | sed 's/^>//' | awk '{{print $1}}' \
-            > {params.outdir}_contig_names.txt
-        echo -e "contigname\\t{wildcards.sample}" > {params.outdir}_abundance.tsv
-        awk 'NR==FNR{{keep[$1]=1; next}} FNR>1 && ($1 in keep){{print $1"\\t"$3}}' \
-            {params.outdir}_contig_names.txt {input.depth} \
-            >> {params.outdir}_abundance.tsv
-        rm -f {params.outdir}_contig_names.txt
-        CUDA_FLAG=""
-        if [ "{USE_GPU}" = "True" ]; then CUDA_FLAG="--cuda"; fi
-        vamb bin default \
-            --outdir {params.outdir} \
-            --fasta {input.contigs} \
-            --abundance_tsv {params.outdir}_abundance.tsv \
-            --minfasta 200000 \
-            -p {threads} \
-            $CUDA_FLAG \
-            > {log} 2>&1
-        touch {output.done}
-        """
-
-
 rule semibin2:
     """
     SemiBin2 — semi-supervised binning with environment-specific priors.
@@ -296,8 +237,8 @@ rule comebin:
     """
     COMEBin — transformer embedding + contrastive learning binner.
     Rank 1 in 2025 metagenome binning benchmark (Nature Communications).
-    Added as 4th binner alongside MetaBAT2 + VAMB + SemiBin2.
-    Binette uses all 4 scaffold2bin files for refined bin selection.
+    3rd per-sample binner alongside MetaBAT2 + SemiBin2 (VAMB moved to co-binning).
+    Binette uses the 3 scaffold2bin files for refined bin selection.
     Set comebin_enabled: false in config.yaml to skip.
     Input FASTA is viral-filtered when PROK_FILTER_VIRAL is enabled.
     """
@@ -387,13 +328,11 @@ rule prepare_scaffold2bin:
     Convert each binner output to scaffold2bin.tsv (contig <TAB> bin).
     Each binner has a different format:
       MetaBAT2 : bin.X.fa files
-      VAMB v5  : clusters.tsv — REVERSED columns (bin_id TAB contig_id)
       SemiBin2 : contig_bins.tsv — contig TAB bin_number
       COMEBin  : bins/*.fa files (if comebin_enabled)
     """
     input:
         mb2     = rules.metabat2.output.done,
-        vamb    = rules.vamb.output.done,
         sb2     = rules.semibin2.output.done,
         comebin = rules.comebin.output.done,
     output:
@@ -423,14 +362,6 @@ rule prepare_scaffold2bin:
         mb_bins = glob.glob(f"{params.s}/bins/metabat2/bin.*.fa")
         if mb_bins:
             write_s2b(mb_bins, f"{outdir}/metabat2_s2b.tsv", ".fa")
-
-        vamb_clusters = f"{params.s}/bins/vamb/clusters.tsv"
-        if os.path.exists(vamb_clusters):
-            with open(vamb_clusters) as fin, open(f"{outdir}/vamb_s2b.tsv", "w") as fout:
-                for line in fin:
-                    parts = line.strip().split("\t")
-                    if len(parts) == 2 and not parts[0].startswith("clusterid"):
-                        fout.write(f"{parts[1]}\t{parts[0]}\n")
 
         # SemiBin2: use contig_bins.tsv directly (bins are SemiBin_N.fa.gz)
         sb_tsv = f"{params.s}/bins/semibin2/contig_bins.tsv"
