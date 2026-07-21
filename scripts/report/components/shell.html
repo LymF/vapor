@@ -23,6 +23,7 @@
       <button role="tab" class="nav-tab" data-tab="diversity"    aria-selected="false" tabindex="-1">Diversity</button>
       <button role="tab" class="nav-tab" data-tab="annotation"      aria-selected="false" tabindex="-1">Annotation</button>
       <button role="tab" class="nav-tab" data-tab="reads-classify" aria-selected="false" tabindex="-1">Reads Survey</button>
+      <button role="tab" class="nav-tab" data-tab="coassembly"     aria-selected="false" tabindex="-1">Co-assembly</button>
       <button role="tab" class="nav-tab" data-tab="about"          aria-selected="false" tabindex="-1">About</button>
     </nav>
     <button id="theme-toggle" title="Toggle light/dark theme" aria-label="Toggle theme">☀</button>
@@ -496,6 +497,13 @@
           <div id="rc-host-table" class="table-wrap"></div>
         </div>
       </div>
+    </section>
+
+    <!-- Co-assembly (group MAGs) -->
+    <section id="tab-coassembly" class="tab-panel" role="tabpanel" aria-labelledby="nav-coassembly" hidden>
+      <h2 class="section-title">Co-assembly MAGs</h2>
+      <div id="coassembly-empty" class="empty-state muted" style="display:none">Co-assembly not run.</div>
+      <div id="coassembly-table" class="table-wrap"></div>
     </section>
 
     <!-- About -->

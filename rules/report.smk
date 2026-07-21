@@ -57,6 +57,11 @@ rule generate_report:
             "reads_classify_abundance": f"{OUTDIR}/reads_classify/merged_relative_abundance_filtered.tsv",
             "reads_classify_host":      f"{OUTDIR}/reads_classify/viral_abundance_by_host.tsv",
         } if READS_CLASSIFY_ENABLED else {}),
+        # coassembly module (optional — group MAGs report tab)
+        **({
+            "coassembly_sentinel": expand(
+                f"{OUTDIR}/coassembly/{{group}}/gtdbtk/done.txt", group=list(GROUPS.keys()))
+        } if (COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS and GROUPS) else {}),
     output:
         html = f"{OUTDIR}/report.html",
     params:
@@ -78,6 +83,7 @@ rule generate_report:
         # mapping lives wherever that rule actually downloaded it.
         apis_db_dir      = APIS_DB or f"{OUTDIR}/dbapis_db",
         low_depth_mode   = LOW_DEPTH_MODE,
+        coassembly_groups = list(GROUPS.keys()),
         tracks = {
             "reads":       bool(TRACK_READS or READS_CLASSIFY_ENABLED),
             "viral":       bool(TRACK_VIRAL),

@@ -23,7 +23,7 @@ from .data_loaders import (
     build_host_defense_links, build_bin_annotation_summary,
     enrich_taxonomy_with_checkv, collapse_taxonomy_to_votu, merge_prok_taxonomy,
     load_alpha_diversity, load_pcoord, load_eggnog, load_phrogs,
-    load_genome_maps, load_reads_classify,
+    load_genome_maps, load_reads_classify, load_coassembly,
     path_dict, collect_tool_versions,
 )
 
@@ -154,6 +154,8 @@ def _build(snakemake):
         getattr(snakemake.input, 'reads_classify_host', None) or '',
         samples,
     )
+    coassembly_data = load_coassembly(
+        outdir, list(getattr(snakemake.params, "coassembly_groups", []) or []))
 
     # ── Merge vConTACT3 into tax_data ─────────────────────────────────────────
     tax_genome_keys = {(r.get('sample', ''), r.get('Genome', '')) for r in tax_data}
@@ -438,6 +440,7 @@ def _build(snakemake):
         "BENCH_DATA":   bench_data,
         "READS_CLASSIFY": reads_classify_data,
         "TRACKS":       tracks_param,
+        "COASSEMBLY_DATA": coassembly_data,
     })
 
     # ── Assemble HTML ─────────────────────────────────────────────────────────
@@ -449,7 +452,7 @@ def _build(snakemake):
     js_parts  = []
     for js_file in ["app.js", "export.js", "overview.js", "sequencing.js", "viral.js",
                     "prokaryotic.js", "hostdefense.js", "diversity.js", "annotation.js",
-                    "reads_classify.js", "about.js"]:
+                    "reads_classify.js", "coassembly.js", "about.js"]:
         js_parts.append(_read(os.path.join(_COMP, js_file)))
     app_js = "\n".join(js_parts)
 

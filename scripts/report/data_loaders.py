@@ -1475,3 +1475,31 @@ def collect_tool_versions():
         "Pharokka":      _ver(f"{C} env_annotation pharokka --version"),
         "EggNOG-mapper": _ver(f"{C} env_annotation emapper.py --version"),
     }
+
+
+# ── Co-assembly track (Plano 2) ────────────────────────────────────────────
+
+def load_coassembly(outdir, groups):
+    """Collect group-level CheckM2 + GTDB into report records (empty if none)."""
+    out = []
+    for g in groups:
+        checkm2 = os.path.join(outdir, "coassembly", g, "checkm2", "quality_report.tsv")
+        mags = []
+        if os.path.exists(checkm2):
+            for row in load_tsv(checkm2):
+                mags.append({
+                    "bin": row.get("Name", ""),
+                    "completeness": safe_float(row.get("Completeness", 0)),
+                    "contamination": safe_float(row.get("Contamination", 0)),
+                    "classification": "",
+                })
+        # join GTDB classification if present
+        for summ in glob.glob(os.path.join(outdir, "coassembly", g, "gtdbtk", "**", "*summary.tsv"), recursive=True):
+            for row in load_tsv(summ):
+                name = row.get("user_genome", "")
+                for m in mags:
+                    if m["bin"] == name:
+                        m["classification"] = row.get("classification", "")
+        if mags:
+            out.append({"group": g, "mags": mags})
+    return {"groups": out, "has_data": bool(out)}

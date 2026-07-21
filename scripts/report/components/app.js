@@ -222,6 +222,7 @@
       prokaryotic: 'prok',
       hostdefense: 'integration',
       'reads-classify': 'reads',
+      coassembly: 'coassembly',
     };
     document.querySelectorAll('.nav-tab').forEach(btn => {
       const key = TAB_TRACK[btn.dataset.tab];
@@ -350,7 +351,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     showTab('overview');
     [renderOverview, renderSequencing, renderViral, renderProkaryotic,
-     renderHostDefense, renderDiversity, renderAnnotation, renderReadsClassify, renderAbout].forEach(fn => {
+     renderHostDefense, renderDiversity, renderAnnotation, renderReadsClassify, renderCoassembly, renderAbout].forEach(fn => {
       if (typeof fn !== 'function') return;
       try {
         fn();
