@@ -2238,3 +2238,518 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             fi
             touch {output.done}
             """
+
+
+    # ── Group AMR + defense systems (Plan 5, Tasks 3+4) ────────────────────
+    # Mechanical mirrors of the per-sample rules in rules/defense_amr.smk,
+    # pointed at the group's coassembly_prok_bin_proteins manifest instead of
+    # the per-sample prok_bin_proteins one. Logic/env/container/flags are
+    # identical -- only paths and the manifest input change.
+
+    rule coassembly_defensefinder:
+        """
+        DefenseFinder -- systematic detection of anti-phage defense systems
+        (MacSyFinder + HMM models), with built-in AntiDefenseFinder
+        (--antidefensefinder flag) for anti-defense proteins in the same pass.
+        Runs once per genome unit (manifest from coassembly_prok_bin_proteins):
+        MacSyFinder needs gene order within a replicon, so genomes cannot be
+        concatenated (unlike the gene-level AMR tools below).
+        Mirrors `rule defensefinder` (rules/defense_amr.smk) for the group.
+        """
+        input:
+            manifest = rules.coassembly_prok_bin_proteins.output.manifest,
+            done     = rules.coassembly_prok_bin_proteins.output.done,
+        output:
+            done        = f"{OUTDIR}/coassembly/{{group}}/bins/defensefinder/done.txt",
+            systems     = f"{OUTDIR}/coassembly/{{group}}/bins/defensefinder/defensefinder_systems.tsv",
+            antisystems = f"{OUTDIR}/coassembly/{{group}}/bins/defensefinder/antidefensefinder_systems.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/defensefinder.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/defensefinder.tsv"
+        conda: "../envs/env_defense.yaml"
+        container:  CONTAINERS.get("defense_finder")
+        threads: THREADS
+        params:
+            outdir     = f"{OUTDIR}/coassembly/{{group}}/bins/defensefinder",
+            models_dir = DEFENSE_FINDER_MODELS_DB,
+            enabled    = DEFENSE_AMR_ENABLED,
+        run:
+            import csv, glob, os
+            from pathlib import Path
+
+            os.makedirs(params.outdir, exist_ok=True)
+
+            def write_empty(msg):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(msg + "\n")
+                Path(str(output.systems)).write_text("genome\n")
+                Path(str(output.antisystems)).write_text("genome\n")
+                Path(str(output.done)).touch()
+
+            if (not params.enabled or not os.path.exists(str(input.manifest))
+                    or os.path.getsize(str(input.manifest)) == 0):
+                write_empty("[coassembly_defensefinder] Disabled or no genome units -- skipping")
+                return
+
+            models_dir = params.models_dir or os.path.join(params.outdir, "models")
+            os.makedirs(models_dir, exist_ok=True)
+
+            if os.listdir(models_dir):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(f"[coassembly_defensefinder] Models already cached in {models_dir} -- skipping update\n")
+            else:
+                shell("defense-finder update --models-dir {models_dir} >> {log} 2>&1 || "
+                      "echo '[coassembly_defensefinder] WARNING: model update failed -- "
+                      "GitHub rate limit? set GITHUB_TOKEN or retry later' >> {log}")
+
+            for name, mode, fna, faa, gff in _read_manifest(str(input.manifest)):
+                if not os.path.exists(faa) or os.path.getsize(faa) == 0:
+                    continue
+                genome_out = os.path.join(params.outdir, name)
+                os.makedirs(genome_out, exist_ok=True)
+                shell(
+                    "defense-finder run -o {genome_out} --models-dir {models_dir} "
+                    "--antidefensefinder {faa} "
+                    ">> {log} 2>&1 || echo '[coassembly_defensefinder] WARNING: failed on {name}' >> {log}"
+                )
+
+            def_rows, anti_rows, header = [], [], None
+            for tsv in sorted(glob.glob(os.path.join(params.outdir, "*", "*_defense_finder_systems.tsv"))):
+                genome = os.path.basename(os.path.dirname(tsv))
+                with open(tsv) as f:
+                    r = csv.reader(f, delimiter="\t")
+                    h = next(r, None)
+                    if h is None:
+                        continue
+                    if header is None:
+                        header = h
+                    activity_idx = h.index("activity") if "activity" in h else None
+                    for row in r:
+                        is_anti = (activity_idx is not None and len(row) > activity_idx
+                                   and "anti" in row[activity_idx].lower())
+                        (anti_rows if is_anti else def_rows).append([genome] + row)
+
+            def write(path, rows):
+                with open(path, "w", newline="") as f:
+                    w = csv.writer(f, delimiter="\t")
+                    w.writerow(["genome"] + (header or []))
+                    w.writerows(rows)
+
+            write(str(output.systems), def_rows)
+            write(str(output.antisystems), anti_rows)
+
+            with open(str(log[0]), "a") as lf:
+                lf.write(f"[coassembly_defensefinder] Done -- {len(def_rows)} defense, "
+                          f"{len(anti_rows)} antidefense system rows\n")
+            Path(str(output.done)).touch()
+
+
+    rule coassembly_amrfinderplus:
+        """
+        AMRFinderPlus -- curated, alignment-based AMR gene + point-mutation
+        detection (NCBI Reference Gene/Point Mutation databases). Gene-level:
+        runs once on the concatenated protein set (all group MAGs from
+        coassembly_prok_bin_proteins). Mirrors `rule amrfinderplus`
+        (rules/defense_amr.smk) for the group.
+        """
+        input:
+            manifest = rules.coassembly_prok_bin_proteins.output.manifest,
+            done     = rules.coassembly_prok_bin_proteins.output.done,
+        output:
+            done    = f"{OUTDIR}/coassembly/{{group}}/bins/amrfinderplus/done.txt",
+            results = f"{OUTDIR}/coassembly/{{group}}/bins/amrfinderplus/amrfinder_results.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/amrfinderplus.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/amrfinderplus.tsv"
+        conda: "../envs/env_annotation.yaml"
+        container:  CONTAINERS.get("ncbi-amrfinderplus")
+        threads: THREADS
+        params:
+            outdir  = f"{OUTDIR}/coassembly/{{group}}/bins/amrfinderplus",
+            enabled = DEFENSE_AMR_ENABLED,
+        run:
+            import os
+            from pathlib import Path
+
+            os.makedirs(params.outdir, exist_ok=True)
+            all_faa = os.path.join(params.outdir, "all_genomes.faa")
+
+            def write_empty(msg):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(msg + "\n")
+                Path(str(output.results)).write_text("Protein identifier\tGene symbol\n")
+                Path(str(output.done)).touch()
+
+            if (not params.enabled or not os.path.exists(str(input.manifest))
+                    or os.path.getsize(str(input.manifest)) == 0):
+                write_empty("[coassembly_amrfinderplus] Disabled or no genome units -- skipping")
+                return
+
+            if not _concat_proteins(str(input.manifest), all_faa):
+                write_empty("[coassembly_amrfinderplus] No proteins -- skipping")
+                return
+
+            shell("amrfinder -u >> {log} 2>&1 || "
+                  "echo '[coassembly_amrfinderplus] WARNING: database update failed (may already be current)' >> {log}")
+            shell(
+                "amrfinder -p {all_faa} --plus -o {output.results} --threads {threads} "
+                ">> {log} 2>&1 || echo '[coassembly_amrfinderplus] WARNING: amrfinder failed' >> {log}"
+            )
+
+            if not os.path.exists(str(output.results)) or os.path.getsize(str(output.results)) == 0:
+                Path(str(output.results)).write_text("Protein identifier\tGene symbol\n")
+            Path(str(output.done)).touch()
+
+
+    rule coassembly_rgi_card:
+        """
+        RGI (CARD) -- curated AMR detection via the Comprehensive Antibiotic
+        Resistance Database (homology + SNP models). Same concatenated batch
+        input as coassembly_amrfinderplus; reported alongside it as "curated"
+        AMR. Mirrors `rule rgi_card` (rules/defense_amr.smk) for the group.
+        """
+        input:
+            manifest = rules.coassembly_prok_bin_proteins.output.manifest,
+            done     = rules.coassembly_prok_bin_proteins.output.done,
+        output:
+            done    = f"{OUTDIR}/coassembly/{{group}}/bins/rgi/done.txt",
+            results = f"{OUTDIR}/coassembly/{{group}}/bins/rgi/rgi_results.txt",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/rgi.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/rgi.tsv"
+        conda: "../envs/env_rgi.yaml"
+        container:  CONTAINERS.get("rgi")
+        threads: THREADS
+        params:
+            outdir  = f"{OUTDIR}/coassembly/{{group}}/bins/rgi",
+            card_db = CARD_DB,
+            enabled = DEFENSE_AMR_ENABLED,
+        run:
+            import os
+            from pathlib import Path
+
+            os.makedirs(params.outdir, exist_ok=True)
+            all_faa = os.path.join(params.outdir, "all_genomes.faa")
+
+            def write_empty(msg):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(msg + "\n")
+                Path(str(output.results)).write_text("ORF_ID\tBest_Hit_ARO\n")
+                Path(str(output.done)).touch()
+
+            if (not params.enabled or not os.path.exists(str(input.manifest))
+                    or os.path.getsize(str(input.manifest)) == 0):
+                write_empty("[coassembly_rgi_card] Disabled or no genome units -- skipping")
+                return
+
+            if not _concat_proteins(str(input.manifest), all_faa):
+                write_empty("[coassembly_rgi_card] No proteins -- skipping")
+                return
+
+            card_dir = params.card_db or os.path.join(params.outdir, "card_db")
+            os.makedirs(card_dir, exist_ok=True)
+            card_json = os.path.join(card_dir, "card.json")
+            if not os.path.exists(card_json) or os.path.getsize(card_json) == 0:
+                shell(
+                    "curl -sL https://card.mcmaster.ca/latest/data -o {card_dir}/card_data.tar.bz2 "
+                    ">> {log} 2>&1 && tar -xjf {card_dir}/card_data.tar.bz2 -C {card_dir} "
+                    ">> {log} 2>&1 || true"
+                )
+
+            if not os.path.exists(card_json) or os.path.getsize(card_json) == 0:
+                write_empty("[coassembly_rgi_card] WARNING: CARD database unavailable -- skipping")
+                return
+
+            shell("cd {params.outdir} && rgi load --card_json {card_json} --local >> {log} 2>&1")
+            shell(
+                "cd {params.outdir} && rgi main -i {all_faa} -t protein --include_loose --local "
+                "-o rgi_results -n {threads} >> {log} 2>&1 || "
+                "echo '[coassembly_rgi_card] WARNING: rgi main failed' >> {log}"
+            )
+
+            produced = os.path.join(params.outdir, "rgi_results.txt")
+            if not os.path.exists(produced) or os.path.getsize(produced) == 0:
+                Path(str(output.results)).write_text("ORF_ID\tBest_Hit_ARO\n")
+            Path(str(output.done)).touch()
+
+
+    rule coassembly_deeparg:
+        """
+        DeepARG -- deep-learning AMR gene prediction (CNN trained on
+        CARD/ARDB/UniProt-derived sequences). Exploratory/sensitivity-oriented
+        complement to coassembly_amrfinderplus+coassembly_rgi_card's curated
+        calls -- kept and reported separately, never merged into the curated
+        AMR count. Mirrors `rule deeparg` (rules/defense_amr.smk) for the group.
+        """
+        input:
+            manifest = rules.coassembly_prok_bin_proteins.output.manifest,
+            done     = rules.coassembly_prok_bin_proteins.output.done,
+        output:
+            done    = f"{OUTDIR}/coassembly/{{group}}/bins/deeparg/done.txt",
+            results = f"{OUTDIR}/coassembly/{{group}}/bins/deeparg/deeparg_results.mapping.ARG",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/deeparg.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/deeparg.tsv"
+        conda: "../envs/env_deeparg.yaml"
+        container:  CONTAINERS.get("deeparg")
+        threads: THREADS
+        params:
+            outdir   = f"{OUTDIR}/coassembly/{{group}}/bins/deeparg",
+            data_dir = DEEPARG_DB,
+            enabled  = DEFENSE_AMR_ENABLED,
+        run:
+            import os
+            from pathlib import Path
+
+            os.makedirs(params.outdir, exist_ok=True)
+            all_faa = os.path.join(params.outdir, "all_genomes.faa")
+
+            def write_empty(msg):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(msg + "\n")
+                Path(str(output.results)).write_text("#ARG\tquery-start\n")
+                Path(str(output.done)).touch()
+
+            if (not params.enabled or not os.path.exists(str(input.manifest))
+                    or os.path.getsize(str(input.manifest)) == 0):
+                write_empty("[coassembly_deeparg] Disabled or no genome units -- skipping")
+                return
+
+            if not _concat_proteins(str(input.manifest), all_faa):
+                write_empty("[coassembly_deeparg] No proteins -- skipping")
+                return
+
+            data_dir = params.data_dir or os.path.join(params.outdir, "deeparg_data")
+            os.makedirs(data_dir, exist_ok=True)
+            if not os.listdir(data_dir):
+                shell("deeparg download_data -o {data_dir} >> {log} 2>&1 || "
+                      "echo '[coassembly_deeparg] WARNING: download_data failed' >> {log}")
+
+            if not os.listdir(data_dir):
+                write_empty("[coassembly_deeparg] WARNING: deeparg data unavailable -- skipping")
+                return
+
+            out_prefix = os.path.join(params.outdir, "deeparg_results")
+            shell(
+                "deeparg predict --model LS --type prot -i {all_faa} -o {out_prefix} "
+                "-d {data_dir} >> {log} 2>&1 || "
+                "echo '[coassembly_deeparg] WARNING: deeparg predict failed' >> {log}"
+            )
+
+            if not os.path.exists(str(output.results)) or os.path.getsize(str(output.results)) == 0:
+                Path(str(output.results)).write_text("#ARG\tquery-start\n")
+            Path(str(output.done)).touch()
+
+
+    rule coassembly_abricate:
+        """
+        ABRicate -- BLASTN mass screening of group MAGs for gene presence.
+        Used here only for VFDB (virulence factors) and PlasmidFinder
+        (plasmid replicons) -- NOT for AMR gene calling. Runs per genome
+        unit (manifest from coassembly_prok_bin_proteins) on the nucleotide
+        sequence. Mirrors `rule abricate` (rules/defense_amr.smk) for the group.
+        """
+        input:
+            manifest = rules.coassembly_prok_bin_proteins.output.manifest,
+            done     = rules.coassembly_prok_bin_proteins.output.done,
+        output:
+            done          = f"{OUTDIR}/coassembly/{{group}}/bins/abricate/done.txt",
+            vfdb          = f"{OUTDIR}/coassembly/{{group}}/bins/abricate/vfdb_results.tsv",
+            plasmidfinder = f"{OUTDIR}/coassembly/{{group}}/bins/abricate/plasmidfinder_results.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/abricate.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/abricate.tsv"
+        conda: "../envs/env_abricate.yaml"
+        container:  CONTAINERS.get("abricate")
+        threads: THREADS
+        params:
+            outdir  = f"{OUTDIR}/coassembly/{{group}}/bins/abricate",
+            dbs     = ["vfdb", "plasmidfinder"],
+            enabled = ABRICATE_ENABLED,
+        run:
+            import csv, os
+            from pathlib import Path
+
+            os.makedirs(params.outdir, exist_ok=True)
+            out_paths = {"vfdb": str(output.vfdb), "plasmidfinder": str(output.plasmidfinder)}
+
+            def write_empty(msg):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(msg + "\n")
+                for db in params.dbs:
+                    Path(out_paths[db]).write_text("genome\n")
+                Path(str(output.done)).touch()
+
+            if (not params.enabled or not os.path.exists(str(input.manifest))
+                    or os.path.getsize(str(input.manifest)) == 0):
+                write_empty("[coassembly_abricate] Disabled or no genome units -- skipping")
+                return
+
+            shell("abricate --setupdb >> {log} 2>&1 || "
+                  "echo '[coassembly_abricate] WARNING: setupdb failed (may already be set up)' >> {log}")
+
+            for db in params.dbs:
+                rows, header = [], None
+                for name, mode, fna, faa, gff in _read_manifest(str(input.manifest)):
+                    if not os.path.exists(fna) or os.path.getsize(fna) == 0:
+                        continue
+                    genome_tsv = os.path.join(params.outdir, f"{name}.{db}.tsv")
+                    shell(
+                        "abricate --db {db} --quiet {fna} > {genome_tsv} "
+                        "2>> {log} || echo '[coassembly_abricate] WARNING: failed on {name} ({db})' >> {log}"
+                    )
+                    if os.path.exists(genome_tsv) and os.path.getsize(genome_tsv) > 0:
+                        with open(genome_tsv) as f:
+                            r = csv.reader(f, delimiter="\t")
+                            h = next(r, None)
+                            if h is None:
+                                continue
+                            if header is None:
+                                header = h
+                            for row in r:
+                                rows.append([name] + row)
+
+                with open(out_paths[db], "w", newline="") as f:
+                    w = csv.writer(f, delimiter="\t")
+                    w.writerow(["genome"] + (header or []))
+                    w.writerows(rows)
+
+            with open(str(log[0]), "a") as lf:
+                lf.write(f"[coassembly_abricate] Done -- {len(params.dbs)} database(s) screened\n")
+            Path(str(output.done)).touch()
+
+
+    rule coassembly_argnorm_normalize:
+        """
+        argNorm -- maps coassembly_amrfinderplus/coassembly_deeparg gene calls
+        onto the Antibiotic Resistance Ontology (ARO), so the same gene
+        reported under different names by the two tools can be compared with
+        each other and with RGI. RGI is deliberately NOT routed through
+        argNorm (see `rule argnorm_normalize` docstring, rules/defense_amr.smk,
+        for the full rationale). Mirrors that rule for the group.
+        """
+        input:
+            amrfinder      = rules.coassembly_amrfinderplus.output.results,
+            amrfinder_done = rules.coassembly_amrfinderplus.output.done,
+            deeparg        = rules.coassembly_deeparg.output.results,
+            deeparg_done   = rules.coassembly_deeparg.output.done,
+        output:
+            done             = f"{OUTDIR}/coassembly/{{group}}/bins/argnorm/done.txt",
+            amrfinder_normed = f"{OUTDIR}/coassembly/{{group}}/bins/argnorm/amrfinderplus_normed.tsv",
+            deeparg_normed   = f"{OUTDIR}/coassembly/{{group}}/bins/argnorm/deeparg_normed.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/argnorm.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/argnorm.tsv"
+        conda: "../envs/env_argnorm.yaml"
+        container:  CONTAINERS.get("argnorm")
+        threads: 1
+        params:
+            enabled = ARGNORM_ENABLED,
+        run:
+            import os
+            from pathlib import Path
+
+            os.makedirs(os.path.dirname(str(output.done)), exist_ok=True)
+
+            def stub(path):
+                Path(path).write_text("ARO\n")
+
+            def write_empty(msg):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(msg + "\n")
+                stub(output.amrfinder_normed)
+                stub(output.deeparg_normed)
+                Path(str(output.done)).touch()
+
+            if not params.enabled:
+                write_empty("[coassembly_argnorm] argnorm_enabled=False -- skipping")
+                return
+
+            if _has_data_rows(str(input.amrfinder)):
+                shell(
+                    "argnorm amrfinderplus -i {input.amrfinder} -o {output.amrfinder_normed} "
+                    ">> {log} 2>&1 || echo '[coassembly_argnorm] WARNING: amrfinderplus normalization failed' >> {log}"
+                )
+            if not os.path.exists(str(output.amrfinder_normed)) or os.path.getsize(str(output.amrfinder_normed)) == 0:
+                stub(output.amrfinder_normed)
+
+            if _has_data_rows(str(input.deeparg)):
+                shell(
+                    "argnorm deeparg -i {input.deeparg} -o {output.deeparg_normed} "
+                    ">> {log} 2>&1 || echo '[coassembly_argnorm] WARNING: deeparg normalization failed' >> {log}"
+                )
+            if not os.path.exists(str(output.deeparg_normed)) or os.path.getsize(str(output.deeparg_normed)) == 0:
+                stub(output.deeparg_normed)
+
+            with open(str(log[0]), "a") as lf:
+                lf.write("[coassembly_argnorm] Done\n")
+            Path(str(output.done)).touch()
+
+
+    rule coassembly_amr_consensus:
+        """
+        AMR consensus -- merge coassembly_amrfinderplus + coassembly_rgi_card
+        + coassembly_deeparg hits by CDS locus using ARO as the common
+        vocabulary. Consensus score = number of tools that detected the locus
+        divided by 3. Mirrors `rule amr_consensus` (rules/defense_amr.smk)
+        for the group.
+        """
+        input:
+            argnorm_done     = rules.coassembly_argnorm_normalize.output.done,
+            rgi_done         = rules.coassembly_rgi_card.output.done,
+            amrfinder_normed = rules.coassembly_argnorm_normalize.output.amrfinder_normed,
+            deeparg_normed   = rules.coassembly_argnorm_normalize.output.deeparg_normed,
+            rgi_results      = rules.coassembly_rgi_card.output.results,
+        output:
+            done      = f"{OUTDIR}/coassembly/{{group}}/bins/amr_consensus/done.txt",
+            consensus = f"{OUTDIR}/coassembly/{{group}}/bins/amr_consensus/amr_consensus.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/amr_consensus.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/amr_consensus.tsv"
+        conda: "../envs/env_argnorm.yaml"
+        threads: 1
+        params:
+            enabled = AMR_CONSENSUS_ENABLED,
+            script  = os.path.join(workflow.basedir, "scripts", "consolidate_amr.py"),
+        run:
+            import os
+            from pathlib import Path
+
+            os.makedirs(os.path.dirname(str(output.done)), exist_ok=True)
+
+            def write_empty(msg):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(msg + "\n")
+                cols = "\t".join([
+                    "locus", "aro_accession", "gene_name", "drug_class",
+                    "resistance_mechanism", "n_tools", "consensus_score", "tools_detected",
+                ])
+                Path(str(output.consensus)).write_text(cols + "\n")
+                Path(str(output.done)).touch()
+
+            if not params.enabled:
+                write_empty("[coassembly_amr_consensus] use_amr_consensus=False -- skipping")
+                return
+
+            shell(
+                "python {params.script} "
+                "--amrfinder-normed {input.amrfinder_normed} "
+                "--rgi-results {input.rgi_results} "
+                "--deeparg-normed {input.deeparg_normed} "
+                "-o {output.consensus} >> {log} 2>&1"
+            )
+
+            if not os.path.exists(str(output.consensus)) or os.path.getsize(str(output.consensus)) == 0:
+                write_empty("[coassembly_amr_consensus] WARNING: script produced no output")
+                return
+
+            with open(str(log[0]), "a") as lf:
+                lf.write("[coassembly_amr_consensus] Done\n")
+            Path(str(output.done)).touch()
