@@ -1247,6 +1247,102 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             """
 
 
+    rule coassembly_viral_trimmed:
+        """
+        CheckV-trim proviruses in the group co-assembly viral consensus set.
+        Mirrors the CheckV-trim portion of `rule viral_nonredundant`
+        (rules/viral_binning.smk) — NOT the multi-assembler dedup / bins-first
+        / MMseqs parts, which don't apply at the co-assembly level (there is
+        no per-sample vRhyme binning input here; the group vOTU chain does its
+        own skani-based clustering downstream).
+
+        For every contig in the consensus fasta: if CheckV trimmed it
+        (provirus), the trimmed sequence from viruses.fna / proviruses.fna
+        replaces the original so that host DNA flanking proviruses is always
+        removed before vOTU clustering. Sequences not processed by CheckV
+        (rare, e.g. below CheckV internal length threshold) fall back to the
+        original. One contig may yield >1 trimmed entry when CheckV found
+        multiple provirus regions within it.
+        """
+        input:
+            consensus         = rules.coassembly_viral_consensus.output.fasta,
+            checkv_viruses    = rules.coassembly_checkv.output.viruses,
+            checkv_proviruses = rules.coassembly_checkv.output.proviruses,
+        output:
+            fasta = f"{OUTDIR}/coassembly/{{group}}/viral/checkv/{{group}}_viral_trimmed.fasta",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/viral_trimmed.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/viral_trimmed.tsv"
+        run:
+            import os
+            from collections import defaultdict
+
+            # Build CheckV trimmed dict: orig_contig_id -> list of (header_line, seq_lines)
+            # viruses.fna: header = original ID (no trimming needed, but use this file to
+            #   be consistent — avoids re-reading the consensus for non-provirus sequences)
+            # proviruses.fna: header = "orig_id|start_end" (trimmed region only)
+            trimmed = defaultdict(list)
+            for fna_path, is_provirus in [
+                (str(input.checkv_viruses), False),
+                (str(input.checkv_proviruses), True),
+            ]:
+                if not os.path.exists(fna_path) or os.path.getsize(fna_path) == 0:
+                    continue
+                curr_hdr, curr_seq = None, []
+                with open(fna_path) as fh:
+                    for line in fh:
+                        if line.startswith('>'):
+                            if curr_hdr:
+                                hdr_id = curr_hdr[1:].split()[0]
+                                orig = hdr_id.rsplit('|', 1)[0] if is_provirus else hdr_id
+                                trimmed[orig].append((curr_hdr, curr_seq))
+                            curr_hdr = line; curr_seq = []
+                        else:
+                            curr_seq.append(line)
+                    if curr_hdr:
+                        hdr_id = curr_hdr[1:].split()[0]
+                        orig = hdr_id.rsplit('|', 1)[0] if is_provirus else hdr_id
+                        trimmed[orig].append((curr_hdr, curr_seq))
+
+            # Fallback: original sequences for anything CheckV didn't process
+            orig_seqs = {}
+            with open(str(input.consensus)) as fh:
+                curr_hdr, curr_seq = None, []
+                for line in fh:
+                    if line.startswith('>'):
+                        if curr_hdr:
+                            orig_seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
+                        curr_hdr = line; curr_seq = []
+                    else:
+                        curr_seq.append(line)
+                if curr_hdr:
+                    orig_seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
+
+            def emit(name, out_lines):
+                if name in trimmed:
+                    for hdr, seq in trimmed[name]:
+                        out_lines.append(hdr)
+                        out_lines.extend(seq)
+                elif name in orig_seqs:
+                    hdr, seq = orig_seqs[name]
+                    out_lines.append(hdr)
+                    out_lines.extend(seq)
+
+            out_lines = []
+            for name in orig_seqs:
+                emit(name, out_lines)
+
+            with open(str(output.fasta), 'w') as fh:
+                fh.writelines(out_lines)
+
+            n_total = sum(1 for l in out_lines if l.startswith('>'))
+            n_trimmed = sum(1 for n in orig_seqs if n in trimmed)
+            with open(str(log[0]), 'w') as lf:
+                lf.write(f'CheckV-trimmed sequences: {n_trimmed}\n')
+                lf.write(f'Total trimmed set: {n_total}\n')
+
+
     rule coassembly_filter_viral_for_prok:
         """
         Remove free-living viral contigs from the co-binning (VAMB) input —
@@ -1375,7 +1471,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
         Python, runs in Snakemake's own interpreter — no container needed).
         """
         input:
-            fasta = rules.coassembly_viral_consensus.output.fasta,
+            fasta = rules.coassembly_viral_trimmed.output.fasta,
         output:
             ani = f"{OUTDIR}/coassembly/{{group}}/viral/votu/skani_ani.tsv",
         log:
@@ -1426,7 +1522,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
         """
         input:
             ani    = rules.coassembly_skani_votu.output.ani,
-            fasta  = rules.coassembly_viral_consensus.output.fasta,
+            fasta  = rules.coassembly_viral_trimmed.output.fasta,
             checkv = rules.coassembly_checkv.output.summary,
         output:
             clusters = f"{OUTDIR}/coassembly/{{group}}/viral/votu/vOTU_clusters.tsv",
@@ -1534,7 +1630,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
           sequences, with no scientific gain.
         """
         input:
-            fasta    = rules.coassembly_viral_consensus.output.fasta,
+            fasta    = rules.coassembly_viral_trimmed.output.fasta,
             clusters = rules.coassembly_skani_cluster.output.clusters,
             checkv   = rules.coassembly_checkv.output.summary,
         output:
