@@ -2110,3 +2110,131 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
                         mf.write(f"{name}\t{mode}\t{fna}\t{faa}\t{gff}\n")
                 lf.write(f"[coassembly_prok_bin_proteins] {len(manifest_rows)} genome unit(s)\n")
             Path(str(output.done)).touch()
+
+
+    rule coassembly_gunc:
+        """
+        GUNC on group VAMB co-binning MAGs (mirrors `rule gunc`,
+        rules/prok_binning.smk). Same env/container/flags; VAMB bins are
+        `.fna` (not `.fa` like per-sample Binette), so the bin-count guard
+        and `--file_suffix` differ accordingly.
+        """
+        input:
+            done = rules.vamb_cobinning.output.done,
+        output:
+            merged = f"{OUTDIR}/coassembly/{{group}}/bins/gunc/GUNC.progenomes_2.1.maxCSS_level.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/gunc.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/gunc.tsv"
+        conda: "../envs/env_gunc.yaml"
+        container: CONTAINERS.get("gunc")
+        threads: THREADS
+        params:
+            bins_dir = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
+            outdir   = f"{OUTDIR}/coassembly/{{group}}/bins/gunc",
+            db       = GUNC_DB,
+            enabled  = GUNC_ENABLED,
+        shell:
+            """
+            mkdir -p $(dirname {log})
+            mkdir -p {params.outdir}
+            if [ "{params.enabled}" != "True" ]; then
+                echo "[coassembly_gunc] Disabled via config (gunc_enabled: false)" | tee {log}
+                printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
+                exit 0
+            fi
+            if [ -z "{params.db}" ] || [ ! -e "{params.db}" ]; then
+                echo "[coassembly_gunc] WARNING: gunc_db not set or missing — skipping" | tee {log}
+                printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
+                exit 0
+            fi
+            N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fna" 2>/dev/null | wc -l)
+            if [ "$N_BINS" -eq 0 ]; then
+                echo "[coassembly_gunc] No bins to evaluate" | tee {log}
+                printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
+                exit 0
+            fi
+            gunc run \
+                --input_dir {params.bins_dir} \
+                --out_dir   {params.outdir} \
+                --db_file   {params.db} \
+                --threads   {threads} \
+                --file_suffix .fna \
+                > {log} 2>&1 || echo "[coassembly_gunc] WARNING: gunc run failed" | tee -a {log}
+            # Locate produced TSV (filename includes DB version)
+            for cand in {params.outdir}/GUNC.progenomes_2.1.maxCSS_level.tsv \
+                        {params.outdir}/GUNC.*.maxCSS_level.tsv; do
+                [ -f "$cand" ] && cp "$cand" {output.merged} && break
+            done
+            [ -f {output.merged} ] || \
+                printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
+            """
+
+
+    rule coassembly_galah_derep:
+        """
+        galah — CheckM2-aware MAG dereplication by ANI on group VAMB
+        co-binning MAGs (mirrors `rule galah_derep`, rules/prok_binning.smk).
+        Same env/container/flags. VAMB bins are `.fna` (not `.fa`).
+        Clusters at MAG_DEREP_ANI; keeps the bin with the highest CheckM2
+        quality score per cluster. Output feeds group GTDB-Tk so taxonomy
+        runs only on representatives.
+        """
+        input:
+            bins_done   = rules.vamb_cobinning.output.done,
+            checkm2_tsv = rules.checkm2_group.output.report,
+        output:
+            done    = f"{OUTDIR}/coassembly/{{group}}/bins/derep/done.txt",
+            cluster = f"{OUTDIR}/coassembly/{{group}}/bins/derep/galah_clusters.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/galah_derep.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/galah_derep.tsv"
+        conda: "../envs/env_derep.yaml"
+        container: CONTAINERS.get("galah")
+        threads: THREADS
+        params:
+            bins_dir = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
+            outdir   = f"{OUTDIR}/coassembly/{{group}}/bins/derep",
+            repdir   = f"{OUTDIR}/coassembly/{{group}}/bins/derep/derep_bins",
+            ani      = MAG_DEREP_ANI,
+            enabled  = MAG_DEREP_ENABLED,
+        shell:
+            """
+            mkdir -p $(dirname {log})
+            mkdir -p {params.outdir} {params.repdir}
+            if [ "{params.enabled}" != "True" ]; then
+                echo "[coassembly_galah_derep] Disabled via config — symlinking original bins" | tee {log}
+                # Mirror vamb/run/bins into derep_bins for a uniform GTDB-Tk input
+                shopt -s nullglob
+                for fa in {params.bins_dir}/*.fna; do
+                    ln -sf "$fa" {params.repdir}/
+                done
+                printf "representative\tmember\n" > {output.cluster}
+                touch {output.done}; exit 0
+            fi
+            shopt -s nullglob
+            BINS=({params.bins_dir}/*.fna)
+            if [ ${{#BINS[@]}} -eq 0 ]; then
+                echo "[coassembly_galah_derep] No bins to dereplicate" | tee {log}
+                printf "representative\tmember\n" > {output.cluster}
+                touch {output.done}; exit 0
+            fi
+            galah cluster \
+                --genome-fasta-files "${{BINS[@]}}" \
+                --ani {params.ani} \
+                --checkm2-quality-report {input.checkm2_tsv} \
+                --output-cluster-definition {output.cluster} \
+                --output-representative-fasta-directory {params.repdir} \
+                --threads {threads} \
+                > {log} 2>&1 || echo "[coassembly_galah_derep] WARNING: cluster failed — falling back to original bins" | tee -a {log}
+            # Fallback: if galah produced nothing usable, mirror original bins
+            if [ -z "$(ls {params.repdir}/*.fna 2>/dev/null)" ]; then
+                for fa in {params.bins_dir}/*.fna; do
+                    ln -sf "$fa" {params.repdir}/
+                done
+                [ -s {output.cluster} ] || printf "representative\tmember\n" > {output.cluster}
+            fi
+            touch {output.done}
+            """
