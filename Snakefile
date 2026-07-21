@@ -466,8 +466,19 @@ def _t_integration():
 
 
 def _t_coassembly():
-    # Execução de co-assembly/co-binning é do Plano 2. Stub por ora.
-    return []
+    # Co-assembly track (Plano 2). Co-binning is short-read only.
+    #  short reads + binning → group MAGs (CheckM2 + GTDB per group)
+    #  long reads, or binning off → co-assembled contigs only (no co-binning)
+    t = []
+    if COASSEMBLY_ENABLED:
+        if COASSEMBLY_BINNING and not LONG_READS:
+            for g in GROUPS:
+                t.append(f"{OUTDIR}/coassembly/{g}/gtdbtk/done.txt")
+                t.append(f"{OUTDIR}/coassembly/{g}/checkm2/quality_report.tsv")
+        else:
+            for g in GROUPS:
+                t.append(f"{OUTDIR}/coassembly/{g}/contigs.fa")
+    return t
 
 
 def _t_report():
