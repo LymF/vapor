@@ -1449,3 +1449,273 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 lf.write(f'[viral_votu_reps] Total vOTU reps: {n_all}\n')
                 lf.write(f'[viral_votu_reps] MQ+ reps (taxonomy/PHIST/Pharokka): {n_mq}\n')
                 lf.write(f'[viral_votu_reps] HQ+/>=10kb reps (vConTACT3): {n_hq_10kb}\n')
+
+
+    rule coassembly_prodigal_viral:
+        """
+        Predict ORFs from the group vOTU MQ+ representatives for taxonomy
+        searches. Mirrors `rule prodigal_viral` (rules/taxonomy.smk).
+        """
+        input:
+            viral = rules.coassembly_viral_votu_reps.output.mq_fasta,
+        output:
+            faa  = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/viral_proteins.faa",
+            done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/prodigal_done.txt",
+        log:   f"{OUTDIR}/coassembly/{{group}}/logs/prodigal_viral.log"
+        benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/prodigal_viral.tsv"
+        conda: "../envs/env_viral.yaml"
+        container:  CONTAINERS.get("prodigal")
+        threads: 1
+        shell:
+            """
+            mkdir -p $(dirname {output.faa})
+            if [ ! -s {input.viral} ]; then
+                touch {output.faa} {output.done}; exit 0
+            fi
+            prodigal -i {input.viral} -a {output.faa} -p meta -f gff > {log} 2>&1
+            touch {output.done}
+            """
+
+
+    rule coassembly_mmseqs_taxonomy_viral:
+        """
+        Real per-query LCA against INPHARED-derived seqTaxDB on the group
+        vOTU proteins. Mirrors `rule mmseqs_taxonomy_viral` (rules/taxonomy.smk)
+        exactly -- same seqTaxDB path, same skip guards. vConTACT3 and
+        custom-MMseqs sources are out of scope for the co-assembly viral
+        taxonomy core; only GeNomad + this rule feed coassembly_viral_taxonomy.
+        """
+        input:
+            faa  = rules.coassembly_prodigal_viral.output.faa,
+            done = rules.coassembly_prodigal_viral.output.done,
+        output:
+            hits = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_vs_inphared.tsv",
+            done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared_done.txt",
+        log:   f"{OUTDIR}/coassembly/{{group}}/logs/mmseqs_taxonomy_viral.log"
+        benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/mmseqs_taxonomy_viral.tsv"
+        conda: "../envs/env_assembly.yaml"
+        container:  CONTAINERS.get("mmseqs2")
+        threads: THREADS
+        params:
+            seqtaxdb = f"{INPHARED_DB}/inphared_mmseqs_taxdb/seqTaxDB",
+            outdir   = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared",
+            querydb  = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared/queryDB",
+            result   = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared/result",
+            tmp      = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared/tmp",
+        run:
+            import os
+            from pathlib import Path
+
+            os.makedirs(params.outdir, exist_ok=True)
+            header = "qseqid\ttaxid\trank\tname\tlineage\n"
+
+            def write_empty(msg):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(msg + "\n")
+                Path(str(output.hits)).write_text(header)
+                Path(str(output.done)).touch()
+
+            if not os.path.exists(str(params.seqtaxdb) + ".dbtype"):
+                write_empty(
+                    "[coassembly_mmseqs_taxonomy_viral] No seqTaxDB at " + str(params.seqtaxdb) +
+                    " -- run scripts/prepare_mmseqs_taxdb.py --format inphared once first (see INSTALL.md). Skipping."
+                )
+                return
+
+            if not os.path.exists(str(input.faa)) or os.path.getsize(str(input.faa)) == 0:
+                write_empty("[coassembly_mmseqs_taxonomy_viral] No viral proteins -- skipping")
+                return
+
+            # mmseqs taxonomy refuses to run if its output DB already exists
+            # ("result.dbtype exists already!") -- same fix as mmseqs_taxonomy_viral.
+            shell("rm -rf {params.tmp} {params.result}*; mkdir -p {params.tmp}")
+            shell("mmseqs createdb {input.faa} {params.querydb} >> {log} 2>&1")
+            shell(
+                "mmseqs taxonomy {params.querydb} {params.seqtaxdb} {params.result} {params.tmp} "
+                "--threads {threads} --tax-lineage 1 >> {log} 2>&1"
+            )
+            shell(
+                "mmseqs createtsv {params.querydb} {params.result} {output.hits}.raw >> {log} 2>&1"
+            )
+            Path(str(output.hits)).write_text(header)
+            if os.path.exists(str(output.hits) + ".raw"):
+                with open(str(output.hits) + ".raw") as f, open(str(output.hits), "a") as out:
+                    out.writelines(f)
+                os.remove(str(output.hits) + ".raw")
+            Path(str(output.done)).touch()
+
+
+    rule coassembly_viral_taxonomy:
+        """
+        Merge taxonomy from GeNomad + MMseqs2/INPHARED into one table per
+        contig, on the group co-assembly vOTU representatives. Mirrors
+        `rule viral_taxonomy` (rules/taxonomy.smk), but scoped to only the
+        two sources that are in-scope for co-assembly viral taxonomy --
+        vConTACT3 and custom-MMseqs are NOT wired here. With those two
+        sources absent, the effective priority becomes
+        mmseqs_inphared > genomad (still resolved by deepest-rank-wins,
+        same as the per-sample rule; ties just have fewer contenders here).
+        """
+        input:
+            genomad_done = rules.coassembly_genomad.output.done,
+            mmseqs_hits  = rules.coassembly_mmseqs_taxonomy_viral.output.hits,
+            mmseqs_done  = rules.coassembly_mmseqs_taxonomy_viral.output.done,
+            viral        = rules.coassembly_viral_votu_reps.output.mq_fasta,
+        output:
+            tsv  = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/viral_taxonomy_merged.tsv",
+            done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/taxonomy_done.txt",
+        log:   f"{OUTDIR}/coassembly/{{group}}/logs/viral_taxonomy.log"
+        benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/viral_taxonomy.tsv"
+        conda: "../envs/env_viral.yaml"
+        container:  CONTAINERS.get("diamond")
+        threads: 1
+        run:
+            import csv, os, glob, collections
+            from pathlib import Path
+
+            lf = open(str(log[0]), "w")
+
+            # All viral contigs
+            contigs = []
+            if os.path.exists(str(input.viral)):
+                with open(str(input.viral)) as f:
+                    for line in f:
+                        if line.startswith(">"): contigs.append(line[1:].split()[0])
+            lf.write(f"Total viral contigs: {len(contigs)}\n")
+
+            # vConTACT3 and custom-MMseqs are out of scope for co-assembly
+            # viral taxonomy -- these sources are always empty here.
+            vc3_tax = {}
+            custom_tax = {}
+
+            # ── MMseqs2/INPHARED (real per-query LCA) ───────────────────
+            _RANKS = ['realm', 'kingdom', 'phylum', 'class', 'order', 'family', 'subfamily', 'genus']
+            mmseqs_tax = _mmseqs_lca_rollup(str(input.mmseqs_hits), _RANKS)
+            lf.write(f"MMseqs2/INPHARED: {len(mmseqs_tax)} contigs\n")
+
+            # ── GeNomad ───────────────────────────────────────────────────
+            genomad_tax = {}
+            gdir   = os.path.dirname(str(input.genomad_done))
+            gfiles = glob.glob(os.path.join(gdir, "**", "*_virus_summary.tsv"), recursive=True)
+            gpath  = gfiles[0] if gfiles else ""
+            if gpath and os.path.getsize(gpath) > 0:
+                with open(gpath) as f:
+                    for row in csv.DictReader(f, delimiter="\t"):
+                        name  = row.get("seq_name","")
+                        tax   = row.get("taxonomy","")
+                        score = row.get("virus_score","0")
+                        if not name or not tax: continue
+                        parts = [p.strip() for p in tax.split(";")
+                                 if p.strip() and p.strip() not in ("Viruses", "")]
+                        family=""; genus=""; order=""; cls=""; best=""
+                        # High-rank names (phylum/kingdom) must not be used as fallback
+                        _high = set()
+                        for p in parts:
+                            if p.endswith("viridae") or p.endswith("virnae"):
+                                family = p
+                            elif p.endswith("virales"):
+                                order  = p
+                            elif p.endswith("viricetes"):
+                                cls    = p
+                            elif p.endswith("virus") or p.endswith("phage"):
+                                genus  = p
+                            elif any(p.endswith(s) for s in
+                                     ("viricota", "virae", "viria", "virites")):
+                                _high.add(p)  # phylum/kingdom — skip as taxonomy fallback
+                        _low = [p for p in parts if p not in _high]
+                        best = genus or family or order or cls or (
+                            _low[-1] if _low else (parts[-1] if parts else ""))
+                        genomad_tax[name] = {
+                            "family": family, "genus": genus, "order": order,
+                            "class": cls, "best": best, "lineage": tax,
+                            "score": float(score or 0),
+                        }
+            lf.write(f"GeNomad: {len(genomad_tax)} contigs\n")
+
+            # ── Build final table ─────────────────────────────────────────
+            # Priority order retained for parity with the per-sample rule,
+            # but vcontact3/mmseqs_custom never appear as candidates here.
+            _PRIORITY = {"vcontact3": 0, "mmseqs_inphared": 1,
+                         "mmseqs_custom": 2, "genomad": 3}
+
+            def _depth(genus, family, order):
+                if genus:  return 3
+                if family: return 2
+                if order:  return 1
+                return 0
+
+            rows = []; stats = collections.Counter()
+            for contig in contigs:
+                vc3 = vc3_tax.get(contig, {})
+                mms = mmseqs_tax.get(contig, {})
+                gmd = genomad_tax.get(contig, {})
+                cms = custom_tax.get(contig, {})
+
+                candidates = []  # (source, ff, fg, fo, lin, conf, best)
+
+                if mms and (mms.get("family") or mms.get("genus") or mms.get("order")):
+                    ff, fg, fo = mms.get("family",""), mms.get("genus",""), mms.get("order","")
+                    candidates.append(("mmseqs_inphared", ff, fg, fo, mms.get("lineage",""),
+                                        f"{mms.get('rank','')} ({mms.get('n_proteins',0)} proteins)",
+                                        fg or ff or fo))
+
+                if gmd and gmd.get("family"):  # only true family; no class/order via this candidate
+                    ff, fg, fo = gmd.get("family",""), gmd.get("genus",""), gmd.get("order","")
+                    candidates.append(("genomad", ff, fg, fo, gmd.get("lineage",""),
+                                        f"{gmd['score']:.3f}", gmd.get("best","")))
+
+                if candidates:
+                    candidates.sort(key=lambda c: (-_depth(c[2], c[1], c[3]), _PRIORITY[c[0]]))
+                    source, ff, fg, fo, lin, conf, best = candidates[0]
+                elif gmd:
+                    # GeNomad's only signal is class/order/higher -- still better than nothing
+                    source = "genomad"
+                    ff, fg, fo = "", "", gmd.get("order","")
+                    best   = gmd.get("best","")
+                    conf   = f"{gmd['score']:.3f}"
+                    lin    = gmd.get("lineage","")
+                else:
+                    source = "unclassified"
+                    ff = fg = fo = conf = lin = best = ""
+
+                stats[source] += 1
+                rows.append({
+                    "seq_name":      contig,
+                    "final_family":  ff,
+                    "final_genus":   fg,
+                    "final_order":   fo,
+                    "best_taxonomy": best,
+                    "source":        source,
+                    "confidence":    conf,
+                    "lineage":       lin,
+                    "vc3_status":    vc3.get("status",""),
+                    "vc3_novel_anchor": vc3.get("novel_anchor",""),
+                    "genomad_best":  gmd.get("best",""),
+                    "genomad_class": gmd.get("class",""),
+                    "genomad_score": gmd.get("score",""),
+                    "mmseqs_rank":         mms.get("rank",""),
+                    "mmseqs_lineage":      mms.get("lineage",""),
+                    "mmseqs_n_proteins":   mms.get("n_proteins",""),
+                    "custom_rank":         cms.get("rank",""),
+                    "custom_lineage":      cms.get("lineage",""),
+                    "custom_n_proteins":   cms.get("n_proteins",""),
+                })
+
+            lf.write("\nSummary:\n")
+            for k, v in stats.most_common():
+                lf.write(f"  {k}: {v}\n")
+            total = len(rows)
+            unclass = stats.get("unclassified", 0)
+            lf.write(f"  Novel (unclassified): {unclass}/{total} = {100*unclass/total:.1f}%\n" if total else "")
+            lf.close()
+
+            fields = ["seq_name","final_family","final_genus","final_order","best_taxonomy",
+                      "source","confidence","lineage",
+                      "vc3_status","vc3_novel_anchor",
+                      "genomad_best","genomad_class","genomad_score",
+                      "mmseqs_rank","mmseqs_lineage","mmseqs_n_proteins",
+                      "custom_rank","custom_lineage","custom_n_proteins"]
+            with open(str(output.tsv), "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
+                w.writeheader(); w.writerows(rows)
+            Path(str(output.done)).write_text("ok\n")
