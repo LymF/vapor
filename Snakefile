@@ -13,8 +13,8 @@
 #                       │
 #                       └─► BWA-MEM2 / minimap2 (read mapping → contigs)
 #                                 └─► depth.txt (coverage per contig)
-#                                       └─► MetaBAT2, VAMB,
-#                                           SemiBin2
+#                                       └─► MetaBAT2, SemiBin2,
+#                                           COMEBin
 #                                                 └─► Binette
 #                                                       └─► CheckM2
 #                                                             └─► GTDB-Tk
@@ -35,7 +35,7 @@
 #   mapping.smk         — BLOCK 6  : BWA-MEM2, minimap2, calc_depth
 #   cobra.smk           — BLOCK 5.5: COBRA contig extension (optional, SR PE only)
 #   viral_binning.smk   — BLOCK 7  : vRhyme, CheckV (×2)
-#   prok_binning.smk    — BLOCK 8  : MetaBAT2, VAMB, SemiBin2, Binette, CheckM2, GTDB-Tk
+#   prok_binning.smk    — BLOCK 8  : MetaBAT2, SemiBin2, COMEBin, Binette, CheckM2, GTDB-Tk
 #   taxonomy.smk        — BLOCK 9  : Prodigal, Diamond, vConTACT3, viral_taxonomy
 #   host_prediction.smk — BLOCK 10 : PHIST
 #   defense_amr.smk     — BLOCK 10.5: DefenseFinder, AMRFinderPlus, RGI/CARD, DeepARG, ABRicate, argNorm

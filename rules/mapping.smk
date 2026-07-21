@@ -9,7 +9,7 @@
 # Intermediate SAM files are marked temp() and auto-deleted by Snakemake.
 #
 # calc_depth output (jgi_summarize_bam_contig_depths) is consumed by
-# MetaBAT2, VAMB, SemiBin2, vRhyme.
+# MetaBAT2, SemiBin2, COMEBin, vRhyme.
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -163,7 +163,7 @@ rule calc_depth:
     """
     Per-contig coverage depth from BAM (jgi_summarize_bam_contig_depths).
     Output columns: contigName, contigLen, totalAvgDepth, bam_avg, bam_var.
-    Used by: MetaBAT2, VAMB, SemiBin2, vRhyme.
+    Used by: MetaBAT2, SemiBin2, COMEBin, vRhyme.
     """
     input:
         bam      = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
