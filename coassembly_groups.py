@@ -31,4 +31,9 @@ def parse_groups(metadata_path: str, samples: list, mode: str) -> dict:
             if not s or not g or s not in sample_set:
                 continue
             groups.setdefault(g, []).append(s)
+    if "multisplit" in groups:
+        raise ValueError(
+            "group name 'multisplit' is reserved (used by cobinning_multisplit "
+            "output paths); rename it in the metadata TSV"
+        )
     return groups

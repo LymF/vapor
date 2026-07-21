@@ -28,9 +28,15 @@ _group_samples = sorted({s for members in GROUPS.values() for s in members}) if 
 _multisplit_samples = sorted(SAMPLES.keys()) if COBINNING_MULTISPLIT and not LONG_READS else []
 _sample_constraint_set = sorted(set(_group_samples) | set(_multisplit_samples))
 
-wildcard_constraints:
-    group  = "|".join(re.escape(g) for g in GROUPS) if GROUPS else "^$",
-    sample = "|".join(re.escape(s) for s in _sample_constraint_set) if _sample_constraint_set else "^$",
+if GROUPS:
+    _grp_re = "|".join(re.escape(g) for g in GROUPS)
+    wildcard_constraints:
+        group = _grp_re
+
+if _sample_constraint_set:
+    _smp_re = "|".join(re.escape(s) for s in _sample_constraint_set)
+    wildcard_constraints:
+        sample = _smp_re
 
 
 if not LONG_READS:
@@ -65,6 +71,7 @@ if not LONG_READS:
             single_end = SINGLE_END,
         shell:
             """
+            mkdir -p $(dirname {log})
             rm -rf {params.outdir}
             if [ "{params.single_end}" = "True" ]; then
                 R1=$(echo {input.r1} | tr ' ' ',')
@@ -111,6 +118,7 @@ if not LONG_READS:
             prefix = f"{OUTDIR}/coassembly/{{group}}/mapping/contigs_index",
         shell:
             """
+            mkdir -p $(dirname {log})
             mkdir -p {OUTDIR}/coassembly/{wildcards.group}/mapping
             bwa-mem2 index -p {params.prefix} {input.contigs} > {log} 2>&1
             """
@@ -143,6 +151,7 @@ if not LONG_READS:
         shell:
             """
             mkdir -p $(dirname {output.sam})
+            mkdir -p $(dirname {log})
             if [ "{params.single_end}" = "True" ]; then
                 bwa-mem2 mem \
                     -t {threads} \
@@ -178,6 +187,8 @@ if not LONG_READS:
         threads: THREADS
         shell:
             """
+            mkdir -p $(dirname {log})
+            mkdir -p $(dirname {output.bam})
             samtools sort -@ {threads} -o {output.bam} {input.sam} 2> {log}
             samtools index {output.bam} 2>> {log}
             """
@@ -202,6 +213,8 @@ if not LONG_READS:
         container:  CONTAINERS.get("metabat2")
         shell:
             """
+            mkdir -p $(dirname {log})
+            mkdir -p $(dirname {output.depth})
             jgi_summarize_bam_contig_depths \
                 --outputDepth {output.depth} \
                 {input.bam} \
@@ -277,6 +290,7 @@ if not LONG_READS:
             low_depth = LOW_DEPTH_MODE,
         shell:
             """
+            mkdir -p $(dirname {log})
             mkdir -p $(dirname {params.outdir})
             if [ "{params.low_depth}" = "True" ]; then
                 echo "[VAMB co-binning] Skipped -- low_depth_mode enabled" | tee {log}
@@ -322,6 +336,7 @@ if not LONG_READS:
             outdir   = f"{OUTDIR}/coassembly/{{group}}/checkm2",
         shell:
             """
+            mkdir -p $(dirname {log})
             rm -rf {params.outdir}
             mkdir -p {params.outdir}
 
@@ -374,6 +389,7 @@ if not LONG_READS:
             outdir   = f"{OUTDIR}/coassembly/{{group}}/gtdbtk",
         shell:
             """
+            mkdir -p $(dirname {log})
             mkdir -p {params.outdir}
 
             # If no bins, create empty outputs
@@ -428,6 +444,7 @@ if LONG_READS:
             overlap = LR_FLYE_OVERLAP,
         shell:
             """
+            mkdir -p $(dirname {log})
             mkdir -p {params.outdir}
             if [ "{LR_TECH}" = "hifi" ]; then
                 READ_FLAG="--pacbio-hifi"
@@ -470,9 +487,13 @@ if COBINNING_MULTISPLIT and not LONG_READS:
     rule multisplit_catalog:
         """
         Concatenate every sample's dereplicated assembly (mmseqs rep_seq)
-        into one global catalog for multi-split co-binning. Headers are
-        renamed `>X` -> `>S{sample}C{X}` so VAMB bins stay traceable back
-        to the originating sample/contig.
+        into one global catalog for pooled VAMB co-binning. Headers are
+        renamed `>X` -> `>S{sample}C{X}` so bins stay traceable back to the
+        originating sample/contig. Pooled VAMB co-binning over the
+        concatenated per-sample assembly catalog. (True per-sample
+        bin-splitting via VAMB's --binsplit_separator is a possible
+        refinement — verify VAMB v5 binsplit behavior on a real run before
+        enabling.)
         """
         input:
             rep_seqs = expand(f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta",
@@ -484,6 +505,7 @@ if COBINNING_MULTISPLIT and not LONG_READS:
         run:
             import os
             os.makedirs(os.path.dirname(output.catalog), exist_ok=True)
+            os.makedirs(os.path.dirname(log[0]), exist_ok=True)
             samples = list(SAMPLES.keys())
             with open(output.catalog, "w") as out, open(log[0], "w") as lg:
                 for s, path in zip(samples, input.rep_seqs):
@@ -518,6 +540,7 @@ if COBINNING_MULTISPLIT and not LONG_READS:
             prefix = f"{OUTDIR}/coassembly/multisplit/mapping/contigs_index",
         shell:
             """
+            mkdir -p $(dirname {log})
             mkdir -p {OUTDIR}/coassembly/multisplit/mapping
             bwa-mem2 index -p {params.prefix} {input.catalog} > {log} 2>&1
             """
@@ -549,6 +572,7 @@ if COBINNING_MULTISPLIT and not LONG_READS:
         shell:
             """
             mkdir -p $(dirname {output.sam})
+            mkdir -p $(dirname {log})
             if [ "{params.single_end}" = "True" ]; then
                 bwa-mem2 mem \
                     -t {threads} \
@@ -584,6 +608,8 @@ if COBINNING_MULTISPLIT and not LONG_READS:
         threads: THREADS
         shell:
             """
+            mkdir -p $(dirname {log})
+            mkdir -p $(dirname {output.bam})
             samtools sort -@ {threads} -o {output.bam} {input.sam} 2> {log}
             samtools index {output.bam} 2>> {log}
             """
@@ -609,6 +635,8 @@ if COBINNING_MULTISPLIT and not LONG_READS:
         container:  CONTAINERS.get("metabat2")
         shell:
             """
+            mkdir -p $(dirname {log})
+            mkdir -p $(dirname {output.depth})
             jgi_summarize_bam_contig_depths \
                 --outputDepth {output.depth} \
                 {input.bam} \
@@ -652,11 +680,17 @@ if COBINNING_MULTISPLIT and not LONG_READS:
 
     rule multisplit_vamb:
         """
-        VAMB v5 co-binning on the multi-split catalog (short reads).
+        Pooled VAMB co-binning over the concatenated per-sample assembly
+        catalog. (True per-sample bin-splitting via VAMB's
+        --binsplit_separator is a possible refinement — verify VAMB v5
+        binsplit behavior on a real run before enabling.)
         Mirrors `rule vamb_cobinning`: same env/container/flags, `vamb bin
         default`, --minfasta 200000, GPU flag from USE_GPU. The abundance
         TSV is the multi-sample matrix built by `multisplit_abundance`
-        (one column per SAMPLE in the whole run).
+        (one column per SAMPLE in the whole run). This is NOT true
+        per-sample bin-splitting — the `S{sample}C` header prefix is for
+        traceability only; bins can still mix contigs from multiple
+        samples.
         Bin FASTAs consumed by downstream CheckM2/GTDB-Tk live at:
             {OUTDIR}/coassembly/multisplit/vamb/run/bins/
         """
@@ -677,6 +711,7 @@ if COBINNING_MULTISPLIT and not LONG_READS:
             low_depth = LOW_DEPTH_MODE,
         shell:
             """
+            mkdir -p $(dirname {log})
             mkdir -p $(dirname {params.outdir})
             if [ "{params.low_depth}" = "True" ]; then
                 echo "[VAMB multi-split] Skipped -- low_depth_mode enabled" | tee {log}
@@ -719,6 +754,7 @@ if COBINNING_MULTISPLIT and not LONG_READS:
             outdir   = f"{OUTDIR}/coassembly/multisplit/checkm2",
         shell:
             """
+            mkdir -p $(dirname {log})
             rm -rf {params.outdir}
             mkdir -p {params.outdir}
 
@@ -769,6 +805,7 @@ if COBINNING_MULTISPLIT and not LONG_READS:
             outdir   = f"{OUTDIR}/coassembly/multisplit/gtdbtk",
         shell:
             """
+            mkdir -p $(dirname {log})
             mkdir -p {params.outdir}
 
             # If no bins, create empty outputs
@@ -795,3 +832,21 @@ if COBINNING_MULTISPLIT and not LONG_READS:
             [ -f {output.ar_tsv}  ] || printf "user_genome\tclassification\n" > {output.ar_tsv}
             touch {output.done}
             """
+
+
+    # The "multisplit" pseudo-group path (coassembly/multisplit/...) shares its
+    # output filename patterns with the per-group co-assembly rules above
+    # (mapping/, vamb/, checkm2/, gtdbtk/ subpaths). `parse_groups` rejects a
+    # real group literally named "multisplit" (see coassembly_groups.py), so
+    # this collision can only happen when the `group` wildcard is otherwise
+    # unconstrained (e.g. co-assembly is off, so GROUPS is empty and no
+    # `group` wildcard_constraints is emitted). Disambiguate explicitly so
+    # Snakemake doesn't raise AmbiguousRuleException in that case.
+    ruleorder: multisplit_index > coassembly_index
+    ruleorder: multisplit_map > coassembly_map
+    ruleorder: multisplit_sort > coassembly_sort
+    ruleorder: multisplit_depth > coassembly_mapback
+    ruleorder: multisplit_abundance > coassembly_abundance
+    ruleorder: multisplit_vamb > vamb_cobinning
+    ruleorder: multisplit_checkm2 > checkm2_group
+    ruleorder: multisplit_gtdbtk > gtdbtk_group

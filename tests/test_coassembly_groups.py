@@ -44,3 +44,13 @@ def test_metadata_missing_columns_raises(tmp_path):
     meta = _write(tmp_path, "sample\tfoo\ns1\tbar\n")
     with pytest.raises(ValueError, match="colunas"):
         parse_groups(meta, ["s1"], "metadata")
+
+
+def test_metadata_reserved_group_name_raises(tmp_path):
+    meta = _write(tmp_path, """\
+        sample\tgroup
+        s1\tmultisplit
+        s2\tmultisplit
+    """)
+    with pytest.raises(ValueError, match="reserved"):
+        parse_groups(meta, ["s1", "s2"], "metadata")
