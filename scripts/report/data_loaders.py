@@ -1480,7 +1480,8 @@ def collect_tool_versions():
 # ── Co-assembly track (Plano 2) ────────────────────────────────────────────
 
 def load_coassembly(outdir, groups):
-    """Collect group-level CheckM2 + GTDB into report records (empty if none)."""
+    """Collect group-level CheckM2 + GTDB MAGs and CheckV/taxonomy vOTUs into
+    report records (empty if none)."""
     out = []
     for g in groups:
         checkm2 = os.path.join(outdir, "coassembly", g, "checkm2", "quality_report.tsv")
@@ -1500,6 +1501,37 @@ def load_coassembly(outdir, groups):
                 for m in mags:
                     if m["bin"] == name:
                         m["classification"] = row.get("classification", "")
-        if mags:
-            out.append({"group": g, "mags": mags})
+
+        # Group vOTUs (Plano 3): CheckV quality tiers + taxonomy family counts
+        n_votus = 0
+        quality_tiers = {}
+        checkv_summary = os.path.join(outdir, "coassembly", g, "viral", "checkv", "quality_summary.tsv")
+        if os.path.exists(checkv_summary):
+            for row in load_tsv(checkv_summary):
+                n_votus += 1
+                q = row.get("checkv_quality", "") or "Unknown"
+                quality_tiers[q] = quality_tiers.get(q, 0) + 1
+
+        family_counts = {}
+        tax_merged = os.path.join(outdir, "coassembly", g, "viral", "taxonomy", "viral_taxonomy_merged.tsv")
+        if os.path.exists(tax_merged):
+            for row in load_tsv(tax_merged):
+                fam = (row.get("final_family", "") or "").strip()
+                if not fam:
+                    fam = "Unclassified"
+                family_counts[fam] = family_counts.get(fam, 0) + 1
+
+        votu_families = sorted(
+            [{"family": f, "count": c} for f, c in family_counts.items()],
+            key=lambda x: -x["count"],
+        )[:5]
+
+        if mags or n_votus:
+            out.append({
+                "group": g,
+                "mags": mags,
+                "n_votus": n_votus,
+                "quality_tiers": quality_tiers,
+                "votu_families": votu_families,
+            })
     return {"groups": out, "has_data": bool(out)}

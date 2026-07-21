@@ -468,16 +468,26 @@ def _t_integration():
 
 
 def _t_coassembly():
-    # Co-assembly track (Plan 2). Co-binning is short-read only.
+    # Co-assembly track (Plan 2) + co-assembly viral track (Plan 3).
+    # Co-binning is short-read only; viral works for both SR and LR.
     #  short reads + binning → group MAGs (CheckM2 + GTDB per group)
-    #  long reads, or binning off → co-assembled contigs only (no co-binning)
+    #  viral enabled → group vOTUs (CheckV + vOTU reps + taxonomy per group)
+    #  neither consumer active → co-assembled contigs only (fallback)
     t = []
     if COASSEMBLY_ENABLED:
+        produced = False
         if COASSEMBLY_BINNING and not LONG_READS:
             for g in GROUPS:
                 t.append(f"{OUTDIR}/coassembly/{g}/gtdbtk/done.txt")
                 t.append(f"{OUTDIR}/coassembly/{g}/checkm2/quality_report.tsv")
-        else:
+            produced = True
+        if COASSEMBLY_VIRAL:
+            for g in GROUPS:
+                t.append(f"{OUTDIR}/coassembly/{g}/viral/taxonomy/taxonomy_done.txt")
+                t.append(f"{OUTDIR}/coassembly/{g}/viral/checkv/quality_summary.tsv")
+                t.append(f"{OUTDIR}/coassembly/{g}/viral/votu/votu_all_reps.fasta")
+            produced = True
+        if not produced:
             for g in GROUPS:
                 t.append(f"{OUTDIR}/coassembly/{g}/contigs.fa")
     if COBINNING_MULTISPLIT and not LONG_READS:

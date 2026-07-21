@@ -65,6 +65,11 @@ rule generate_report:
         **({
             "multisplit_sentinel": f"{OUTDIR}/coassembly/multisplit/gtdbtk/done.txt"
         } if (COBINNING_MULTISPLIT and not LONG_READS) else {}),
+        # coassembly viral module (optional — group vOTUs report tab)
+        **({
+            "coassembly_viral_sentinel": expand(
+                f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/taxonomy_done.txt", group=list(GROUPS.keys()))
+        } if (COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and GROUPS) else {}),
     output:
         html = f"{OUTDIR}/report.html",
     params:
