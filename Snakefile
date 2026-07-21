@@ -316,8 +316,10 @@ from coassembly_groups import parse_groups
 COASSEMBLY_METADATA = _expand(config.get("coassembly", {}).get("metadata", "")) \
     if config.get("coassembly", {}).get("metadata", "") else ""
 
+# GROUPS is only used by the co-assembly rules (per-group). Multi-split uses ALL
+# SAMPLES directly, so it needs no grouping/metadata — build GROUPS only for co-assembly.
 GROUPS = {}
-if COASSEMBLY_ENABLED or COBINNING_MULTISPLIT:
+if COASSEMBLY_ENABLED:
     GROUPS = parse_groups(COASSEMBLY_METADATA, list(SAMPLES.keys()), COASSEMBLY_GROUPING)
     print(f"[Snakemake] Co-assembly groups: {({g: len(s) for g, s in GROUPS.items()})}")
 
