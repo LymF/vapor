@@ -1502,13 +1502,17 @@ def load_coassembly(outdir, groups):
                     if m["bin"] == name:
                         m["classification"] = row.get("classification", "")
 
-        # Group vOTUs (Plano 3): CheckV quality tiers + taxonomy family counts
+        # Group vOTUs (Plano 3): count vOTU representatives + quality tiers + taxonomy family counts
         n_votus = 0
+        votu_reps = os.path.join(outdir, "coassembly", g, "viral", "votu", "votu_all_reps.fasta")
+        if os.path.exists(votu_reps):
+            with open(votu_reps) as fh:
+                n_votus = sum(1 for line in fh if line.startswith(">"))
+
         quality_tiers = {}
         checkv_summary = os.path.join(outdir, "coassembly", g, "viral", "checkv", "quality_summary.tsv")
         if os.path.exists(checkv_summary):
             for row in load_tsv(checkv_summary):
-                n_votus += 1
                 q = row.get("checkv_quality", "") or "Unknown"
                 quality_tiers[q] = quality_tiers.get(q, 0) + 1
 
