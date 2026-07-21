@@ -238,6 +238,58 @@ if not LONG_READS:
                     out.write(c + "\t" + "\t".join(cov[c].get(s, "0") for s in samples) + "\n")
 
 
+    rule vamb_cobinning:
+        """
+        VAMB v5 co-binning on the group co-assembly (short reads).
+        Mirrors the (now-removed) per-sample `rule vamb` (see git history,
+        commit ad1f599): same env/container/flags, `vamb bin default`,
+        --minfasta 200000, GPU flag from USE_GPU. KEY DIFFERENCE: the
+        abundance TSV is the multi-sample matrix already built by
+        `coassembly_abundance` (one column per group member) — used directly,
+        no per-sample TSV is rebuilt here.
+        VAMB creates its own output dir, so it is written under a `run/`
+        subdir (not directly under `{group}/vamb/`) to avoid clobbering the
+        sibling `{group}/vamb/abundance.tsv` matrix with `rm -rf`.
+        Bin FASTAs consumed by downstream CheckM2 (Task 6) live at:
+            {OUTDIR}/coassembly/{group}/vamb/run/bins/
+        """
+        input:
+            contigs   = f"{OUTDIR}/coassembly/{{group}}/contigs.fa",
+            abundance = rules.coassembly_abundance.output.matrix,
+        output:
+            done = f"{OUTDIR}/coassembly/{{group}}/vamb/done.txt",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/vamb_cobinning.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/vamb_cobinning.tsv"
+        conda:      "../envs/env_binning.yaml"
+        container:  CONTAINERS.get("vamb")
+        threads: THREADS
+        params:
+            outdir    = f"{OUTDIR}/coassembly/{{group}}/vamb/run",
+            low_depth = LOW_DEPTH_MODE,
+        shell:
+            """
+            mkdir -p $(dirname {params.outdir})
+            if [ "{params.low_depth}" = "True" ]; then
+                echo "[VAMB co-binning] Skipped -- low_depth_mode enabled" | tee {log}
+                touch {output.done}; exit 0
+            fi
+            rm -rf {params.outdir}
+            CUDA_FLAG=""
+            if [ "{USE_GPU}" = "True" ]; then CUDA_FLAG="--cuda"; fi
+            vamb bin default \
+                --outdir {params.outdir} \
+                --fasta {input.contigs} \
+                --abundance_tsv {input.abundance} \
+                --minfasta 200000 \
+                -p {threads} \
+                $CUDA_FLAG \
+                > {log} 2>&1
+            touch {output.done}
+            """
+
+
 if LONG_READS:
 
     rule flye_coassembly:
