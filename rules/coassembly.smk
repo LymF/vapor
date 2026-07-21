@@ -39,6 +39,23 @@ if _sample_constraint_set:
         sample = _smp_re
 
 
+def _coassembly_prok_contigs(wc):
+    """FASTA used as input to co-binning (VAMB co-binning).
+    Returns the free-living-virus-filtered FASTA (mirrors per-sample
+    `_prok_input_contigs` / `filter_viral_for_prok`) when COASSEMBLY_VIRAL is
+    enabled; otherwise falls back to the raw group co-assembly contigs (no
+    viral detection ran, so no filter is possible).
+    NOTE: built as a literal path (not `rules.coassembly_filter_viral_for_prok.output`)
+    because that rule is defined later in this file, inside the
+    `if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:` block — Snakemake resolves
+    input functions at DAG-build time, so the literal string is safe even
+    though the rule object isn't in scope yet at this point in the file.
+    """
+    if COASSEMBLY_VIRAL:
+        return f"{OUTDIR}/coassembly/{wc.group}/prok_input/{wc.group}_contigs_nonviral.fasta"
+    return f"{OUTDIR}/coassembly/{wc.group}/contigs.fa"
+
+
 if not LONG_READS:
 
     rule megahit_coassembly:
@@ -272,9 +289,22 @@ if not LONG_READS:
         sibling `{group}/vamb/abundance.tsv` matrix with `rm -rf`.
         Bin FASTAs consumed by downstream CheckM2 (Task 6) live at:
             {OUTDIR}/coassembly/{group}/vamb/run/bins/
+
+        VIRAL FILTERING (Plan 4, Task 1): input contigs are the free-living-
+        virus-filtered FASTA (`_coassembly_prok_contigs`, produced by
+        `coassembly_filter_viral_for_prok`) when COASSEMBLY_VIRAL is enabled
+        — matching per-sample behavior (`filter_viral_for_prok`). Because
+        `coassembly_abundance`'s matrix spans ALL contigs (viral + non-viral)
+        but VAMB requires --abundance_tsv rows to exactly match --fasta
+        contigs, the abundance matrix is filtered down to the fasta's contig
+        set inside the shell block before being passed to VAMB (mirrors the
+        old per-sample `rule vamb`'s grep/awk filtering trick, see git show
+        275340e:rules/prok_binning.smk). When COASSEMBLY_VIRAL is off, the
+        fasta is the unfiltered contigs.fa (== abundance matrix contigs), so
+        no filtering is needed.
         """
         input:
-            contigs   = f"{OUTDIR}/coassembly/{{group}}/contigs.fa",
+            contigs   = _coassembly_prok_contigs,
             abundance = rules.coassembly_abundance.output.matrix,
         output:
             done = f"{OUTDIR}/coassembly/{{group}}/vamb/done.txt",
@@ -286,8 +316,9 @@ if not LONG_READS:
         container:  CONTAINERS.get("vamb")
         threads: THREADS
         params:
-            outdir    = f"{OUTDIR}/coassembly/{{group}}/vamb/run",
-            low_depth = LOW_DEPTH_MODE,
+            outdir       = f"{OUTDIR}/coassembly/{{group}}/vamb/run",
+            low_depth    = LOW_DEPTH_MODE,
+            viral_filter = COASSEMBLY_VIRAL,
         shell:
             """
             mkdir -p $(dirname {log})
@@ -297,12 +328,28 @@ if not LONG_READS:
                 touch {output.done}; exit 0
             fi
             rm -rf {params.outdir}
+
+            ABUNDANCE_TSV={input.abundance}
+            if [ "{params.viral_filter}" = "True" ]; then
+                # Filter the multi-sample abundance matrix down to the contigs
+                # present in the (viral-filtered) FASTA — VAMB requires an
+                # exact match between --fasta and --abundance_tsv contigs.
+                grep "^>" {input.contigs} | sed 's/^>//' | awk '{{print $1}}' \
+                    > {params.outdir}_contig_names.txt
+                head -n1 {input.abundance} > {params.outdir}_abundance_filtered.tsv
+                awk 'NR==FNR{{keep[$1]=1; next}} FNR>1 && ($1 in keep)' \
+                    {params.outdir}_contig_names.txt {input.abundance} \
+                    >> {params.outdir}_abundance_filtered.tsv
+                rm -f {params.outdir}_contig_names.txt
+                ABUNDANCE_TSV={params.outdir}_abundance_filtered.tsv
+            fi
+
             CUDA_FLAG=""
             if [ "{USE_GPU}" = "True" ]; then CUDA_FLAG="--cuda"; fi
             vamb bin default \
                 --outdir {params.outdir} \
                 --fasta {input.contigs} \
-                --abundance_tsv {input.abundance} \
+                --abundance_tsv $ABUNDANCE_TSV \
                 --minfasta 200000 \
                 -p {threads} \
                 $CUDA_FLAG \
@@ -1198,6 +1245,123 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 > {log} 2>&1
             touch {output.viruses} {output.proviruses}
             """
+
+
+    rule coassembly_filter_viral_for_prok:
+        """
+        Remove free-living viral contigs from the co-binning (VAMB) input —
+        group-level mirror of the per-sample `filter_viral_for_prok`
+        (rules/prok_binning.smk:40). Fixes a Plan 2 gap: `vamb_cobinning`
+        previously binned the FULL group co-assembly (`contigs.fa`),
+        including free-living viral contigs, so group MAGs could be
+        virus-contaminated.
+
+        Strategy (identical to the per-sample rule):
+          1. coassembly_viral_consensus fasta        → set of viral contigs
+          2. CheckV `provirus=Yes` + GeNomad `|provirus_` suffix → provirus set
+          3. remove = viral_consensus MINUS provirus
+          4. {group}/contigs.fa MINUS remove → {group}_contigs_nonviral.fasta
+
+        Provirus-bearing contigs always stay in the prok input (the provirus
+        region is integrated within a bacterial host contig — removing it
+        would drop the host genome with the prophage). Free-living viruses
+        (no host chromosome context) are removed to clean up MAGs.
+
+        Only defined when COASSEMBLY_VIRAL is enabled — it requires the
+        group's viral detection outputs (consensus/CheckV/GeNomad). When
+        COASSEMBLY_VIRAL is off, `_coassembly_prok_contigs` falls back to the
+        unfiltered `contigs.fa` directly (no filter possible without viral
+        detection).
+        """
+        input:
+            contigs = f"{OUTDIR}/coassembly/{{group}}/contigs.fa",
+            viral   = rules.coassembly_viral_consensus.output.fasta,
+            checkv  = rules.coassembly_checkv.output.summary,
+            genomad = rules.coassembly_genomad.output.done,
+        output:
+            filtered = f"{OUTDIR}/coassembly/{{group}}/prok_input/{{group}}_contigs_nonviral.fasta",
+            stats    = f"{OUTDIR}/coassembly/{{group}}/prok_input/filter_stats.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/filter_viral_for_prok.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/filter_viral_for_prok.tsv"
+        params:
+            genomad_dir = lambda wc: f"{OUTDIR}/coassembly/{wc.group}/viral/genomad",
+        run:
+            import os, glob, csv
+
+            viral_set = set()
+            with open(input.viral) as f:
+                for line in f:
+                    if line.startswith(">"):
+                        viral_set.add(line[1:].strip().split()[0])
+
+            # Always keep provirus-bearing contigs in prok binning
+            provirus_set = set()
+            try:
+                with open(input.checkv) as f:
+                    rdr = csv.DictReader(f, delimiter="\t")
+                    for row in rdr:
+                        if (row.get("provirus", "") or "").strip().lower() == "yes":
+                            cid = (row.get("contig_id", "") or "").strip()
+                            if cid:
+                                provirus_set.add(cid)
+            except Exception:
+                pass
+
+            for gf in glob.glob(os.path.join(str(params.genomad_dir),
+                                             "**", "*_virus_summary.tsv"),
+                                recursive=True):
+                try:
+                    with open(gf) as f:
+                        rdr = csv.DictReader(f, delimiter="\t")
+                        for row in rdr:
+                            seq = (row.get("seq_name", "") or "").strip()
+                            if "|provirus_" in seq:
+                                provirus_set.add(seq.split("|")[0])
+                except Exception:
+                    pass
+
+            # Contigs we will remove from the prok input
+            remove_set = viral_set - provirus_set
+
+            os.makedirs(os.path.dirname(output.filtered), exist_ok=True)
+            kept = removed = total = 0
+            with open(input.contigs) as fin, open(output.filtered, "w") as fout:
+                write = False
+                header = None
+                for line in fin:
+                    if line.startswith(">"):
+                        if header is not None:
+                            # finalize previous record (already written if write=True)
+                            pass
+                        header = line[1:].strip().split()[0]
+                        total += 1
+                        if header in remove_set:
+                            write = False
+                            removed += 1
+                        else:
+                            write = True
+                            kept += 1
+                            fout.write(line)
+                    else:
+                        if write:
+                            fout.write(line)
+
+            with open(output.stats, "w") as s:
+                s.write("metric\tcount\n")
+                s.write(f"total_contigs\t{total}\n")
+                s.write(f"viral_total\t{len(viral_set)}\n")
+                s.write(f"provirus_kept\t{len(provirus_set)}\n")
+                s.write(f"removed\t{removed}\n")
+                s.write(f"kept_for_prok\t{kept}\n")
+
+            with open(log[0], "w") as lf:
+                lf.write(f"Total contigs        : {total}\n")
+                lf.write(f"Viral consensus      : {len(viral_set)}\n")
+                lf.write(f"Provirus (kept)      : {len(provirus_set)}\n")
+                lf.write(f"Removed (viral-only) : {removed}\n")
+                lf.write(f"Kept for prok binning: {kept}\n")
 
 
     rule coassembly_skani_votu:
