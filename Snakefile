@@ -239,6 +239,9 @@ COASSEMBLY_VIRAL     = _PCFG["coassembly_viral"]
 COASSEMBLY_BINNING   = _PCFG["coassembly_binning"]
 COBINNING_MULTISPLIT = _PCFG["cobinning_multisplit"]
 
+# Selecting the reads track implies the reads-classify module runs.
+READS_CLASSIFY_ENABLED = READS_CLASSIFY_ENABLED or TRACK_READS
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  SAMPLE DISCOVERY
@@ -463,7 +466,10 @@ def _t_report():
     ]
     if TRACK_VIRAL or TRACK_PROK:
         t.append(f"{OUTDIR}/diversity/diversity_done.txt")
-    if not LONG_READS:
+    # MultiQC aggregates assembly QC (QUAST) + fastp — only meaningful when an
+    # assembly-based track ran; otherwise it drags the whole assembly into a
+    # reads-only DAG.
+    if not LONG_READS and (TRACK_VIRAL or TRACK_PROK):
         t.append(f"{OUTDIR}/multiqc_report/multiqc_report.html")
     # flatten (expand returns lists)
     flat = []

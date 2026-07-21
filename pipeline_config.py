@@ -24,7 +24,7 @@ def resolve_pipeline_config(config: dict) -> dict:
     track_prok = _b(tracks, "prok", True)
     use_host_defense = _b(config, "use_host_defense", True)
 
-    grouping = str(coas.get("grouping", "metadata")).strip().lower()
+    grouping = str(coas.get("grouping") or "metadata").strip().lower()
     coassembly_enabled = _b(coas, "enabled", False) and grouping != "none"
 
     return {

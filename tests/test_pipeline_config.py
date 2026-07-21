@@ -27,6 +27,12 @@ def test_grouping_none_disables_coassembly():
     assert r["coassembly_enabled"] is False
 
 
+def test_grouping_explicit_null_falls_back_to_metadata():
+    r = resolve_pipeline_config({"coassembly": {"enabled": True, "grouping": None}})
+    assert r["coassembly_grouping"] == "metadata"
+    assert r["coassembly_enabled"] is True
+
+
 def test_reads_only_track():
     r = resolve_pipeline_config(
         {"tracks": {"reads": True, "viral": False, "prok": False}})
