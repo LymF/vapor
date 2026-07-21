@@ -478,6 +478,9 @@ def _t_coassembly():
         else:
             for g in GROUPS:
                 t.append(f"{OUTDIR}/coassembly/{g}/contigs.fa")
+    if COBINNING_MULTISPLIT and not LONG_READS:
+        t.append(f"{OUTDIR}/coassembly/multisplit/gtdbtk/done.txt")
+        t.append(f"{OUTDIR}/coassembly/multisplit/checkm2/quality_report.tsv")
     return t
 
 

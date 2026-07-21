@@ -21,9 +21,16 @@ def _group_lr(wc):
 
 _group_samples = sorted({s for members in GROUPS.values() for s in members}) if GROUPS else []
 
+# Multi-split co-binning (Task 5b) maps EVERY sample against one global
+# catalog, regardless of co-assembly grouping — so the `sample` wildcard
+# constraint must also cover samples that a metadata-based grouping might
+# not have assigned to any group.
+_multisplit_samples = sorted(SAMPLES.keys()) if COBINNING_MULTISPLIT and not LONG_READS else []
+_sample_constraint_set = sorted(set(_group_samples) | set(_multisplit_samples))
+
 wildcard_constraints:
     group  = "|".join(re.escape(g) for g in GROUPS) if GROUPS else "^$",
-    sample = "|".join(re.escape(s) for s in _group_samples) if _group_samples else "^$",
+    sample = "|".join(re.escape(s) for s in _sample_constraint_set) if _sample_constraint_set else "^$",
 
 
 if not LONG_READS:
@@ -440,4 +447,351 @@ if LONG_READS:
             [ -f {params.outdir}/assembly.fasta ] && \
                 cp {params.outdir}/assembly.fasta {output.contigs} || \
                 touch {output.contigs}
+            """
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  VAMB multi-split co-binning (Task 5b, Plano 2)
+#
+#  Independent of co-assembly: concatenates every sample's per-sample
+#  dereplicated assembly (rep_seq.fasta) into ONE global catalog (contigs
+#  renamed with a sample prefix so bins stay traceable per-sample), maps
+#  every sample's reads to that catalog, and runs VAMB on the resulting
+#  multi-sample abundance matrix. Short reads only.
+#
+#  Everything lives under a fixed "multisplit" pseudo-group path so the
+#  report tab (rules/report.smk `load_coassembly`) can reuse it exactly
+#  like any other co-assembly group, with no loader changes required:
+#      {OUTDIR}/coassembly/multisplit/...
+# ══════════════════════════════════════════════════════════════════════
+
+if COBINNING_MULTISPLIT and not LONG_READS:
+
+    rule multisplit_catalog:
+        """
+        Concatenate every sample's dereplicated assembly (mmseqs rep_seq)
+        into one global catalog for multi-split co-binning. Headers are
+        renamed `>X` -> `>S{sample}C{X}` so VAMB bins stay traceable back
+        to the originating sample/contig.
+        """
+        input:
+            rep_seqs = expand(f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta",
+                               sample=list(SAMPLES.keys())),
+        output:
+            catalog = f"{OUTDIR}/coassembly/multisplit/catalog.fasta",
+        log:
+            f"{OUTDIR}/coassembly/multisplit/logs/catalog.log"
+        run:
+            import os
+            os.makedirs(os.path.dirname(output.catalog), exist_ok=True)
+            samples = list(SAMPLES.keys())
+            with open(output.catalog, "w") as out, open(log[0], "w") as lg:
+                for s, path in zip(samples, input.rep_seqs):
+                    n = 0
+                    with open(path) as fh:
+                        for line in fh:
+                            if line.startswith(">"):
+                                header = line[1:].strip().split()[0]
+                                out.write(f">S{s}C{header}\n")
+                                n += 1
+                            else:
+                                out.write(line)
+                    lg.write(f"{s}: {n} contigs\n")
+
+
+    rule multisplit_index:
+        """
+        Index the multi-split catalog for BWA-MEM2.
+        Mirrors `rule coassembly_index`: same env/container/flags.
+        """
+        input:
+            catalog = rules.multisplit_catalog.output.catalog,
+        output:
+            idx = f"{OUTDIR}/coassembly/multisplit/mapping/contigs_index.bwt.2bit.64",
+        log:
+            f"{OUTDIR}/coassembly/multisplit/logs/bwa_index.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/multisplit/benchmarks/bwa_index.tsv"
+        conda:      "../envs/env_mapping.yaml"
+        container:  CONTAINERS.get("bwa_mem2")
+        params:
+            prefix = f"{OUTDIR}/coassembly/multisplit/mapping/contigs_index",
+        shell:
+            """
+            mkdir -p {OUTDIR}/coassembly/multisplit/mapping
+            bwa-mem2 index -p {params.prefix} {input.catalog} > {log} 2>&1
+            """
+
+
+    rule multisplit_map:
+        """
+        Map one sample's cleaned short reads to the multi-split catalog.
+        Outputs an unsorted SAM (temp). Mirrors `rule coassembly_map`:
+        same env/container/flags. SE maps R1 only; PE maps R1 + R2.
+        """
+        input:
+            idx = rules.multisplit_index.output.idx,
+            tr1 = lambda wc: _clean_r1(type("W", (), {"sample": wc.sample})),
+            tr2 = lambda wc: ([] if SINGLE_END
+                               else _clean_r2(type("W", (), {"sample": wc.sample}))),
+        output:
+            sam = temp(f"{OUTDIR}/coassembly/multisplit/mapping/{{sample}}.sam"),
+        log:
+            f"{OUTDIR}/coassembly/multisplit/logs/{{sample}}_bwa_mem.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/multisplit/benchmarks/{{sample}}_bwa_mem.tsv"
+        conda:      "../envs/env_mapping.yaml"
+        container:  CONTAINERS.get("bwa_mem2")
+        threads: THREADS
+        params:
+            prefix     = f"{OUTDIR}/coassembly/multisplit/mapping/contigs_index",
+            single_end = SINGLE_END,
+        shell:
+            """
+            mkdir -p $(dirname {output.sam})
+            if [ "{params.single_end}" = "True" ]; then
+                bwa-mem2 mem \
+                    -t {threads} \
+                    {params.prefix} \
+                    {input.tr1} \
+                    > {output.sam} 2> {log}
+            else
+                bwa-mem2 mem \
+                    -t {threads} \
+                    {params.prefix} \
+                    {input.tr1} {input.tr2} \
+                    > {output.sam} 2> {log}
+            fi
+            """
+
+
+    rule multisplit_sort:
+        """
+        Sort a sample's multi-split SAM -> BAM and index it.
+        Mirrors `rule coassembly_sort`: same env/container/flags.
+        """
+        input:
+            sam = rules.multisplit_map.output.sam,
+        output:
+            bam = f"{OUTDIR}/coassembly/multisplit/mapping/{{sample}}.sorted.bam",
+            bai = f"{OUTDIR}/coassembly/multisplit/mapping/{{sample}}.sorted.bam.bai",
+        log:
+            f"{OUTDIR}/coassembly/multisplit/logs/{{sample}}_samtools_sort.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/multisplit/benchmarks/{{sample}}_samtools_sort.tsv"
+        conda:      "../envs/env_mapping.yaml"
+        container:  CONTAINERS.get("samtools")
+        threads: THREADS
+        shell:
+            """
+            samtools sort -@ {threads} -o {output.bam} {input.sam} 2> {log}
+            samtools index {output.bam} 2>> {log}
+            """
+
+
+    rule multisplit_depth:
+        """
+        Per-contig coverage depth for one sample against the multi-split
+        catalog (jgi_summarize_bam_contig_depths). Mirrors
+        `rule coassembly_mapback`: same env/container/flags. Consumed by
+        `multisplit_abundance` to build the multi-sample VAMB abundance
+        matrix.
+        """
+        input:
+            bam = rules.multisplit_sort.output.bam,
+        output:
+            depth = f"{OUTDIR}/coassembly/multisplit/mapping/{{sample}}_depth.txt",
+        log:
+            f"{OUTDIR}/coassembly/multisplit/logs/{{sample}}_calc_depth.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/multisplit/benchmarks/{{sample}}_calc_depth.tsv"
+        conda:      "../envs/env_mapping.yaml"
+        container:  CONTAINERS.get("metabat2")
+        shell:
+            """
+            jgi_summarize_bam_contig_depths \
+                --outputDepth {output.depth} \
+                {input.bam} \
+                > {log} 2>&1
+            """
+
+
+    rule multisplit_abundance:
+        """
+        Join ALL samples' per-contig depth into a single VAMB v5 abundance
+        matrix keyed by contigName. Mirrors `rule coassembly_abundance`,
+        but spans every sample in the run rather than one group's members.
+        """
+        input:
+            depths = expand(f"{OUTDIR}/coassembly/multisplit/mapping/{{sample}}_depth.txt",
+                             sample=list(SAMPLES.keys())),
+        output:
+            matrix = f"{OUTDIR}/coassembly/multisplit/vamb/abundance.tsv",
+        run:
+            import csv, os
+            samples = list(SAMPLES.keys())
+            # jgi depth files: columns contigName, contigLen, totalAvgDepth, <bam>-var...
+            cov = {}
+            contig_order = []
+            for s, path in zip(samples, input.depths):
+                with open(path) as fh:
+                    r = csv.reader(fh, delimiter="\t")
+                    next(r)  # header
+                    for row in r:
+                        c = row[0]
+                        if c not in cov:
+                            cov[c] = {}
+                            contig_order.append(c)
+                        cov[c][s] = row[2]
+            os.makedirs(os.path.dirname(output.matrix), exist_ok=True)
+            with open(output.matrix, "w") as out:
+                out.write("contigname\t" + "\t".join(samples) + "\n")
+                for c in contig_order:
+                    out.write(c + "\t" + "\t".join(cov[c].get(s, "0") for s in samples) + "\n")
+
+
+    rule multisplit_vamb:
+        """
+        VAMB v5 co-binning on the multi-split catalog (short reads).
+        Mirrors `rule vamb_cobinning`: same env/container/flags, `vamb bin
+        default`, --minfasta 200000, GPU flag from USE_GPU. The abundance
+        TSV is the multi-sample matrix built by `multisplit_abundance`
+        (one column per SAMPLE in the whole run).
+        Bin FASTAs consumed by downstream CheckM2/GTDB-Tk live at:
+            {OUTDIR}/coassembly/multisplit/vamb/run/bins/
+        """
+        input:
+            catalog   = rules.multisplit_catalog.output.catalog,
+            abundance = rules.multisplit_abundance.output.matrix,
+        output:
+            done = f"{OUTDIR}/coassembly/multisplit/vamb/done.txt",
+        log:
+            f"{OUTDIR}/coassembly/multisplit/logs/vamb_multisplit.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/multisplit/benchmarks/vamb_multisplit.tsv"
+        conda:      "../envs/env_binning.yaml"
+        container:  CONTAINERS.get("vamb")
+        threads: THREADS
+        params:
+            outdir    = f"{OUTDIR}/coassembly/multisplit/vamb/run",
+            low_depth = LOW_DEPTH_MODE,
+        shell:
+            """
+            mkdir -p $(dirname {params.outdir})
+            if [ "{params.low_depth}" = "True" ]; then
+                echo "[VAMB multi-split] Skipped -- low_depth_mode enabled" | tee {log}
+                touch {output.done}; exit 0
+            fi
+            rm -rf {params.outdir}
+            CUDA_FLAG=""
+            if [ "{USE_GPU}" = "True" ]; then CUDA_FLAG="--cuda"; fi
+            vamb bin default \
+                --outdir {params.outdir} \
+                --fasta {input.catalog} \
+                --abundance_tsv {input.abundance} \
+                --minfasta 200000 \
+                -p {threads} \
+                $CUDA_FLAG \
+                > {log} 2>&1
+            touch {output.done}
+            """
+
+
+    rule multisplit_checkm2:
+        """
+        CheckM2 — completeness and contamination of multi-split VAMB MAGs.
+        Mirrors `rule checkm2_group`: same env/container/flags. VAMB v5
+        writes bin FASTAs as `.fna`.
+        """
+        input:
+            done = rules.multisplit_vamb.output.done,
+        output:
+            report = f"{OUTDIR}/coassembly/multisplit/checkm2/quality_report.tsv",
+        log:
+            f"{OUTDIR}/coassembly/multisplit/logs/checkm2.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/multisplit/benchmarks/checkm2.tsv"
+        conda: "../envs/env_checkm2.yaml"
+        container:  CONTAINERS.get("checkm2")
+        threads: THREADS
+        params:
+            bins_dir = f"{OUTDIR}/coassembly/multisplit/vamb/run/bins",
+            outdir   = f"{OUTDIR}/coassembly/multisplit/checkm2",
+        shell:
+            """
+            rm -rf {params.outdir}
+            mkdir -p {params.outdir}
+
+            N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fna" 2>/dev/null | wc -l)
+            if [ "$N_BINS" -eq 0 ]; then
+                echo "[multisplit_checkm2] No bins found — skipping" | tee {log}
+                printf "Name\tCompleteness\tContamination\tGenome_Size\n" > {output.report}
+                exit 0
+            fi
+
+            checkm2 predict \
+                --threads {threads} \
+                --input {params.bins_dir} \
+                --output-directory {params.outdir} \
+                -x fna \
+                --database_path {CHECKM2_DB} \
+                > {log} 2>&1 || echo "[multisplit_checkm2] WARNING: predict failed" | tee -a {log}
+
+            # Ensure output exists
+            [ -f {output.report} ] || \
+                printf "Name\tCompleteness\tContamination\tGenome_Size\n" > {output.report}
+            """
+
+
+    rule multisplit_gtdbtk:
+        """
+        GTDB-Tk classify_wf — assign GTDB taxonomy to multi-split VAMB MAGs.
+        Mirrors `rule gtdbtk_group`: same env/container/flags. No
+        dereplication step (galah_derep is per-sample only), so bins_dir is
+        the raw VAMB bins dir. Extension is `.fna` (VAMB v5 output).
+        Creates empty outputs if no bins are available (safe fallback).
+        """
+        input:
+            report = rules.multisplit_checkm2.output.report,
+        output:
+            done    = f"{OUTDIR}/coassembly/multisplit/gtdbtk/done.txt",
+            bac_tsv = f"{OUTDIR}/coassembly/multisplit/gtdbtk/classify/gtdbtk.bac120.summary.tsv",
+            ar_tsv  = f"{OUTDIR}/coassembly/multisplit/gtdbtk/classify/gtdbtk.ar53.summary.tsv",
+        log:
+            f"{OUTDIR}/coassembly/multisplit/logs/gtdbtk.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/multisplit/benchmarks/gtdbtk.tsv"
+        conda: "../envs/env_gtdbtk.yaml"
+        container:  CONTAINERS.get("gtdbtk")
+        threads: THREADS
+        params:
+            bins_dir = f"{OUTDIR}/coassembly/multisplit/vamb/run/bins",
+            outdir   = f"{OUTDIR}/coassembly/multisplit/gtdbtk",
+        shell:
+            """
+            mkdir -p {params.outdir}
+
+            # If no bins, create empty outputs
+            N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fna" 2>/dev/null | wc -l)
+            if [ "$N_BINS" -eq 0 ]; then
+                echo "[multisplit_gtdbtk] No bins found — skipping" | tee {log}
+                mkdir -p {params.outdir}/classify
+                printf "user_genome\tclassification\n" > {output.bac_tsv}
+                printf "user_genome\tclassification\n" > {output.ar_tsv}
+                touch {output.done}; exit 0
+            fi
+
+            export GTDBTK_DATA_PATH={GTDBTK_DB}
+            gtdbtk classify_wf \
+                --genome_dir {params.bins_dir} \
+                --out_dir    {params.outdir} \
+                --cpus       {threads} \
+                --extension  fna \
+                >> {log} 2>&1 || echo "[multisplit_gtdbtk] WARNING: classify_wf failed — creating empty outputs" | tee -a {log}
+
+            # Always ensure output files exist — gtdbtk may fail if bins are low quality
+            mkdir -p {params.outdir}/classify
+            [ -f {output.bac_tsv} ] || printf "user_genome\tclassification\n" > {output.bac_tsv}
+            [ -f {output.ar_tsv}  ] || printf "user_genome\tclassification\n" > {output.ar_tsv}
+            touch {output.done}
             """
