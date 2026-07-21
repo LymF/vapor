@@ -181,6 +181,7 @@ use_host_defense: true
 coassembly:
   enabled:  false
   grouping: metadata     # metadata | all | none
+  metadata: ""          # path do TSV com colunas sample,group (grouping=metadata)
   viral:    true
   binning:  true
 cobinning_multisplit: false

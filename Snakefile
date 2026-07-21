@@ -310,6 +310,17 @@ _outdir_expanded = Path(OUTDIR).expanduser()
 for _s in SAMPLES:
     (_outdir_expanded / _s / "logs").mkdir(parents=True, exist_ok=True)
 
+# ── Co-assembly / co-binning GROUPS (Plano 2) ──────────────────────────
+from coassembly_groups import parse_groups
+
+COASSEMBLY_METADATA = _expand(config.get("coassembly", {}).get("metadata", "")) \
+    if config.get("coassembly", {}).get("metadata", "") else ""
+
+GROUPS = {}
+if COASSEMBLY_ENABLED or COBINNING_MULTISPLIT:
+    GROUPS = parse_groups(COASSEMBLY_METADATA, list(SAMPLES.keys()), COASSEMBLY_GROUPING)
+    print(f"[Snakemake] Co-assembly groups: {({g: len(s) for g, s in GROUPS.items()})}")
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  MODULE INCLUDES
@@ -335,6 +346,7 @@ include: "rules/defense_amr.smk"
 include: "rules/finalize.smk"
 include: "rules/report.smk"
 include: "rules/reads_classify.smk"
+include: "rules/coassembly.smk"
 
 
 # ══════════════════════════════════════════════════════════════════════
