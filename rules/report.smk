@@ -70,6 +70,11 @@ rule generate_report:
             "coassembly_viral_sentinel": expand(
                 f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/taxonomy_done.txt", group=list(GROUPS.keys()))
         } if (COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and GROUPS) else {}),
+        # coassembly viral vMAGs (optional — vRhyme, short reads only)
+        **({
+            "coassembly_vrhyme_sentinel": expand(
+                f"{OUTDIR}/coassembly/{{group}}/viral/checkv_vrhyme/quality_summary.tsv", group=list(GROUPS.keys()))
+        } if (COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS and GROUPS) else {}),
     output:
         html = f"{OUTDIR}/report.html",
     params:

@@ -27,7 +27,7 @@
 
     const vEmpty = document.getElementById('coassembly-votus-empty');
     const vTbl = document.getElementById('coassembly-votus-table');
-    const groupsWithVotus = CA.groups.filter(g => g.n_votus);
+    const groupsWithVotus = CA.groups.filter(g => g.n_votus || g.n_vmags);
     if (!groupsWithVotus.length) {
       if (vEmpty) vEmpty.style.display = '';
       if (vTbl) vTbl.innerHTML = '';
@@ -38,10 +38,11 @@
       const fams = (g.votu_families || [])
         .map(f => `${esc(f.family)} (${f.count})`)
         .join(', ') || '—';
-      return `<tr><td>${esc(g.group)}</td><td>${g.n_votus}</td><td>${fams}</td></tr>`;
+      return `<tr><td>${esc(g.group)}</td><td>${g.n_votus || 0}</td>` +
+        `<td>${g.n_vmags || 0}</td><td>${fams}</td></tr>`;
     });
     vTbl.innerHTML = `<table class="vapor-table"><thead><tr>` +
-      `<th>Group</th><th>vOTUs</th><th>Top families</th>` +
+      `<th>Group</th><th>vOTUs</th><th>vMAGs</th><th>Top families</th>` +
       `</tr></thead><tbody>${vRows.join('')}</tbody></table>`;
   };
 })();

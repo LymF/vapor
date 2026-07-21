@@ -486,6 +486,9 @@ def _t_coassembly():
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/taxonomy/taxonomy_done.txt")
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/checkv/quality_summary.tsv")
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/votu/votu_all_reps.fasta")
+                # vRhyme vMAGs need coverage → short reads only
+                if not LONG_READS:
+                    t.append(f"{OUTDIR}/coassembly/{g}/viral/checkv_vrhyme/quality_summary.tsv")
             produced = True
         if not produced:
             for g in GROUPS:

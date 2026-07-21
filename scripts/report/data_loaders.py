@@ -1530,11 +1530,20 @@ def load_coassembly(outdir, groups):
             key=lambda x: -x["count"],
         )[:5]
 
-        if mags or n_votus:
+        # Group vRhyme vMAGs (Plano 4): count CheckV-assessed vMAGs (short reads only)
+        n_vmags = 0
+        vrhyme_summary = os.path.join(outdir, "coassembly", g, "viral", "checkv_vrhyme", "quality_summary.tsv")
+        if os.path.exists(vrhyme_summary):
+            for row in load_tsv(vrhyme_summary):
+                if (row.get("contig_id", "") or "").strip():
+                    n_vmags += 1
+
+        if mags or n_votus or n_vmags:
             out.append({
                 "group": g,
                 "mags": mags,
                 "n_votus": n_votus,
+                "n_vmags": n_vmags,
                 "quality_tiers": quality_tiers,
                 "votu_families": votu_families,
             })
