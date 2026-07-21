@@ -290,6 +290,111 @@ if not LONG_READS:
             """
 
 
+    rule checkm2_group:
+        """
+        CheckM2 — completeness and contamination of VAMB co-binning MAGs
+        (group-level, short reads). Mirrors `rule checkm2` (rules/prok_binning.smk):
+        same env/container/flags, universal ML model, MIMAG thresholds.
+        NOTE: unlike the per-sample rule (Binette bins, `.fa`), VAMB v5 writes
+        bin FASTAs as `.fna` — extension differs accordingly (-x fna). Confirm
+        the VAMB output extension on a real run.
+        """
+        input:
+            done = rules.vamb_cobinning.output.done,
+        output:
+            report = f"{OUTDIR}/coassembly/{{group}}/checkm2/quality_report.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/checkm2.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/checkm2.tsv"
+        conda: "../envs/env_checkm2.yaml"
+        container:  CONTAINERS.get("checkm2")
+        threads: THREADS
+        params:
+            bins_dir = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
+            outdir   = f"{OUTDIR}/coassembly/{{group}}/checkm2",
+        shell:
+            """
+            rm -rf {params.outdir}
+            mkdir -p {params.outdir}
+
+            N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fna" 2>/dev/null | wc -l)
+            if [ "$N_BINS" -eq 0 ]; then
+                echo "[checkm2_group] No bins found — skipping" | tee {log}
+                printf "Name\tCompleteness\tContamination\tGenome_Size\n" > {output.report}
+                exit 0
+            fi
+
+            checkm2 predict \
+                --threads {threads} \
+                --input {params.bins_dir} \
+                --output-directory {params.outdir} \
+                -x fna \
+                --database_path {CHECKM2_DB} \
+                > {log} 2>&1 || echo "[checkm2_group] WARNING: predict failed" | tee -a {log}
+
+            # Ensure output exists
+            [ -f {output.report} ] || \
+                printf "Name\tCompleteness\tContamination\tGenome_Size\n" > {output.report}
+            """
+
+
+    rule gtdbtk_group:
+        """
+        GTDB-Tk classify_wf — assign GTDB taxonomy to VAMB co-binning MAGs
+        (group-level, short reads). Mirrors `rule gtdbtk` (rules/prok_binning.smk):
+        same env/container/flags. No dereplication step for co-binning MAGs
+        (galah_derep is per-sample only), so bins_dir is the raw VAMB bins dir.
+        NOTE: extension is `.fna` (VAMB v5 output), unlike the per-sample rule's
+        `.fa` (Binette/galah output). Confirm on a real run.
+        Creates empty outputs if no bins are available (safe fallback).
+        """
+        input:
+            report = rules.checkm2_group.output.report,
+        output:
+            done    = f"{OUTDIR}/coassembly/{{group}}/gtdbtk/done.txt",
+            bac_tsv = f"{OUTDIR}/coassembly/{{group}}/gtdbtk/classify/gtdbtk.bac120.summary.tsv",
+            ar_tsv  = f"{OUTDIR}/coassembly/{{group}}/gtdbtk/classify/gtdbtk.ar53.summary.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/gtdbtk.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/gtdbtk.tsv"
+        conda: "../envs/env_gtdbtk.yaml"
+        container:  CONTAINERS.get("gtdbtk")
+        threads: THREADS
+        params:
+            bins_dir = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
+            outdir   = f"{OUTDIR}/coassembly/{{group}}/gtdbtk",
+        shell:
+            """
+            mkdir -p {params.outdir}
+
+            # If no bins, create empty outputs
+            N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fna" 2>/dev/null | wc -l)
+            if [ "$N_BINS" -eq 0 ]; then
+                echo "[gtdbtk_group] No bins found — skipping" | tee {log}
+                mkdir -p {params.outdir}/classify
+                printf "user_genome\tclassification\n" > {output.bac_tsv}
+                printf "user_genome\tclassification\n" > {output.ar_tsv}
+                touch {output.done}; exit 0
+            fi
+
+            export GTDBTK_DATA_PATH={GTDBTK_DB}
+            gtdbtk classify_wf \
+                --genome_dir {params.bins_dir} \
+                --out_dir    {params.outdir} \
+                --cpus       {threads} \
+                --extension  fna \
+                >> {log} 2>&1 || echo "[gtdbtk_group] WARNING: classify_wf failed — creating empty outputs" | tee -a {log}
+
+            # Always ensure output files exist — gtdbtk may fail if bins are low quality
+            mkdir -p {params.outdir}/classify
+            [ -f {output.bac_tsv} ] || printf "user_genome\tclassification\n" > {output.bac_tsv}
+            [ -f {output.ar_tsv}  ] || printf "user_genome\tclassification\n" > {output.ar_tsv}
+            touch {output.done}
+            """
+
+
 if LONG_READS:
 
     rule flye_coassembly:
