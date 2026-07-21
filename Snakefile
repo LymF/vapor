@@ -480,6 +480,25 @@ def _t_coassembly():
             for g in GROUPS:
                 t.append(f"{OUTDIR}/coassembly/{g}/gtdbtk/done.txt")
                 t.append(f"{OUTDIR}/coassembly/{g}/checkm2/quality_report.tsv")
+                # Group prok functional layer (Plan 5), gated like per-sample _t_prok
+                if GUNC_ENABLED:
+                    t.append(f"{OUTDIR}/coassembly/{g}/bins/gunc/GUNC.progenomes_2.1.maxCSS_level.tsv")
+                if MAG_DEREP_ENABLED:
+                    t.append(f"{OUTDIR}/coassembly/{g}/bins/derep/done.txt")
+                if DEFENSE_AMR_ENABLED:
+                    t.append(f"{OUTDIR}/coassembly/{g}/bins/defensefinder/done.txt")
+                    t.append(f"{OUTDIR}/coassembly/{g}/bins/amrfinderplus/done.txt")
+                    t.append(f"{OUTDIR}/coassembly/{g}/bins/rgi/done.txt")
+                    t.append(f"{OUTDIR}/coassembly/{g}/bins/deeparg/done.txt")
+                    if AMR_CONSENSUS_ENABLED:
+                        t.append(f"{OUTDIR}/coassembly/{g}/bins/amr_consensus/done.txt")
+                if ABRICATE_ENABLED:
+                    t.append(f"{OUTDIR}/coassembly/{g}/bins/abricate/done.txt")
+                if ARGNORM_ENABLED:
+                    t.append(f"{OUTDIR}/coassembly/{g}/bins/argnorm/done.txt")
+                t.append(f"{OUTDIR}/coassembly/{g}/annotation/bakta/done.txt")
+                t.append(f"{OUTDIR}/coassembly/{g}/annotation/eggnog/done.txt")
+                t.append(f"{OUTDIR}/coassembly/{g}/annotation/kegg_decoder/done.txt")
             produced = True
         if COASSEMBLY_VIRAL:
             for g in GROUPS:
