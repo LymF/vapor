@@ -310,7 +310,7 @@ _outdir_expanded = Path(OUTDIR).expanduser()
 for _s in SAMPLES:
     (_outdir_expanded / _s / "logs").mkdir(parents=True, exist_ok=True)
 
-# ── Co-assembly / co-binning GROUPS (Plano 2) ──────────────────────────
+# ── Co-assembly / co-binning GROUPS (Plan 2) ──────────────────────────
 from coassembly_groups import parse_groups
 
 COASSEMBLY_METADATA = _expand(config.get("coassembly", {}).get("metadata", "")) \
@@ -468,7 +468,7 @@ def _t_integration():
 
 
 def _t_coassembly():
-    # Co-assembly track (Plano 2). Co-binning is short-read only.
+    # Co-assembly track (Plan 2). Co-binning is short-read only.
     #  short reads + binning → group MAGs (CheckM2 + GTDB per group)
     #  long reads, or binning off → co-assembled contigs only (no co-binning)
     t = []

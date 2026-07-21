@@ -1,4 +1,4 @@
-# co-assembly / co-binning rules (Plano 2)
+# co-assembly / co-binning rules (Plan 2)
 #
 # Canonical per-group assembly output:  {OUTDIR}/coassembly/{group}/contigs.fa
 #   short reads (PE/SE) → megahit_coassembly   (if not LONG_READS)
@@ -468,7 +468,7 @@ if LONG_READS:
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  VAMB multi-split co-binning (Task 5b, Plano 2)
+#  VAMB multi-split co-binning (Task 5b, Plan 2)
 #
 #  Independent of co-assembly: concatenates every sample's per-sample
 #  dereplicated assembly (rep_seq.fasta) into ONE global catalog (contigs
