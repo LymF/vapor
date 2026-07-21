@@ -1160,3 +1160,41 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 lf.write(f"FASTA output: {kept} → {output.fasta}\n")
 
             print(f"[coassembly_viral_consensus] {wildcards.group}: {kept} consensus viral contigs")
+
+
+    rule coassembly_checkv:
+        """
+        CheckV — quality assessment of consensus viral contigs on the group
+        co-assembly. Mirrors `rule checkv` (rules/viral_binning.smk), operating
+        on the group viral consensus fasta instead of the per-sample
+        (COBRA-extended | viral_consensus) input.
+        Classifies: Complete / High-quality / Medium-quality / Low-quality / Not-determined.
+        NOTE: always removes output dir before running — CheckV skips gene calling
+        if it finds existing files, causing KeyError when contig names changed.
+        Outputs viruses.fna (complete viruses) and proviruses.fna (trimmed provirus
+        regions — host DNA flanks removed) for use in viral_nonredundant.
+        """
+        input:
+            viral = rules.coassembly_viral_consensus.output.fasta,
+        output:
+            summary   = f"{OUTDIR}/coassembly/{{group}}/viral/checkv/quality_summary.tsv",
+            viruses   = f"{OUTDIR}/coassembly/{{group}}/viral/checkv/viruses.fna",
+            proviruses = f"{OUTDIR}/coassembly/{{group}}/viral/checkv/proviruses.fna",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/checkv.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/checkv.tsv"
+        conda: "../envs/env_viral.yaml"
+        container:  CONTAINERS.get("checkv")
+        threads: THREADS
+        shell:
+            """
+            rm -rf {OUTDIR}/coassembly/{wildcards.group}/viral/checkv
+            checkv end_to_end \
+                {input.viral} \
+                {OUTDIR}/coassembly/{wildcards.group}/viral/checkv \
+                -d {CHECKV_DB} \
+                -t {threads} \
+                > {log} 2>&1
+            touch {output.viruses} {output.proviruses}
+            """
