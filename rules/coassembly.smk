@@ -2058,3 +2058,55 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
                 echo -e "contig_id\tcheckv_quality\tcompleteness\tcontig_length" > {output.summary}
             fi
             """
+
+
+# ── Group prok functional foundation: protein prediction (Plan 5) ──────────────
+# Prodigal per group MAG — feeds group AMR/defense/annotation. VAMB bins are *.fna
+# (not *.fa like per-sample Binette). Reuses _read_manifest/_concat_proteins from
+# rules/prok_binning.smk (included before this file).
+if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
+
+    rule coassembly_prok_bin_proteins:
+        """Per-genome Prodigal on the group VAMB MAGs (mirrors prok_bin_proteins)."""
+        input:
+            done = rules.vamb_cobinning.output.done,
+        output:
+            manifest = f"{OUTDIR}/coassembly/{{group}}/bins/proteins/manifest.txt",
+            done     = f"{OUTDIR}/coassembly/{{group}}/bins/proteins/done.txt",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/prok_bin_proteins.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/prok_bin_proteins.tsv"
+        conda: "../envs/env_viral.yaml"
+        container:  CONTAINERS.get("prodigal")
+        threads: 1
+        params:
+            bins_dir = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
+            outdir   = f"{OUTDIR}/coassembly/{{group}}/bins/proteins",
+            enabled  = DEFENSE_AMR_ENABLED,
+        run:
+            import glob, os
+            from pathlib import Path
+            os.makedirs(params.outdir, exist_ok=True)
+            manifest_rows = []
+            with open(str(log[0]), "w") as lf:
+                if not params.enabled:
+                    lf.write("[coassembly_prok_bin_proteins] defense_amr disabled -- skipping\n")
+                else:
+                    bins = sorted(glob.glob(os.path.join(params.bins_dir, "*.fna")))
+                    if bins:
+                        lf.write(f"[coassembly_prok_bin_proteins] {len(bins)} MAGs -- per-genome prodigal\n")
+                        for bin_fa in bins:
+                            name = os.path.splitext(os.path.basename(bin_fa))[0]
+                            faa  = os.path.join(params.outdir, f"{name}.faa")
+                            gff  = os.path.join(params.outdir, f"{name}.gff")
+                            shell("prodigal -i {bin_fa} -a {faa} -f gff -o {gff} -p single -q >> {log} 2>&1 || true")
+                            if os.path.exists(faa) and os.path.getsize(faa) > 0:
+                                manifest_rows.append((name, "bins", bin_fa, faa, gff))
+                    else:
+                        lf.write("[coassembly_prok_bin_proteins] No MAGs -- skipping\n")
+                with open(str(output.manifest), "w") as mf:
+                    for name, mode, fna, faa, gff in manifest_rows:
+                        mf.write(f"{name}\t{mode}\t{fna}\t{faa}\t{gff}\n")
+                lf.write(f"[coassembly_prok_bin_proteins] {len(manifest_rows)} genome unit(s)\n")
+            Path(str(output.done)).touch()
