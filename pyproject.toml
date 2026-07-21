@@ -13,7 +13,7 @@ dependencies = ["pyyaml"]
 vapor = "vapor:main"
 
 [tool.setuptools]
-py-modules = ["vapor", "pipeline_config"]
+py-modules = ["vapor", "pipeline_config", "coassembly_groups"]
 include-package-data = true
 
 [tool.setuptools.package-data]
