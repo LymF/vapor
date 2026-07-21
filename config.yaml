@@ -169,21 +169,25 @@ deeparg_db:               "/media/nas1/LITRP.DBs/metagenDBs/deeparg"
 defense_finder_models_db: "/media/nas1/LITRP.DBs/metagenDBs/defense_finder_models"
 apis_db:                  "/media/nas1/LITRP.DBs/metagenDBs/dbapis"
 
-# ── Seleção de tracks ──────────────────────────
+# ── Track selection (what to run) ──────────────────────────
 tracks:
-  reads:  false
-  viral:  true
-  prok:   true
+  reads:  false   # read-based classification (no assembly)
+  viral:  true    # viral detection/analysis (assembly-based)
+  prok:   true    # prokaryotic bins (assembly-based)
 
-use_host_defense: true
+use_host_defense: true   # phage↔host (PHIST) + defense↔anti-defense; needs viral+prok
 
-# ── Co-assembly / co-binning (opt-in; execução no Plano 2) ──
+# ── Co-assembly / co-binning (opt-in, short reads only) ──────────────────────────
+# CO-ASSEMBLY: assembles a group's samples TOGETHER (recovers low-abundance organisms).
+# CO-BINNING (VAMB): bins contigs using differential coverage across the group's samples.
 coassembly:
-  enabled:  false
-  grouping: metadata     # metadata | all | none
-  metadata: ""          # path do TSV com colunas sample,group (grouping=metadata)
-  viral:    true
-  binning:  true
+  enabled:  false        # enable per-group co-assembly
+  grouping: metadata     # metadata (use 'group' column of TSV) | all (one group) | none
+  metadata: ""           # path to TSV with columns: sample, group
+  viral:    true         # (reserved for a future step — viral detection on the co-assembly)
+  binning:  true         # VAMB co-binning on the co-assembly → per-group MAGs
+# MULTI-SPLIT: co-binning over the concatenated INDIVIDUAL assemblies (preserves strains),
+# without co-assembling. Independent of co-assembly.
 cobinning_multisplit: false
 
 # ── Reads-only classification (Sylph) ─────────────────────────────────
