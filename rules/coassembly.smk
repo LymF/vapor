@@ -1979,3 +1979,82 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
                 w.writeheader(); w.writerows(rows)
             Path(str(output.done)).write_text("ok\n")
+
+
+# ── Group vRhyme (viral vMAGs) — short reads only (needs coverage) ──────────────
+# Mirrors rule vrhyme / checkv_vrhyme (rules/viral_binning.smk) but bins the group's
+# CheckV-trimmed viral genomes using MULTI-SAMPLE differential coverage (all the
+# group's per-sample BAMs mapped to the co-assembly by the Plan 2 map-back).
+if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
+
+    rule coassembly_vrhyme:
+        """
+        vRhyme — group viral contigs into vMAGs using coverage + protein homology.
+        Uses ALL of the group's per-sample BAMs (differential coverage), analogous
+        to VAMB co-binning on the prokaryotic side.
+        NOTE: vRhyme creates its output dir itself — rm -rf before run.
+        """
+        input:
+            viral = rules.coassembly_viral_trimmed.output.fasta,
+            bams  = lambda wc: expand(
+                f"{OUTDIR}/coassembly/{wc.group}/mapping/{{sample}}.sorted.bam",
+                sample=GROUPS[wc.group]),
+        output:
+            done = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme/done.txt",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/vrhyme.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/vrhyme.tsv"
+        conda: "../envs/env_vrhyme.yaml"
+        container:  CONTAINERS.get("vrhyme")
+        threads: THREADS
+        params:
+            outdir = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme",
+        shell:
+            """
+            rm -rf {params.outdir}
+            vRhyme \
+                -i {input.viral} \
+                -b {input.bams} \
+                -o {params.outdir} \
+                -t {threads} \
+                -l {MIN_CONTIG} \
+                > {log} 2>&1 || true
+            mkdir -p {params.outdir}
+            touch {output.done}
+            """
+
+
+    rule coassembly_checkv_vrhyme:
+        """CheckV on the group vRhyme vMAGs (empty summary if no bins)."""
+        input:
+            done = rules.coassembly_vrhyme.output.done,
+        output:
+            summary = f"{OUTDIR}/coassembly/{{group}}/viral/checkv_vrhyme/quality_summary.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/checkv_vrhyme.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/checkv_vrhyme.tsv"
+        conda: "../envs/env_viral.yaml"
+        container:  CONTAINERS.get("checkv")
+        threads: THREADS
+        params:
+            bin_dir  = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme/vRhyme_best_bins_fasta",
+            out_dir  = f"{OUTDIR}/coassembly/{{group}}/viral/checkv_vrhyme",
+            combined = f"{OUTDIR}/coassembly/{{group}}/viral/checkv_vrhyme/vrhyme_combined.fasta",
+        shell:
+            """
+            rm -rf {params.out_dir}
+            mkdir -p {params.out_dir}
+            shopt -s nullglob
+            fastas=({params.bin_dir}/*.fasta)
+            if [ ${{#fastas[@]}} -gt 0 ]; then
+                cat "${{fastas[@]}}" > {params.combined}
+                checkv end_to_end \
+                    {params.combined} {params.out_dir} \
+                    -d {CHECKV_DB} -t {threads} >> {log} 2>&1
+            else
+                echo "No vRhyme bins — skipping CheckV" > {log}
+                echo -e "contig_id\tcheckv_quality\tcompleteness\tcontig_length" > {output.summary}
+            fi
+            """
