@@ -1198,3 +1198,254 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 > {log} 2>&1
             touch {output.viruses} {output.proviruses}
             """
+
+
+    rule coassembly_skani_votu:
+        """
+        skani triangle — pairwise ANI matrix for group co-assembly viral genomes.
+        Mirrors `rule skani_votu` (rules/viral_binning.smk), operating on the
+        group consensus fasta (rules.coassembly_viral_consensus) instead of the
+        per-sample viral_nonredundant dedup — vOTU clustering itself dereplicates
+        by ANI, so the consensus + checkv set is a consistent contig set.
+        Clustering is done by the downstream coassembly_skani_cluster rule (pure
+        Python, runs in Snakemake's own interpreter — no container needed).
+        """
+        input:
+            fasta = rules.coassembly_viral_consensus.output.fasta,
+        output:
+            ani = f"{OUTDIR}/coassembly/{{group}}/viral/votu/skani_ani.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/skani_votu.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/skani_votu.tsv"
+        conda: "../envs/env_derep.yaml"
+        container: CONTAINERS.get("skani")
+        threads: THREADS
+        params:
+            outdir  = f"{OUTDIR}/coassembly/{{group}}/viral/votu",
+            enabled = VOTU_CLUSTERING_ENABLED,
+        shell:
+            """
+            mkdir -p {params.outdir}
+            if [ "{params.enabled}" != "True" ]; then
+                echo "[skani_votu] Disabled via config" | tee {log}
+                printf "qname\trname\tani\taf_q\taf_r\n" > {output.ani}
+                exit 0
+            fi
+            N_SEQ=$(grep -c '^>' {input.fasta} 2>/dev/null || echo 0)
+            if [ "$N_SEQ" -eq 0 ]; then
+                echo "[skani_votu] Empty viral set" | tee {log}
+                printf "qname\trname\tani\taf_q\taf_r\n" > {output.ani}
+                exit 0
+            fi
+            skani triangle \
+                -i {input.fasta} \
+                -o {output.ani} \
+                -t {threads} \
+                --slow \
+                >> {log} 2>&1 || echo "[skani_votu] WARNING: triangle failed" | tee -a {log}
+            """
+
+
+    rule coassembly_skani_cluster:
+        """
+        Greedy single-linkage vOTU clustering from the skani ANI matrix, for the
+        group co-assembly viral set. Mirrors `rule skani_cluster`
+        (rules/viral_binning.smk). Pure Python (stdlib only) — runs in
+        Snakemake's interpreter, no container needed.
+        ICTV / Roux 2019 definition: ANI >= VOTU_ANI AND max(af_q, af_r) >= VOTU_AF.
+        The cluster representative is the member with the highest CheckV
+        completeness (ties broken by FASTA order) — not simply the first contig
+        encountered, since that's an arbitrary assembly-order artifact and the
+        representative's sequence/length is what downstream genome maps and
+        vOTU abundance use.
+        """
+        input:
+            ani    = rules.coassembly_skani_votu.output.ani,
+            fasta  = rules.coassembly_viral_consensus.output.fasta,
+            checkv = rules.coassembly_checkv.output.summary,
+        output:
+            clusters = f"{OUTDIR}/coassembly/{{group}}/viral/votu/vOTU_clusters.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/skani_cluster.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/skani_cluster.tsv"
+        params:
+            ani_min = VOTU_ANI,
+            af_min  = VOTU_AF,
+            enabled = VOTU_CLUSTERING_ENABLED,
+        run:
+            import csv
+            import sys
+            with open(log[0], "w") as _lf:
+                if not params.enabled:
+                    _lf.write("[skani_cluster] Disabled via config\n")
+                    with open(output.clusters, "w") as f:
+                        f.write("representative\tmember\n")
+                else:
+                    ids = []
+                    with open(input.fasta) as f:
+                        for line in f:
+                            if line.startswith(">"):
+                                ids.append(line[1:].strip().split()[0])
+
+                    completeness = {}
+                    with open(input.checkv) as f:
+                        for row in csv.DictReader(f, delimiter="\t"):
+                            try:
+                                completeness[row["contig_id"]] = float(row.get("completeness", "0") or 0)
+                            except (KeyError, ValueError):
+                                continue
+
+                    neigh = {i: set() for i in ids}
+                    try:
+                        with open(input.ani) as f:
+                            f.readline()
+                            for line in f:
+                                parts = line.rstrip("\n").split("\t")
+                                if len(parts) < 5:
+                                    continue
+                                q, r = parts[0], parts[1]
+                                try:
+                                    ani = float(parts[2])
+                                    afq = float(parts[3])
+                                    afr = float(parts[4])
+                                except ValueError:
+                                    continue
+                                if ani >= params.ani_min and max(afq, afr) >= params.af_min:
+                                    if q in neigh and r in neigh:
+                                        neigh[q].add(r)
+                                        neigh[r].add(q)
+                    except FileNotFoundError:
+                        pass
+
+                    seen = set()
+                    clusters = []
+                    for n in ids:
+                        if n in seen:
+                            continue
+                        comp = []
+                        stack = [n]
+                        while stack:
+                            x = stack.pop()
+                            if x in seen:
+                                continue
+                            seen.add(x)
+                            comp.append(x)
+                            for y in neigh.get(x, ()):
+                                if y not in seen:
+                                    stack.append(y)
+                        clusters.append(comp)
+
+                    with open(output.clusters, "w") as f:
+                        f.write("representative\tmember\n")
+                        for comp in clusters:
+                            # Representative = highest CheckV completeness (ties -> FASTA order)
+                            rep = max(comp, key=lambda m: (completeness.get(m, 0.0), -comp.index(m)))
+                            for m in comp:
+                                f.write(f"{rep}\t{m}\n")
+
+                    msg = (f"[skani_cluster] genomes={len(ids)} clusters={len(clusters)} "
+                           f"ani>={params.ani_min} af>={params.af_min}\n")
+                    _lf.write(msg)
+                    print(msg, end="")
+
+
+    rule coassembly_viral_votu_reps:
+        """
+        Extract vOTU representative sequences from the group co-assembly viral
+        consensus fasta and produce quality-filtered subsets used by downstream
+        analyses. Mirrors `rule viral_votu_reps` (rules/viral_binning.smk).
+
+        Outputs:
+          all_fasta      — all representatives (one per vOTU cluster), for reporting
+          mq_fasta       — MQ+ (Complete/HQ/MQ or completeness>=50%) representatives,
+                           for prodigal_viral, PHIST, Pharokka, genome maps
+          hq_10kb_fasta  — HQ+/Complete AND >= 10 kb representatives, for vConTACT3
+
+        Why only representatives?
+          skani_cluster picks the highest-completeness member per cluster as the
+          canonical genome. Running taxonomy/PHIST/etc. on all members would inflate
+          compute by ~20–40% and produce duplicate annotations for near-identical
+          sequences, with no scientific gain.
+        """
+        input:
+            fasta    = rules.coassembly_viral_consensus.output.fasta,
+            clusters = rules.coassembly_skani_cluster.output.clusters,
+            checkv   = rules.coassembly_checkv.output.summary,
+        output:
+            all_fasta     = f"{OUTDIR}/coassembly/{{group}}/viral/votu/votu_all_reps.fasta",
+            mq_fasta      = f"{OUTDIR}/coassembly/{{group}}/viral/votu/votu_mq_reps.fasta",
+            hq_10kb_fasta = f"{OUTDIR}/coassembly/{{group}}/viral/votu/votu_hq_10kb_reps.fasta",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/viral_votu_reps.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/viral_votu_reps.tsv"
+        params:
+            hq_min_len = 10000,
+        run:
+            import csv, os
+
+            # Collect unique representatives from cluster TSV
+            reps = set()
+            with open(str(input.clusters)) as fh:
+                for row in csv.DictReader(fh, delimiter='\t'):
+                    reps.add(row['representative'])
+
+            # CheckV quality sets for filtering
+            mq_plus = set()   # Complete / HQ / MQ or completeness >= 50%
+            hq_plus = set()   # Complete / HQ only
+            with open(str(input.checkv)) as fh:
+                for row in csv.DictReader(fh, delimiter='\t'):
+                    cid = row.get('contig_id', '').strip()
+                    q   = row.get('checkv_quality', '').strip()
+                    try:
+                        comp = float(row.get('completeness', '0') or 0)
+                    except (ValueError, TypeError):
+                        comp = 0.0
+                    if q in ('Complete', 'High-quality', 'Medium-quality') or comp >= 50:
+                        mq_plus.add(cid)
+                    if q in ('Complete', 'High-quality'):
+                        hq_plus.add(cid)
+
+            # Parse viral consensus fasta into dict
+            seqs = {}
+            with open(str(input.fasta)) as fh:
+                curr_hdr, curr_seq = None, []
+                for line in fh:
+                    if line.startswith('>'):
+                        if curr_hdr:
+                            seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
+                        curr_hdr = line; curr_seq = []
+                    else:
+                        curr_seq.append(line)
+                if curr_hdr:
+                    seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
+
+            def write_filtered(names, path, length_min=0):
+                written = 0
+                with open(path, 'w') as out:
+                    for name in names:
+                        if name not in seqs:
+                            continue
+                        hdr, seq_lines = seqs[name]
+                        if length_min > 0:
+                            length = sum(len(s.rstrip()) for s in seq_lines)
+                            if length < length_min:
+                                continue
+                        out.write(hdr)
+                        out.writelines(seq_lines)
+                        written += 1
+                return written
+
+            n_all      = write_filtered(reps, str(output.all_fasta))
+            mq_reps    = reps & mq_plus
+            n_mq       = write_filtered(mq_reps, str(output.mq_fasta))
+            hq_reps    = reps & hq_plus
+            n_hq_10kb  = write_filtered(hq_reps, str(output.hq_10kb_fasta),
+                                        length_min=params.hq_min_len)
+
+            with open(str(log[0]), 'w') as lf:
+                lf.write(f'[viral_votu_reps] Total vOTU reps: {n_all}\n')
+                lf.write(f'[viral_votu_reps] MQ+ reps (taxonomy/PHIST/Pharokka): {n_mq}\n')
+                lf.write(f'[viral_votu_reps] HQ+/>=10kb reps (vConTACT3): {n_hq_10kb}\n')
