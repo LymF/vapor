@@ -249,20 +249,66 @@ For a sample with feature abundances `a = (a_1,…,a_S)`, total `N = Σ a_i`:
 ## 12. Reads-based classification (sylph track)
 
 `reads_classify.smk` (sylph): reads sketched (k-mer) and profiled against pre-built
-databases (IMG/VR, UHGV, GTDB), taxonomy via **sylph-tax**. Outputs `sylphmpa`
-(`|`-separated lineages, viral realm prefix `r__`), merged to relative-abundance /
-sequence-abundance / OTU tables. Abundance values are already **percentages (0–100)**, and
-sylph parent-node abundances are **aggregate estimates, not sums of children** (a class can
-be 99% while its individual genomes are ~0%). BACPHLIP virulence threshold
-`reads_classify_virulence_threshold` (0.5) → Virulent/Temperate.
+databases (IMG/VR, UHGV, GTDB); taxonomy via **sylph-tax**. Outputs `sylphmpa`
+(`|`-separated lineages, viral realm prefix `r__`). **No RPKM/TPM here** — sylph reports its
+own two abundance types (both already **percentages, 0–100**, merged cross-sample with
+`sylph-tax merge --column ...`):
+
+- **`relative_abundance`** (taxonomic abundance): community proportion by **genome/organism**
+  (length-corrected, like a taxonomic profile) — sums ≈ 100% across taxa.
+- **`sequence_abundance`**: proportion of **reads/sequence** assigned (longer genomes get
+  proportionally more) — sums ≈ 100%.
+
+Key property: sylph parent-node abundances are **aggregate estimates, not sums of children**
+(a class can read 99% while its individual genomes are ~0%).
+
+Derived tables/metrics (`scripts/reads_classify/`):
+- **Prevalence filter** (`filter_by_prevalence.py`): `prevalence_taxon = (#samples with
+  value > 0) / (#samples)`; keep taxa with `prevalence > min_prevalence`
+  (`reads_classify_min_prevalence`).
+- **OTU table** (`make_otu.py`): reshape only (clade → `#OTU_ID`), no re-normalization
+  (QIIME2/phyloseq-compatible).
+- **Host collapse** (`collapse_by_host.py`): sum per-sample viral abundances grouped by
+  predicted host genus (`Σ abundance over taxa sharing a host genus`) + taxon count.
+- **BACPHLIP lifestyle** (`bacphlip_lifestyle.py`): per-genome `Virulent` if BACPHLIP score
+  > `reads_classify_virulence_threshold` (0.5), else `Temperate`; sample-level
+  `virulent_ratio = n_virulent / n_total`.
+
+---
+
+## 13b. Report-computed metrics (`scripts/report/`)
+
+Metrics computed at report time (not stored by rules):
+
+- **Novelty** (`renderer.py`): per sample, `unclassified = max(0, total_viral − classified)`
+  (viral consensus contigs minus taxonomy-classified); `pct_novel = 100 × unclassified /
+  total_viral`.
+- **MIMAG bin counts** (`renderer.py`, from CheckM2): per sample count HQ (comp ≥ 90 AND
+  cont ≤ 5), MQ (comp ≥ 50 AND cont ≤ 10), else LQ.
+- **Host-collapse abundance** (`data_loaders.py::build_host_collapse`): viral abundance
+  weighted by the CoverM metric (rpkm), summed over vOTU reps sharing a PHIST-predicted host.
+- **QC percentages** (`data_loaders.py`): `gc_pct = gc_content × 100`; `adapter_pct =
+  adapter_reads / reads_in × 100`; `bp_removed_pct = (bases_in − bases_out) / bases_in × 100`.
+
+### Genome-map tracks (`scripts/genome_map.py`, sliding windows 500 bp / 100 bp step)
+- **GC content**: `GC(w) = (n_G + n_C) / |w|` per window `w`.
+- **GC skew**: `skew(w) = (n_G − n_C) / (n_G + n_C)` (0 if `n_G + n_C = 0`).
+- Genome scale: 1 kb minor / 5 kb major ticks.
+
+### vOTU membership table (`scripts/make_votu_table.py`)
+One row per cluster member (rep included); representative annotations (CheckV quality,
+taxonomy, lifestyle, host) are **propagated to all members** — no new metric, just the join
+that makes the vOTU the reporting unit.
 
 ---
 
 ## 13. AMR / defense / annotation
 
 - **AMR**: AMRFinderPlus (NCBI), RGI/CARD (`CARD_DB`), DeepARG (`DEEPARG_DB`), normalized to
-  ARO by **argNorm**, combined by **amr_consensus** (never-merge tiers: curated AMRFinder/RGI
-  vs exploratory DeepARG kept separate). ABRicate → VFDB (virulence) + PlasmidFinder.
+  ARO by **argNorm**, combined by **amr_consensus** (`scripts/consolidate_amr.py`): hits are
+  joined by CDS locus / normalized ARO, and **`consensus_score = n_tools_that_detected /
+  N_TOOLS`** (N_TOOLS = 3). Curated (AMRFinder/RGI) vs exploratory (DeepARG) tiers are kept
+  separate (never-merge rule). ABRicate → VFDB (virulence) + PlasmidFinder.
 - **Defense**: DefenseFinder / AntiDefenseFinder (`DEFENSE_FINDER_MODELS_DB`) on prok ORFs
   and viral ORFs; dbAPIS (Diamond, `APIS_DB`) for viral anti-defense; defense islands computed.
 - **Annotation**: Bakta (prok MAGs, `BAKTA_DB`, gated by completeness/contamination
