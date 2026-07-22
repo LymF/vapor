@@ -184,7 +184,7 @@ coassembly:
   enabled:  false        # enable per-group co-assembly
   grouping: metadata     # metadata (use 'group' column of TSV) | all (one group) | none
   metadata: ""           # path to TSV with columns: sample, group
-  viral:    true         # (reserved for a future step — viral detection on the co-assembly)
+  viral:    true         # viral detection on the co-assembly → per-group vOTUs + annotation/host
   binning:  true         # VAMB co-binning on the co-assembly → per-group MAGs
 # MULTI-SPLIT: co-binning over the concatenated INDIVIDUAL assemblies (preserves strains),
 # without co-assembling. Independent of co-assembly.
