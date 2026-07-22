@@ -2211,6 +2211,358 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             Path(str(output.done)).write_text("ok\n")
 
 
+    rule coassembly_pharokka:
+        """
+        Bacteriophage genome annotation with Pharokka (PHROGS database) on
+        the group vOTU MQ+ representatives. Mirrors `rule pharokka`
+        (rules/annotation.smk): same env/container/flags, same
+        completeness-only selection criteria (no quality-tier requirement),
+        same --meta/--meta_hmm single-vs-multi-genome handling.
+        Skipped if PHAROKKA_DB is not configured (empty string).
+        """
+        input:
+            viral_nr = rules.coassembly_viral_votu_reps.output.mq_fasta,
+            checkv   = rules.coassembly_checkv.output.summary,
+        output:
+            done = f"{OUTDIR}/coassembly/{{group}}/annotation/pharokka/done.txt",
+            gbk  = f"{OUTDIR}/coassembly/{{group}}/annotation/pharokka/pharokka.gbk",
+            tsv  = f"{OUTDIR}/coassembly/{{group}}/annotation/pharokka/pharokka_cds_final_merged_output.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/pharokka.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/pharokka.tsv"
+        conda: "../envs/env_annotation.yaml"
+        container:  CONTAINERS.get("pharokka")
+        threads: THREADS
+        params:
+            outdir   = f"{OUTDIR}/coassembly/{{group}}/annotation/pharokka",
+            db       = PHAROKKA_DB,
+            min_comp = PHAROKKA_MIN_COMPLETENESS,
+            # NOT inside outdir: pharokka.py --force deletes/recreates its own
+            # -o directory on startup, which would delete this -i input too if
+            # it lived underneath it.
+            hq_fa    = f"{OUTDIR}/coassembly/{{group}}/annotation/pharokka_hq_phages.fasta",
+        run:
+            import csv, os
+            from pathlib import Path
+
+            os.makedirs(params.outdir, exist_ok=True)
+            log_path = str(log[0])
+
+            def touch_empty(path):
+                Path(path).touch()
+
+            if not params.db or not os.path.isdir(str(params.db)):
+                with open(log_path, "w") as lf:
+                    lf.write("[coassembly_pharokka] PHAROKKA_DB not configured — skipping\n")
+                touch_empty(output.done)
+                touch_empty(output.gbk)
+                touch_empty(output.tsv)
+                return
+
+            # Filter CheckV by completeness only.
+            # Novel phages (Caudovirales, etc.) often receive "Not-determined" quality
+            # from CheckV even when completeness is high, because CheckV cannot assign
+            # a quality tier without a close reference cluster.  Filtering by quality
+            # tier would silently drop these bona-fide phages from Pharokka annotation.
+            hq_ids = []
+            with open(str(input.checkv)) as f:
+                for row in csv.DictReader(f, delimiter="\t"):
+                    try:
+                        comp = float(row.get("completeness", "0") or 0)
+                    except ValueError:
+                        # CheckV writes "NA" for completeness on some
+                        # "Not-determined" quality contigs -- treat as 0.
+                        comp = 0.0
+                    if comp >= float(params.min_comp):
+                        hq_ids.append((row["contig_id"], comp))
+            hq_ids.sort(key=lambda x: x[1], reverse=True)
+            hq_set = {cid for cid, _ in hq_ids}
+
+            # Extract sequences
+            with open(str(params.hq_fa), "w") as out_fa, \
+                 open(str(input.viral_nr)) as in_fa, \
+                 open(log_path, "w") as lf:
+                lf.write(f"[coassembly_pharokka] Phages selected (completeness >= {params.min_comp}%): {len(hq_set)}\n")
+                write = False
+                for line in in_fa:
+                    if line.startswith(">"):
+                        name = line[1:].split()[0]
+                        write = name in hq_set
+                    if write:
+                        out_fa.write(line)
+
+            if not hq_set or os.path.getsize(str(params.hq_fa)) == 0:
+                with open(log_path, "a") as lf:
+                    lf.write("[coassembly_pharokka] No HQ phages found — skipping\n")
+                touch_empty(output.done)
+                touch_empty(output.gbk)
+                touch_empty(output.tsv)
+                return
+
+            # --meta/--meta_hmm are multi-FASTA only; pharokka.py refuses to run
+            # with --meta on a single-contig input ("ERROR: -m meta mode
+            # specified when the input file only contains 1 contig").
+            with open(str(params.hq_fa)) as f:
+                n_seqs = sum(1 for line in f if line.startswith(">"))
+            meta_flags = "--meta --meta_hmm" if n_seqs > 1 else ""
+            with open(log_path, "a") as lf:
+                lf.write(f"[coassembly_pharokka] {n_seqs} sequence(s) in input — "
+                          f"{'meta' if n_seqs > 1 else 'single-genome'} mode\n")
+
+            shell(
+                "pharokka.py"
+                " -i {params.hq_fa}"
+                " -o {params.outdir}"
+                " -d {params.db}"
+                " -t {threads}"
+                " {meta_flags}"
+                " --dnaapler"
+                " --force"
+                " >> {log} 2>&1"
+            )
+
+            # Standardize output filenames — Pharokka may name them differently in meta mode
+            for candidate in [
+                f"{params.outdir}/pharokka.gbk",
+                f"{params.outdir}/pharokka_meta.gbk",
+            ]:
+                if os.path.exists(candidate):
+                    if candidate != str(output.gbk):
+                        os.rename(candidate, str(output.gbk))
+                    break
+            else:
+                touch_empty(output.gbk)
+
+            for candidate in [
+                f"{params.outdir}/pharokka_cds_final_merged_output.tsv",
+                f"{params.outdir}/pharokka_annotations.tsv",
+            ]:
+                if os.path.exists(candidate):
+                    if candidate != str(output.tsv):
+                        os.rename(candidate, str(output.tsv))
+                    break
+            else:
+                touch_empty(output.tsv)
+
+            shell("touch {output.done}")
+
+
+    rule coassembly_phold:
+        """
+        Phold — structure-based annotation of viral hypothetical proteins on
+        the group vOTU set. Mirrors `rule phold` (rules/annotation.smk): same
+        env/container/flags. Takes coassembly_pharokka's GBK as input; skipped
+        if Pharokka found no HQ phages (gbk is empty).
+        """
+        input:
+            pharokka_done = rules.coassembly_pharokka.output.done,
+            pharokka_gbk  = rules.coassembly_pharokka.output.gbk,
+        output:
+            done = f"{OUTDIR}/coassembly/{{group}}/annotation/phold/done.txt",
+            gbk  = f"{OUTDIR}/coassembly/{{group}}/annotation/phold/phold.gbk",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/phold.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/phold.tsv"
+        conda: "../envs/env_annotation.yaml"
+        container:  CONTAINERS.get("phold")
+        threads: THREADS
+        params:
+            outdir = f"{OUTDIR}/coassembly/{{group}}/annotation/phold",
+            db     = PHOLD_DB,
+        shell:
+            """
+            mkdir -p {params.outdir}
+            if [ ! -s {input.pharokka_gbk} ]; then
+                echo "[coassembly_phold] Pharokka GBK empty — skipping" | tee {log}
+                touch {output.gbk} {output.done}; exit 0
+            fi
+            DB_FLAG=""
+            [ -n "{params.db}" ] && [ -d "{params.db}" ] && DB_FLAG="-d {params.db}"
+            phold run \
+                -i {input.pharokka_gbk} \
+                -o {params.outdir} \
+                -t {threads} \
+                --cpu \
+                --hyps \
+                --force \
+                $DB_FLAG \
+                > {log} 2>&1 || true
+            # phold outputs phold.gbk in the output dir
+            [ -f {params.outdir}/phold.gbk ] && \
+                cp {params.outdir}/phold.gbk {output.gbk} || \
+                touch {output.gbk}
+            touch {output.done}
+            """
+
+
+    rule coassembly_defensefinder_viral:
+        """
+        Anti-defense systems on the group vOTU viral proteins. Mirrors
+        `rule defensefinder_viral` (rules/defense_amr.smk): same
+        env/container/flags (DefenseFinder --antidefensefinder), one call
+        across the group's whole viral protein set (coassembly_prodigal_viral
+        ran prodigal in meta mode on the MQ+ vOTU representative FASTA).
+        """
+        input:
+            faa  = rules.coassembly_prodigal_viral.output.faa,
+            done = rules.coassembly_prodigal_viral.output.done,
+        output:
+            done        = f"{OUTDIR}/coassembly/{{group}}/viral/defensefinder/done.txt",
+            systems     = f"{OUTDIR}/coassembly/{{group}}/viral/defensefinder/viral_defense_systems.tsv",
+            antisystems = f"{OUTDIR}/coassembly/{{group}}/viral/defensefinder/viral_antidefense_systems.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/defensefinder_viral.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/defensefinder_viral.tsv"
+        conda: "../envs/env_defense.yaml"
+        container:  CONTAINERS.get("defense_finder")
+        threads: THREADS
+        params:
+            outdir     = f"{OUTDIR}/coassembly/{{group}}/viral/defensefinder",
+            models_dir = DEFENSE_FINDER_MODELS_DB,
+            enabled    = DEFENSE_AMR_VIRAL_ENABLED,
+        run:
+            import csv, glob, os
+            from pathlib import Path
+
+            os.makedirs(params.outdir, exist_ok=True)
+
+            def write_empty(msg):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(msg + "\n")
+                Path(str(output.systems)).write_text("genome\n")
+                Path(str(output.antisystems)).write_text("genome\n")
+                Path(str(output.done)).touch()
+
+            if (not params.enabled or not os.path.exists(str(input.faa))
+                    or os.path.getsize(str(input.faa)) == 0):
+                write_empty("[coassembly_defensefinder_viral] Disabled or no viral proteins -- skipping")
+                return
+
+            models_dir = params.models_dir or os.path.join(params.outdir, "models")
+            os.makedirs(models_dir, exist_ok=True)
+            if os.listdir(models_dir):
+                with open(str(log[0]), "a") as lf:
+                    lf.write(f"[coassembly_defensefinder_viral] Models already cached in {models_dir}\n")
+            else:
+                shell("defense-finder update --models-dir {models_dir} >> {log} 2>&1 || "
+                      "echo '[coassembly_defensefinder_viral] WARNING: model update failed' >> {log}")
+
+            run_out = os.path.join(params.outdir, "run")
+            os.makedirs(run_out, exist_ok=True)
+            shell(
+                "defense-finder run -o {run_out} --models-dir {models_dir} "
+                "--antidefensefinder {input.faa} "
+                ">> {log} 2>&1 || echo '[coassembly_defensefinder_viral] WARNING: run failed' >> {log}"
+            )
+
+            # Same split-by-"activity" logic as the per-sample rule (3.0.0
+            # writes one consolidated *_defense_finder_systems.tsv, Defense and
+            # Anti-defense rows distinguished by the "activity" column).
+            def_rows, anti_rows, header = [], [], None
+            for tsv in sorted(glob.glob(os.path.join(run_out, "*_defense_finder_systems.tsv"))):
+                with open(tsv) as f:
+                    r = csv.reader(f, delimiter="\t")
+                    h = next(r, None)
+                    if h is None:
+                        continue
+                    if header is None:
+                        header = h
+                    activity_idx = h.index("activity") if "activity" in h else None
+                    for row in r:
+                        is_anti = (activity_idx is not None and len(row) > activity_idx
+                                   and "anti" in row[activity_idx].lower())
+                        # "genome" column here is the group (single viral protein
+                        # set), not a per-bin name -- the protein_in_syst column
+                        # (already part of `header`) carries the actual viral
+                        # contig/ORF IDs needed to attribute hits downstream.
+                        (anti_rows if is_anti else def_rows).append([wildcards.group] + row)
+
+            def write(path, rows):
+                with open(path, "w", newline="") as f:
+                    w = csv.writer(f, delimiter="\t")
+                    w.writerow(["genome"] + (header or []))
+                    w.writerows(rows)
+
+            write(str(output.systems), def_rows)
+            write(str(output.antisystems), anti_rows)
+
+            with open(str(log[0]), "a") as lf:
+                lf.write(f"[coassembly_defensefinder_viral] Done -- {len(def_rows)} defense, "
+                          f"{len(anti_rows)} antidefense system rows\n")
+            Path(str(output.done)).touch()
+
+
+    rule coassembly_dbapis_viral:
+        """
+        Anti-defense systems on the group vOTU viral proteins via dbAPIS.
+        Mirrors `rule dbapis_viral` (rules/defense_amr.smk): same
+        env/container/flags, DIAMOND blastp only, same shared-cache DB
+        auto-populate pattern (APIS_DB).
+        """
+        input:
+            faa  = rules.coassembly_prodigal_viral.output.faa,
+            done = rules.coassembly_prodigal_viral.output.done,
+        output:
+            done = f"{OUTDIR}/coassembly/{{group}}/viral/dbapis/done.txt",
+            hits = f"{OUTDIR}/coassembly/{{group}}/viral/dbapis/dbapis_hits.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/dbapis_viral.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/dbapis_viral.tsv"
+        conda: "../envs/env_viral.yaml"
+        container:  CONTAINERS.get("diamond")
+        threads: THREADS
+        params:
+            outdir   = f"{OUTDIR}/coassembly/{{group}}/viral/dbapis",
+            apis_dir = APIS_DB or f"{OUTDIR}/dbapis_db",
+            enabled  = DEFENSE_AMR_VIRAL_ENABLED,
+        shell:
+            """
+            set -euo pipefail
+            mkdir -p {params.outdir}
+            if [ "{params.enabled}" != "True" ] || [ ! -s {input.faa} ]; then
+                echo "[coassembly_dbapis_viral] Disabled or no viral proteins -- skipping" | tee {log}
+                printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
+                touch {output.done}
+                exit 0
+            fi
+
+            APIS_DIR="{params.apis_dir}"
+            mkdir -p "$APIS_DIR"
+
+            if [ ! -s "$APIS_DIR/APIS_db.dmnd" ]; then
+                echo "[coassembly_dbapis_viral] Building dbAPIS Diamond DB in $APIS_DIR" | tee -a {log}
+                wget -q -O "$APIS_DIR/anti_defense.pep" \
+                    "https://pro.unl.edu/dbAPIS/download_file.php?file=anti_defense.pep" \
+                    >> {log} 2>&1 || echo "[coassembly_dbapis_viral] WARNING: wget anti_defense.pep failed" >> {log}
+                wget -q -O "$APIS_DIR/seed_and_familyrep_all_infor.tsv" \
+                    "https://pro.unl.edu/dbAPIS/download_file.php?file=seed_and_familyrep_all_infor.tsv" \
+                    >> {log} 2>&1 || echo "[coassembly_dbapis_viral] WARNING: wget seed_and_familyrep_all_infor.tsv failed (mapping disabled, family IDs still reported)" >> {log}
+                if [ -s "$APIS_DIR/anti_defense.pep" ]; then
+                    diamond makedb --in "$APIS_DIR/anti_defense.pep" -d "$APIS_DIR/APIS_db" >> {log} 2>&1
+                fi
+            fi
+
+            if [ -s "$APIS_DIR/APIS_db.dmnd" ]; then
+                diamond blastp --db "$APIS_DIR/APIS_db" -q {input.faa} \
+                    -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen \
+                    --max-target-seqs 25 --evalue 1e-10 --id 30 \
+                    -o {output.hits}.raw --threads {threads} >> {log} 2>&1
+                printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
+                cat {output.hits}.raw >> {output.hits}
+                rm -f {output.hits}.raw
+            else
+                echo "[coassembly_dbapis_viral] No dbAPIS DB available -- writing empty hits" | tee -a {log}
+                printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
+            fi
+            touch {output.done}
+            echo "[coassembly_dbapis_viral] Done -- $(( $(wc -l < {output.hits}) - 1 )) hits" | tee -a {log}
+            """
+
+
 # ── Group vRhyme (viral vMAGs) — short reads only (needs coverage) ──────────────
 # Mirrors rule vrhyme / checkv_vrhyme (rules/viral_binning.smk) but bins the group's
 # CheckV-trimmed viral genomes using MULTI-SAMPLE differential coverage (all the
@@ -2983,3 +3335,96 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             with open(str(log[0]), "a") as lf:
                 lf.write("[coassembly_amr_consensus] Done\n")
             Path(str(output.done)).touch()
+
+
+# ── Group PHIST (viral vOTU host prediction vs group MAGs) ──────────────────────
+# Needs BOTH the group's viral vOTU set (COASSEMBLY_VIRAL) and the group's
+# prokaryotic MAGs (COASSEMBLY_BINNING) as candidate hosts, short reads only
+# (co-binning/VAMB is short-read-only, see `if not LONG_READS:` at the top of
+# this file).
+if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and COASSEMBLY_BINNING and not LONG_READS:
+
+    rule coassembly_phist:
+        """
+        PHIST: fast phage-host prediction using k-mer similarity, group
+        vOTU representatives against the group's VAMB co-binning MAGs.
+        Mirrors `rule phist` (rules/host_prediction.smk): same
+        env/container/flags, same per-genome (bins-first) splitting via
+        scripts/split_viral_fastas.py. KEY DIFFERENCES vs. the per-sample
+        rule: candidate hosts are the group VAMB MAGs (`.fna`, not Binette's
+        `.fa`), and the vRhyme bins directory is the group vRhyme output
+        (`coassembly_vrhyme`, `vRhyme_best_bins.*.fasta` directly under its
+        outdir — same layout the per-sample rule's vrhyme_dir already
+        assumes).
+        """
+        input:
+            viral  = rules.coassembly_viral_votu_reps.output.mq_fasta,
+            gtdbtk = rules.gtdbtk_group.output.done,
+        output:
+            done    = f"{OUTDIR}/coassembly/{{group}}/viral/phist/done.txt",
+            results = f"{OUTDIR}/coassembly/{{group}}/viral/phist/phist_results.csv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/phist.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/phist.tsv"
+        conda: "../envs/env_phist.yaml"
+        container:  CONTAINERS.get("phist")
+        threads: THREADS
+        params:
+            bins_dir    = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
+            vrhyme_dir  = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme",
+            outdir      = f"{OUTDIR}/coassembly/{{group}}/viral/phist",
+            scripts_dir = SCRIPTS_DIR,
+        shell:
+            """
+            set -euo pipefail
+            mkdir -p {params.outdir}
+
+            N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fna" 2>/dev/null | wc -l)
+            if [ "$N_BINS" -eq 0 ] || [ ! -s {input.viral} ]; then
+                echo "[coassembly_phist] No MAGs or no viral sequences — skipping" | tee {log}
+                printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
+                touch {output.done}; exit 0
+            fi
+
+            # Split viral sequences into individual FASTA files (per-genome kmer-db mode)
+            VFASTA_DIR={params.outdir}/viral_fastas
+            mkdir -p "$VFASTA_DIR"
+            rm -f "$VFASTA_DIR"/*.fasta
+            python3 {params.scripts_dir}/split_viral_fastas.py \
+                {input.viral} {params.vrhyme_dir} "$VFASTA_DIR" \
+                >> {log} 2>&1
+            echo "[coassembly_phist] Total viral genomes: $(find $VFASTA_DIR -maxdepth 1 -name "*.fasta" 2>/dev/null | wc -l)" \
+                | tee -a {log}
+
+            # Build k-mer DB — file list mode (one file per genome = one row in output)
+            ls "$VFASTA_DIR"/*.fasta > {params.outdir}/phage.list 2>/dev/null
+            if [ ! -s {params.outdir}/phage.list ]; then
+                echo "[coassembly_phist] No viral fastas found" | tee -a {log}
+                printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
+                touch {output.done}; exit 0
+            fi
+
+            kmer-db build -k 25 -t {threads} \
+                {params.outdir}/phage.list \
+                {params.outdir}/phages.db \
+                >> {log} 2>&1
+
+            ls {params.bins_dir}/*.fna > {params.outdir}/bacteria.list 2>/dev/null
+
+            kmer-db new2all -sparse -t {threads} \
+                {params.outdir}/phages.db \
+                {params.outdir}/bacteria.list \
+                {params.outdir}/kmers.csv \
+                >> {log} 2>&1
+
+            if [ ! -s {params.outdir}/kmers.csv ] || \
+               [ "$(wc -l < {params.outdir}/kmers.csv)" -lt 2 ]; then
+                echo "[coassembly_phist] No shared k-mers found" | tee -a {log}
+                printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
+            else
+                phist {params.outdir}/kmers.csv {output.results} >> {log} 2>&1 || \
+                    printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
+            fi
+            touch {output.done}
+            """
