@@ -505,9 +505,18 @@ def _t_coassembly():
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/taxonomy/taxonomy_done.txt")
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/checkv/quality_summary.tsv")
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/votu/votu_all_reps.fasta")
-                # vRhyme vMAGs need coverage → short reads only
+                # viral annotation (pharokka/phold, self-skip if DB unset)
+                t.append(f"{OUTDIR}/coassembly/{g}/annotation/pharokka/done.txt")
+                t.append(f"{OUTDIR}/coassembly/{g}/annotation/phold/done.txt")
+                # viral defense / anti-defense
+                if DEFENSE_AMR_VIRAL_ENABLED:
+                    t.append(f"{OUTDIR}/coassembly/{g}/viral/defensefinder/done.txt")
+                    t.append(f"{OUTDIR}/coassembly/{g}/viral/dbapis/done.txt")
+                # vRhyme vMAGs + PHIST host prediction need coverage/MAGs → short reads only
                 if not LONG_READS:
                     t.append(f"{OUTDIR}/coassembly/{g}/viral/checkv_vrhyme/quality_summary.tsv")
+                    if COASSEMBLY_BINNING:
+                        t.append(f"{OUTDIR}/coassembly/{g}/viral/phist/done.txt")
             produced = True
         if not produced:
             for g in GROUPS:
