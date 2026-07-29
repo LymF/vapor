@@ -10,9 +10,15 @@
   // must fold into "Other" (see window.foldOther) instead of generating or
   // cycling a hue; a validated 9-15 extension was tried and FAILED (two
   // slots below the chroma floor, one adjacent pair at CVD ΔE 2.9).
+  // Validated with the palette checker in BOTH modes (see docs/REPORT_VIZ_GUIDE.md).
+  // Slot 6 was '#f59e0b': it FAILED the dark-mode lightness band (L 0.769) and
+  // sat at 2.09:1 contrast in light. '#db2777' passes light and dark; its
+  // remaining CVD warning (dE 6.1 vs '#16a34a', deutan) is in the 6-8 floor
+  // band, which is legal only because every categorical chart here also carries
+  // a legend/direct labels and 2px gaps between fills.
   window.PAL = [
     '#0d9488','#d97706','#7c3aed','#0891b2',
-    '#16a34a','#f59e0b','#9333ea','#ef4444',
+    '#16a34a','#db2777','#9333ea','#ef4444',
   ];
   // Neutral gray for "Other"/"Unknown" buckets -- not a categorical identity
   // slot (never used for a real series), just an escape hatch for the tail.

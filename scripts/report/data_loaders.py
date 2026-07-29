@@ -816,17 +816,44 @@ def _ordered_proteins_by_contig(faa_path):
     """Protein IDs per contig, in genomic order — read straight from the
     .faa header order (Prodigal writes genes in scan order per sequence,
     numbering them '{seqid}_1', '{seqid}_2', ... — no GFF parsing needed)."""
+    return {c: [g['Protein'] for g in genes]
+            for c, genes in _genes_by_contig(faa_path).items()}
+
+
+def _genes_by_contig(faa_path):
+    """Genes per contig in genomic order, WITH coordinates and strand.
+
+    Prodigal encodes the locus in the FASTA header itself:
+        >{seqid}_{n} # {start} # {end} # {strand} # ID=...;partial=...
+    so real bp coordinates and strand come for free from the .faa the
+    pipeline already writes — no GFF parsing needed. Genes whose header
+    lacks the coordinate fields (non-Prodigal input) still yield a record
+    with Start/End/Strand set to None, and the report falls back to
+    rendering by gene order."""
     by_contig = defaultdict(list)
     if not faa_path or not os.path.exists(faa_path):
         return by_contig
     try:
         with open(faa_path) as f:
             for line in f:
-                if line.startswith('>'):
-                    pid = line[1:].split()[0].strip()
-                    contig = _contig_from_protein_id(pid)
-                    if contig:
-                        by_contig[contig].append(pid)
+                if not line.startswith('>'):
+                    continue
+                header = line[1:].rstrip('\n')
+                pid = header.split()[0].strip()
+                contig = _contig_from_protein_id(pid)
+                if not contig:
+                    continue
+                start = end = strand = None
+                parts = [p.strip() for p in header.split('#')]
+                # parts[0] is the id; 1..3 are start, end, strand (Prodigal)
+                if len(parts) >= 4:
+                    try:
+                        start, end = int(parts[1]), int(parts[2])
+                        strand = 1 if parts[3].lstrip('+') != '-1' else -1
+                    except (ValueError, TypeError):
+                        start = end = strand = None
+                by_contig[contig].append(
+                    {'Protein': pid, 'Start': start, 'End': end, 'Strand': strand})
     except Exception:
         pass
     return by_contig
@@ -849,8 +876,9 @@ def compute_defense_islands(manifest_paths, samples, defense_data, min_genes=5, 
                 prot_to_sys[prot] = (rec.get('Bin'), rec.get('System'), rec.get('System_id'))
 
         for name, mode, fna, faa, gff in _read_protein_manifest(manifest_path):
-            by_contig = _ordered_proteins_by_contig(faa)
-            for contig, ordered_prots in by_contig.items():
+            by_contig = _genes_by_contig(faa)
+            for contig, gene_recs in by_contig.items():
+                ordered_prots = [g['Protein'] for g in gene_recs]
                 hits = [(i, p, prot_to_sys[p]) for i, p in enumerate(ordered_prots) if p in prot_to_sys]
                 if len(hits) < min_genes:
                     continue
@@ -863,16 +891,29 @@ def compute_defense_islands(manifest_paths, samples, defense_data, min_genes=5, 
                         return
                     start_idx, end_idx = cluster[0][0], cluster[-1][0]
                     defense_idx = {h[0]: h[2][1] for h in cluster}
-                    window_genes = [
-                        {'Protein': ordered_prots[i], 'Index': i, 'System': defense_idx.get(i, '')}
-                        for i in range(start_idx, end_idx + 1)
-                    ]
+                    sysid_idx = {h[0]: h[2][2] for h in cluster}
+                    window_genes = []
+                    for i in range(start_idx, end_idx + 1):
+                        rec = gene_recs[i]
+                        window_genes.append({
+                            'Protein': rec['Protein'], 'Index': i,
+                            'System': defense_idx.get(i, ''),
+                            'System_id': sysid_idx.get(i, ''),
+                            'Start': rec.get('Start'), 'End': rec.get('End'),
+                            'Strand': rec.get('Strand'),
+                        })
+                    coords = [g for g in window_genes
+                              if g['Start'] is not None and g['End'] is not None]
                     islands.append({
                         'sample': s, 'Bin': name, 'Contig': contig,
                         'n_genes': len(cluster), 'n_systems': len(systems),
                         'Systems': sorted(systems),
                         'window_genes': window_genes,
                         'start_idx': start_idx, 'end_idx': end_idx,
+                        # Genomic extent of the island (None when the input .faa
+                        # carried no Prodigal coordinates — JS falls back to order).
+                        'Start_bp': min(g['Start'] for g in coords) if coords else None,
+                        'End_bp':   max(g['End']   for g in coords) if coords else None,
                     })
                 for h in hits:
                     if cluster and h[0] - cluster[-1][0] > window:

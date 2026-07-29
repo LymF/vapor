@@ -797,34 +797,160 @@
       });
   }
 
+  // Genome-browser track for one island. Prodigal writes each gene's locus into
+  // the .faa header (`>id # start # end # strand # ...`), so the loader carries
+  // real bp coordinates and strand — drawn here as an IGV-style track: a bp
+  // ruler, strand-aware arrows whose width is the gene's true length, real
+  // intergenic gaps, and a system-span lane underneath. When coordinates are
+  // absent (non-Prodigal input) it falls back to evenly spaced gene order.
   function _renderIslandGeneMap(body, isl, colorFor) {
     const wrap = document.createElement('div');
     wrap.className = 'region-genemap';
     body.appendChild(wrap);
 
-    const genes = isl.window_genes || [];
-    const W_PER_GENE = 46, H = 70, PAD = 10;
-    const W = Math.max(200, genes.length * W_PER_GENE + PAD * 2);
+    const genes = (isl.window_genes || []).slice();
+    if (!genes.length) return;
     const dark = document.documentElement.dataset.theme === 'dark';
+    const hasCoords = isl.Start_bp != null && isl.End_bp != null && isl.End_bp > isl.Start_bp;
 
-    const svg = d3.select(wrap).append('svg').attr('width', W).attr('height', H);
+    // Synthesize coordinates when the input had none, so one code path draws both.
+    if (!hasCoords) {
+      const SYN = 1000, GAP = 200;
+      genes.forEach((g, i) => { g.Start = i * (SYN + GAP) + 1; g.End = g.Start + SYN; g.Strand = g.Strand || 1; });
+    }
+    const x0 = hasCoords ? isl.Start_bp : genes[0].Start;
+    const x1 = hasCoords ? isl.End_bp   : genes[genes.length - 1].End;
+
+    const PAD_L = 14, PAD_R = 14, H = 168;
+    const W = Math.max(560, Math.min(1180, (wrap.clientWidth || 900)));
+    const innerW = W - PAD_L - PAD_R;
+    const span = Math.max(1, x1 - x0);
+    const pad = span * 0.02;                       // small breathing room each side
+    const x = d3.scaleLinear().domain([x0 - pad, x1 + pad]).range([0, innerW]);
+
+    const ink   = dark ? '#94a3b8' : '#64748b';
+    const rule  = dark ? '#1e293b' : '#e2e8f0';
+    const other = dark ? '#334155' : '#cbd5e1';
+
+    const svg = d3.select(wrap).append('svg')
+      .attr('width', W).attr('height', H)
+      .attr('viewBox', `0 0 ${W} ${H}`).style('max-width', '100%');
     const tip = d3.select(wrap).append('div').attr('class', 'd3-tooltip').style('display', 'none');
 
-    const g = svg.append('g').attr('transform', `translate(${PAD},${H / 2})`);
-    genes.forEach((gene, idx) => {
-      const x = idx * W_PER_GENE;
-      const arrow = g.append('path')
-        .attr('d', `M${x},-10 L${x + W_PER_GENE - 14},-10 L${x + W_PER_GENE - 4},0 L${x + W_PER_GENE - 14},10 L${x},10 Z`)
-        .attr('fill', gene.System ? colorFor(gene.System) : (dark ? '#334155' : '#cbd5e1'))
-        .attr('fill-opacity', gene.System ? 0.9 : 0.6)
-        .attr('stroke', dark ? '#0f172a' : '#fff')
-        .attr('stroke-width', 1)
-        .style('cursor', 'pointer');
-      arrow.on('mouseover', (e) => {
-        tip.style('display', 'block').style('left', (e.offsetX + 12) + 'px').style('top', (e.offsetY) + 'px')
-          .html(`<strong>${gene.Protein}</strong>${gene.System ? `<br>System: ${gene.System}` : '<br>No defense system hit'}`);
-      }).on('mouseout', () => tip.style('display', 'none'));
-    });
+    const root = svg.append('g').attr('transform', `translate(${PAD_L},0)`);
+    const clipId = 'iclip' + Math.random().toString(36).slice(2, 9);
+    root.append('clipPath').attr('id', clipId)
+      .append('rect').attr('x', -2).attr('y', 0).attr('width', innerW + 4).attr('height', H);
+    const view = root.append('g').attr('clip-path', `url(#${clipId})`);
+
+    const AXIS_Y = 30, GENE_Y = 74, GENE_H = 26, SYS_Y = 118;
+
+    // ── bp ruler ────────────────────────────────────────────────────────────
+    const axisG = root.append('g').attr('transform', `translate(0,${AXIS_Y})`);
+    function fmtBp(v) {
+      if (span > 20000) return (v / 1000).toFixed(0) + ' kb';
+      if (span > 2000)  return (v / 1000).toFixed(1) + ' kb';
+      return Math.round(v).toLocaleString() + ' bp';
+    }
+    function drawAxis(xs) {
+      axisG.selectAll('*').remove();
+      axisG.append('line').attr('x1', 0).attr('x2', innerW).attr('stroke', rule).attr('stroke-width', 1);
+      if (!hasCoords) {
+        axisG.append('text').attr('x', 0).attr('y', -9).attr('font-size', 10).attr('fill', ink)
+          .text('gene order (no coordinates in input)');
+        return;
+      }
+      xs.ticks(Math.max(3, Math.round(innerW / 130))).forEach(t => {
+        const px = xs(t);
+        if (px < -2 || px > innerW + 2) return;
+        axisG.append('line').attr('x1', px).attr('x2', px).attr('y1', -5).attr('y2', 0)
+          .attr('stroke', ink).attr('stroke-width', 1);
+        axisG.append('text').attr('x', px).attr('y', -9).attr('text-anchor', 'middle')
+          .attr('font-size', 10).attr('fill', ink)
+          .attr('font-family', 'ui-monospace, Menlo, monospace').text(fmtBp(t));
+      });
+    }
+
+    // ── centre line + genes ─────────────────────────────────────────────────
+    view.append('line').attr('class', 'axis-line')
+      .attr('x1', 0).attr('x2', innerW).attr('y1', GENE_Y + GENE_H / 2).attr('y2', GENE_Y + GENE_H / 2)
+      .attr('stroke', rule).attr('stroke-width', 2);
+
+    const geneG = view.append('g');
+    const sysG  = view.append('g');
+
+    function arrowPath(xa, xb, strand, h) {
+      const w = Math.max(3, xb - xa);
+      const tipw = Math.min(10, w * 0.4);
+      const top = -h / 2, bot = h / 2;
+      return strand === -1
+        ? `M${xa + w},${top} L${xa + tipw},${top} L${xa},0 L${xa + tipw},${bot} L${xa + w},${bot} Z`
+        : `M${xa},${top} L${xa + w - tipw},${top} L${xa + w},0 L${xa + w - tipw},${bot} L${xa},${bot} Z`;
+    }
+
+    function draw(xs) {
+      geneG.selectAll('*').remove();
+      sysG.selectAll('*').remove();
+      drawAxis(xs);
+
+      genes.forEach(gene => {
+        const xa = xs(gene.Start), xb = xs(gene.End);
+        if (xb < -20 || xa > innerW + 20) return;
+        const isDef = !!gene.System;
+        geneG.append('path')
+          .attr('transform', `translate(0,${GENE_Y + GENE_H / 2})`)
+          .attr('d', arrowPath(xa, xb, gene.Strand, GENE_H))
+          .attr('fill', isDef ? colorFor(gene.System) : other)
+          .attr('fill-opacity', isDef ? 0.92 : 0.5)
+          .attr('stroke', dark ? '#0b1220' : '#ffffff')
+          .attr('stroke-width', 2)
+          .style('cursor', 'pointer')
+          .on('mousemove', (e) => {
+            const len = (gene.End - gene.Start + 1);
+            tip.style('display', 'block')
+              .style('left', (e.offsetX + 14) + 'px').style('top', (e.offsetY - 6) + 'px')
+              .html(`<strong>${gene.Protein}</strong>`
+                + (isDef ? `<br>System: ${gene.System}` : '<br>No defense system hit')
+                + (hasCoords ? `<br>${gene.Start.toLocaleString()}–${gene.End.toLocaleString()} `
+                    + `(${gene.Strand === -1 ? '−' : '+'} strand, ${len.toLocaleString()} bp)` : ''));
+          })
+          .on('mouseout', () => tip.style('display', 'none'));
+      });
+
+      // ── system-span lane: one bar covering each system's first→last gene ──
+      const spans = new Map();
+      genes.forEach(g => {
+        if (!g.System) return;
+        const key = g.System_id || g.System;
+        const cur = spans.get(key);
+        if (!cur) spans.set(key, { sys: g.System, s: g.Start, e: g.End });
+        else { cur.s = Math.min(cur.s, g.Start); cur.e = Math.max(cur.e, g.End); }
+      });
+      [...spans.values()].sort((a, b) => a.s - b.s).forEach((sp, i) => {
+        const xa = xs(sp.s), xb = xs(sp.e);
+        const row = i % 2;                       // stagger to avoid overlap
+        const yy = SYS_Y + row * 15;
+        sysG.append('rect')
+          .attr('x', xa).attr('y', yy).attr('width', Math.max(2, xb - xa)).attr('height', 7)
+          .attr('rx', 3).attr('fill', colorFor(sp.sys)).attr('fill-opacity', 0.85);
+        if (xb - xa > 44) {
+          sysG.append('text').attr('x', xa + 4).attr('y', yy - 3)
+            .attr('font-size', 9.5).attr('fill', ink).text(sp.sys);
+        }
+      });
+    }
+
+    draw(x);
+
+    // ── zoom / pan (x only) ─────────────────────────────────────────────────
+    if (hasCoords) {
+      svg.call(d3.zoom().scaleExtent([1, 40])
+        .translateExtent([[0, 0], [innerW, H]]).extent([[0, 0], [innerW, H]])
+        .on('zoom', (ev) => draw(ev.transform.rescaleX(x))))
+        .style('cursor', 'grab');
+      svg.append('text').attr('x', W - PAD_R).attr('y', H - 5).attr('text-anchor', 'end')
+        .attr('font-size', 9.5).attr('fill', ink).text('scroll to zoom · drag to pan');
+    }
 
     const legend = document.createElement('div');
     legend.className = 'region-legend';

@@ -12,7 +12,7 @@
 # Set false to disable entire modules.
 # All disabled modules write empty outputs so downstream rules never break.
 
-use_spades:        true    # metaSPAdes + metaviralSPAdes (disable on low-RAM servers)
+use_spades:        false    # metaSPAdes + metaviralSPAdes (disable on low-RAM servers)
 use_cobra:         false   # viral contig extension via k-mer overlap (PE only)
 use_comebin:       true    # COMEBin as 4th prokaryotic binner (GPU recommended)
 use_gunc:          true    # chimera detection on MAGs
@@ -36,8 +36,8 @@ use_gpu:           false   # CUDA for VAMB, SemiBin2, COMEBin, GeNomad
 # ══ I/O ════════════════════════════════════════════════════════════════
 
 fastq_dir: "~/amazon/"
-outdir:    "~/amazon/results"
-threads:   55
+outdir:    "/media/nas1/LITRP.DBs/lmelo/amazon/results"
+threads:   40
 
 
 # ══ READ TYPE ══════════════════════════════════════════════════════════
@@ -106,7 +106,7 @@ votu_af:  85.0   # % aligned fraction
 # contigs are Low-quality/Not-determined and the default would leave those
 # analyses empty. vConTACT3 keeps its own HQ+/>=10kb gate regardless.
 #   complete | high | medium | low | not_determined
-viral_min_quality: medium
+viral_min_quality: not_determined
 
 
 # ══ PROKARYOTIC BINNING ════════════════════════════════════════════════
@@ -114,7 +114,7 @@ viral_min_quality: medium
 # Low-depth mode: skips MetaBAT2/VAMB/SemiBin2/COMEBin/Binette and routes
 # prokaryotic analyses through the whole contig set as a pseudo-genome.
 # Enable explicitly — there is no automatic fallback (see INSTALL.md).
-low_depth_mode: true
+low_depth_mode: false
 
 prok_filter_viral: true   # remove free-living viral contigs from binner input
                           # (provirus-bearing contigs are always kept)
@@ -172,7 +172,7 @@ custom_prok_mmseqs_db:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR_mmse
 custom_viral_mmseqs_db: "/media/nas1/LITRP.DBs/metagenDBs/img/IMG_VR/Cus_VR/imgvr_mmseqs/seqTaxDB"
 
 # Annotation (ignored when corresponding use_* flag is false)
-pharokka_db: "/media/nas1/LITRP.DBs/metagenDBs/pharokka"
+pharokka_db: "/media/nas1/LITRP.DBs/metagenDBs/pharokka_db"
 phold_db:    "/media/nas1/LITRP.DBs/metagenDBs/phold_db"
 bakta_db:    "/media/nas1/LITRP.DBs/metagenDBs/bakta/db"
 eggnog_db:   "/media/nas1/LITRP.DBs/metagenDBs/eggnog"
@@ -185,9 +185,9 @@ apis_db:                  "/media/nas1/LITRP.DBs/metagenDBs/dbapis"
 
 # ── Track selection (what to run) ──────────────────────────
 tracks:
-  reads:  false   # read-based classification (no assembly)
-  viral:  true    # viral detection/analysis (assembly-based)
-  prok:   true    # prokaryotic bins (assembly-based)
+  reads:  true   # read-based classification (no assembly)
+  viral:  false    # viral detection/analysis (assembly-based)
+  prok:   false   # prokaryotic bins (assembly-based)
 
 use_host_defense: true   # phage↔host (PHIST) + defense↔anti-defense; needs viral+prok
 
@@ -195,11 +195,11 @@ use_host_defense: true   # phage↔host (PHIST) + defense↔anti-defense; needs 
 # CO-ASSEMBLY: assembles a group's samples TOGETHER (recovers low-abundance organisms).
 # CO-BINNING (VAMB): bins contigs using differential coverage across the group's samples.
 coassembly:
-  enabled:  false        # enable per-group co-assembly
+  enabled:  true        # enable per-group co-assembly
   grouping: metadata     # metadata (use 'group' column of TSV) | all (one group) | none
-  metadata: ""           # path to TSV with columns: sample, group
-  viral:    true         # viral detection on the co-assembly → per-group vOTUs + annotation/host
-  binning:  true         # VAMB co-binning on the co-assembly → per-group MAGs
+  metadata: "~/amazon/coassembly_groups.tsv"           # path to TSV with columns: sample, group
+  viral:    false         # viral detection on the co-assembly → per-group vOTUs + annotation/host
+  binning:  false         # VAMB co-binning on the co-assembly → per-group MAGs
 # MULTI-SPLIT: co-binning over the concatenated INDIVIDUAL assemblies (preserves strains),
 # without co-assembling. Independent of co-assembly.
 cobinning_multisplit: false
@@ -207,7 +207,7 @@ cobinning_multisplit: false
 # ── Reads-only classification (Sylph) ─────────────────────────────────
 # Set reads_classify: true to activate this module.
 # Configure at least one viral database (imgvr, uhgv, or custom).
-reads_classify: false
+reads_classify: true
 
 reads_classify_dbs:
   imgvr:    "/media/nas1/LITRP.DBs/metagenDBs/sylph/imgvr_c200_v0.3.0.syldb"
@@ -225,7 +225,7 @@ reads_classify_tax_dir: "/media/nas1/LITRP.DBs/metagenDBs/sylph/taxonomy"
 reads_classify_min_prevalence: 0.0
 
 # Minimum number of k-mers required to report a genome match (20 suits viral genomes).
-reads_classify_min_kmers: 20
+reads_classify_min_kmers: 5
 
 # BACPHLIP lifestyle prediction — optional, requires genome FASTA source.
 # Set to path of a FASTA containing all reference genomes in your sylph DB.
