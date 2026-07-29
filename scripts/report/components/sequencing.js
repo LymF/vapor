@@ -24,134 +24,77 @@
       }),
     }));
 
-    mkChart('seq-reads-chart', {
-      title: { text: 'Total Reads — Raw vs Trimmed' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: stageLabels },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Reads' },
-      series: readSeries,
-      grid: { bottom: 70 },
-    });
+    mkChart('seq-reads-chart', samplesBar({
+      samples, title: 'Total Reads — Raw vs Trimmed', valueName: 'Reads',
+      series: readSeries.map(s => ({ name: s.name, data: s.data, color: s.color || (s.itemStyle || {}).color })),
+    }));
 
-    // Mean quality bar
-    mkChart('seq-qual-chart', {
-      title: { text: 'Mean Quality (Q30 estimate)' },
-      tooltip: { trigger: 'axis', formatter: '{b}: {c:.1f}' },
-      legend: { data: ['Raw R1', 'Trimmed R1'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Mean Q', min: 0, max: 40 },
-      series: [
-        {
-          name: 'Raw R1',
-          type: 'bar',
-          data: samples.map(s => {
-            const r = (fastp[s]?.reads || []).find(x => x.stage === 'raw' && x.read === 'R1');
-            return r ? +r.mean_quality.toFixed(1) : 0;
-          }),
-        },
-        {
-          name: 'Trimmed R1',
-          type: 'bar',
-          data: samples.map(s => {
-            const r = (fastp[s]?.reads || []).find(x => x.stage === 'trimmed' && x.read === 'R1');
-            return r ? +r.mean_quality.toFixed(1) : 0;
-          }),
-        },
-      ],
-      grid: { bottom: 70 },
-    });
+    // Mean quality bar. fastp reports one aggregate Q30 per sample, not a
+    // per-read distribution, so a bar is the honest form here (there is no
+    // distribution to draw) -- see REPORT_VIZ_GUIDE anti-patterns.
+    mkChart('seq-qual-chart', samplesBar({
+      samples, title: 'Mean Quality (Q30 estimate)', valueName: 'Mean Q',
+      valueMin: 0, valueMax: 40,
+      series: ['raw', 'trimmed'].map((stage, i) => ({
+        name: stage === 'raw' ? 'Raw R1' : 'Trimmed R1',
+        data: samples.map(s => {
+          const r = (fastp[s]?.reads || []).find(x => x.stage === stage && x.read === 'R1');
+          return r ? +r.mean_quality.toFixed(1) : 0;
+        }),
+      })),
+    }));
 
-    // GC content bar
-    mkChart('seq-gc-chart', {
-      title: { text: 'GC Content (%)' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['Raw R1', 'Trimmed R1'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'GC %', min: 0, max: 100 },
-      series: [
-        {
-          name: 'Raw R1',
-          type: 'bar',
-          data: samples.map(s => {
-            const r = (fastp[s]?.reads || []).find(x => x.stage === 'raw' && x.read === 'R1');
-            return r ? +r.gc_percent.toFixed(1) : 0;
-          }),
-        },
-        {
-          name: 'Trimmed R1',
-          type: 'bar',
-          data: samples.map(s => {
-            const r = (fastp[s]?.reads || []).find(x => x.stage === 'trimmed' && x.read === 'R1');
-            return r ? +r.gc_percent.toFixed(1) : 0;
-          }),
-        },
-      ],
-      grid: { bottom: 70 },
-    });
+    // GC content. Same caveat as quality: fastp gives an aggregate GC per
+    // sample, so this cannot become a density without new pipeline output.
+    mkChart('seq-gc-chart', samplesBar({
+      samples, title: 'GC Content (%)', valueName: 'GC %',
+      valueMin: 0, valueMax: 100,
+      series: ['raw', 'trimmed'].map(stage => ({
+        name: stage === 'raw' ? 'Raw R1' : 'Trimmed R1',
+        data: samples.map(s => {
+          const r = (fastp[s]?.reads || []).find(x => x.stage === stage && x.read === 'R1');
+          return r ? +r.gc_percent.toFixed(1) : 0;
+        }),
+      })),
+    }));
 
     // Retention rate bar
-    mkChart('seq-trim-chart', {
-      title: { text: 'Read Retention After Trimming (%)' },
-      tooltip: { trigger: 'axis', formatter: '{b}: {c:.1f}%' },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: '%', min: 0, max: 105 },
+    mkChart('seq-trim-chart', samplesBar({
+      samples, title: 'Read Retention After Trimming (%)', valueName: '%',
+      valueMin: 0, valueMax: 105,
+      refLines: [{ value: 80, label: '80%' }],
       series: [{
-        type: 'bar',
+        name: 'Retained', color: '#0d9488',
         data: samples.map(s => {
           const t = fastp[s]?.trim || {};
-          const rin  = t.reads_in  || 1;
-          const rout = t.reads_written || 0;
-          return +((rout / rin) * 100).toFixed(1);
+          return +(((t.reads_written || 0) / (t.reads_in || 1)) * 100).toFixed(1);
         }),
-        itemStyle: { color: '#0d9488' },
-        markLine: { data: [{ yAxis: 80, name: '80%', lineStyle: { type: 'dashed', color: '#d97706' } }] },
       }],
-      grid: { bottom: 70 },
-    });
+    }));
 
     // ── Trimming tab ──────────────────────────────────────────────────────────
-    mkChart('seq-adapter-chart', {
-      title: { text: 'Adapter Trimming Rate (%)' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['R1 adapter %', 'R2 adapter %'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: '%', min: 0 },
+    mkChart('seq-adapter-chart', samplesBar({
+      samples, title: 'Adapter Trimming Rate (%)', valueName: '%', valueMin: 0,
       series: [
-        { name: 'R1 adapter %', type: 'bar', data: samples.map(s => +((fastp[s]?.trim?.adapter_r1_pct) || 0).toFixed(1)) },
-        { name: 'R2 adapter %', type: 'bar', data: samples.map(s => +((fastp[s]?.trim?.adapter_r2_pct) || 0).toFixed(1)) },
+        { name: 'R1 adapter %', data: samples.map(s => +((fastp[s]?.trim?.adapter_r1_pct) || 0).toFixed(1)) },
+        { name: 'R2 adapter %', data: samples.map(s => +((fastp[s]?.trim?.adapter_r2_pct) || 0).toFixed(1)) },
       ],
-      grid: { bottom: 70 },
-    });
+    }));
 
-    mkChart('seq-bp-chart', {
-      title: { text: 'Base-pair Removed (%)' },
-      tooltip: { trigger: 'axis', formatter: '{b}: {c:.1f}%' },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: '%', min: 0 },
-      series: [{
-        type: 'bar',
-        data: samples.map(s => +((fastp[s]?.trim?.bp_removed_pct) || 0).toFixed(1)),
-        itemStyle: { color: '#d97706' },
-      }],
-      grid: { bottom: 70 },
-    });
+    mkChart('seq-bp-chart', samplesBar({
+      samples, title: 'Base-pair Removed (%)', valueName: '%', valueMin: 0,
+      series: [{ name: 'bp removed', color: '#d97706',
+        data: samples.map(s => +((fastp[s]?.trim?.bp_removed_pct) || 0).toFixed(1)) }],
+    }));
 
     // ── Mapping tab ───────────────────────────────────────────────────────────
     const mapRates = samples.map(s => +(mapping[s] || 0));
-    mkChart('seq-mapping-chart', {
-      title: { text: 'Read Mapping Rate to Assembly (%)' },
-      tooltip: { trigger: 'axis', formatter: '{b}: {c:.1f}%' },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: '%', min: 0, max: 105 },
-      series: [{
-        type: 'bar',
-        data: mapRates,
-        itemStyle: { color: '#0891b2' },
-        markLine: { data: [{ yAxis: 70, name: '70%', lineStyle: { type: 'dashed', color: '#d97706' } }] },
-      }],
-      grid: { bottom: 70 },
-    });
+    mkChart('seq-mapping-chart', samplesBar({
+      samples, title: 'Read Mapping Rate to Assembly (%)', valueName: '%',
+      valueMin: 0, valueMax: 105,
+      refLines: [{ value: 70, label: '70%' }],
+      series: [{ name: 'Mapped', data: mapRates, color: '#0891b2' }],
+    }));
 
     // Contig length distribution per sample (log axis — heavily right-skewed).
     const lenData = typeof VIRAL_LENGTHS !== 'undefined' ? VIRAL_LENGTHS : {};
@@ -178,32 +121,48 @@
       color: asmRamp[i],
     }));
 
-    mkChart('seq-asm-prog-chart', {
-      title: { text: 'Assembly Progression — N50 (bp)' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: asmStages },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'N50 (bp)' },
-      series: progSeries,
-      grid: { bottom: 70 },
-    });
-
-    // Final assembly (deduplicated) — 3 metrics grouped
-    const finalSeries = metrics.map((m, i) => ({
-      name: m,
-      type: 'bar',
-      data: samples.map(s => +(quast[s]?.deduplicated?.[m] || 0)),
-      color: PAL[i % PAL.length],
+    mkChart('seq-asm-prog-chart', samplesBar({
+      samples, title: 'Assembly Progression — N50 (bp)', valueName: 'N50 (bp)',
+      series: progSeries.map(s => ({ name: s.name, data: s.data, color: s.color })),
     }));
 
+    // Final assembly quality: N50, total length and contig count are three
+    // measures on wildly different scales. Plotted as bars on one value axis
+    // (as before) the largest silently flattens the other two -- the dual-axis
+    // problem in disguise. As a heatmap each metric is normalised to its own
+    // max, so samples are comparable within a metric and the grid scales to any
+    // sample count (REPORT_VIZ_GUIDE §3).
+    const fmtMetric = (m, v) =>
+      m === '# contigs' ? Math.round(v).toLocaleString()
+                        : (v >= 1e6 ? (v / 1e6).toFixed(2) + ' Mb'
+                        : v >= 1e3 ? (v / 1e3).toFixed(1) + ' kb' : Math.round(v));
+    const rawVals = metrics.map(m => samples.map(s => +(quast[s]?.deduplicated?.[m] || 0)));
+    const maxVals = rawVals.map(row => Math.max(...row, 1));
+    const heatData = [];
+    metrics.forEach((m, mi) => samples.forEach((s, si) => {
+      heatData.push({ value: [si, mi, +(rawVals[mi][si] / maxVals[mi] * 100).toFixed(1)],
+                      raw: rawVals[mi][si] });
+    }));
     mkChart('seq-asm-final-chart', {
-      title: { text: 'Final Assembly Quality (deduplicated)' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: metrics },
+      __height: Math.max(240, 120 + metrics.length * 34),
+      title: { text: 'Final Assembly Quality (deduplicated) — % of best sample per metric' },
+      tooltip: {
+        trigger: 'item',
+        formatter: p => `${samples[p.value[0]]}<br>${metrics[p.value[1]]}: `
+                      + `${fmtMetric(metrics[p.value[1]], p.data.raw)}<br>${p.value[2]}% of best`,
+      },
+      legend: { show: false },
       xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Value' },
-      series: finalSeries,
-      grid: { bottom: 70 },
+      yAxis: { type: 'category', data: metrics },
+      visualMap: {
+        min: 0, max: 100, calculable: false, show: true,
+        orient: 'horizontal', left: 'center', bottom: 4, itemHeight: 90,
+        inRange: { color: ['#f0fdfa', '#5eead4', '#0d9488', '#134e4a'] },
+        textStyle: { fontSize: 10 },
+      },
+      series: [{ type: 'heatmap', data: heatData,
+                 itemStyle: { borderColor: 'transparent', borderWidth: 2 } }],
+      grid: { top: 44, bottom: 78, left: 12, right: 20, containLabel: true },
     });
 
     // Total assembly length per stage, distribution across samples. Stages are

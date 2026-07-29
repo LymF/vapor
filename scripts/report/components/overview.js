@@ -74,45 +74,32 @@
     const magMQ  = samples.map(s => (mimag[s] || {}).MQ || 0);
     const magLQ  = samples.map(s => (mimag[s] || {}).LQ || 0);
 
-    mkChart('ov-reads-chart', {
-      title: { text: 'Reads per Sample' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['Raw', 'Trimmed'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Reads' },
+    mkChart('ov-reads-chart', samplesBar({
+      samples, title: 'Reads per Sample', valueName: 'Reads',
       series: [
-        { name: 'Raw',     type: 'bar', data: readVals,  color: '#0891b2' },
-        { name: 'Trimmed', type: 'bar', data: trimVals,  color: '#0d9488' },
+        { name: 'Raw',     data: readVals, color: '#0891b2' },
+        { name: 'Trimmed', data: trimVals, color: '#0d9488' },
       ],
-      grid: { bottom: 60 },
-    });
+    }));
 
-    mkChart('ov-votus-chart', {
-      title: { text: 'Viral OTUs per Sample' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['Total vOTUs', 'High-quality'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'vOTUs' },
+    mkChart('ov-votus-chart', samplesBar({
+      samples, title: 'Viral OTUs per Sample', valueName: 'vOTUs',
       series: [
-        { name: 'Total vOTUs',  type: 'bar', data: viralVals, color: '#0d9488' },
-        { name: 'High-quality', type: 'bar', data: hqVirVals, color: '#16a34a' },
+        { name: 'Total vOTUs',  data: viralVals, color: '#0d9488' },
+        { name: 'High-quality', data: hqVirVals, color: '#16a34a' },
       ],
-      grid: { bottom: 60 },
-    });
+    }));
 
-    mkChart('ov-mags-chart', {
-      title: { text: 'MAGs per Sample (MIMAG tiers)' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['HQ', 'MQ', 'LQ'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'MAGs' },
+    // MIMAG tiers are an ordinal good->bad ladder, so they keep the semantic
+    // green/amber/red ramp rather than categorical identity hues.
+    mkChart('ov-mags-chart', samplesBar({
+      samples, title: 'MAGs per Sample (MIMAG tiers)', valueName: 'MAGs', stack: true,
       series: [
-        { name: 'HQ', type: 'bar', stack: 'mag', data: magHQ, color: '#16a34a', itemStyle: { borderRadius: [0,0,0,0] } },
-        { name: 'MQ', type: 'bar', stack: 'mag', data: magMQ, color: '#d97706' },
-        { name: 'LQ', type: 'bar', stack: 'mag', data: magLQ, color: '#ef4444', itemStyle: { borderRadius: [4,4,0,0] } },
+        { name: 'HQ', data: magHQ, color: '#16a34a' },
+        { name: 'MQ', data: magMQ, color: '#d97706' },
+        { name: 'LQ', data: magLQ, color: '#ef4444' },
       ],
-      grid: { bottom: 60 },
-    });
+    }));
 
     // Funnel (average across all samples)
     const n = samples.length || 1;

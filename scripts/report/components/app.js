@@ -309,18 +309,30 @@
       data: order.map(i => s.data[i]),
     });
 
+    // Reference lines (QC floors like "80% retained") sit on the VALUE axis,
+    // which swaps sides when the chart flips horizontal — callers give a value,
+    // not an axis, so the line follows the orientation automatically.
+    const refs = (opts.refLines || []).map(r => ({
+      [many ? 'xAxis' : 'yAxis']: r.value,
+      lineStyle: { type: 'dashed', color: r.color || '#d97706' },
+      label: { formatter: r.label || String(r.value), fontSize: 10 },
+    }));
+    const withRefs = arr => (refs.length
+      ? arr.map((s, i) => i === 0 ? { ...s, markLine: { silent: true, symbol: 'none', data: refs } } : s)
+      : arr);
+
     const common = {
       title: { text: opts.title || '' },
       legend: series.length > 1 ? { data: series.map(s => s.name) } : { show: false },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      series: series.map(mk),
+      series: withRefs(series.map(mk)),
     };
 
     if (!many) {
       return {
         ...common,
         xAxis: { type: 'category', data: cats, axisLabel: { rotate: 30 } },
-        yAxis: { type: 'value', name: opts.valueName || '' },
+        yAxis: { type: 'value', name: opts.valueName || '', min: opts.valueMin, max: opts.valueMax },
         grid: { bottom: 70 },
         series: common.series.map(s => ({ ...s, itemStyle: { ...s.itemStyle, borderRadius: stack ? 0 : [3, 3, 0, 0] } })),
       };
@@ -328,7 +340,8 @@
     return {
       ...common,
       __height: Math.max(260, 70 + cats.length * 22),
-      xAxis: { type: 'value', name: opts.valueName || '', nameLocation: 'middle', nameGap: 28 },
+      xAxis: { type: 'value', name: opts.valueName || '', nameLocation: 'middle', nameGap: 28,
+               min: opts.valueMin, max: opts.valueMax },
       yAxis: { type: 'category', data: cats, axisLabel: { fontSize: 11 } },
       grid: { top: series.length > 1 ? 58 : 36, bottom: 46, left: 12, right: 26, containLabel: true },
     };

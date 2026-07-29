@@ -15,32 +15,22 @@
     const tools  = ['MetaBAT2', 'VAMB', 'SemiBin2', 'Binette (final)'];
     const colors  = ['#0891b2', '#7c3aed', '#d97706', '#0d9488'];
 
-    mkChart('prok-binner-chart', {
-      title: { text: 'Total Bins per Tool' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: tools },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Bins' },
+    mkChart('prok-binner-chart', samplesBar({
+      samples, title: 'Total Bins per Tool', valueName: 'Bins',
       series: tools.map((t, i) => ({
-        name: t, type: 'bar', color: colors[i],
+        name: t, color: colors[i],
         data: samples.map(s => (binner[s] || {})[t]?.total || 0),
       })),
-      grid: { bottom: 70 },
-    });
+    }));
 
-    mkChart('prok-domain-chart', {
-      title: { text: 'Binette — Domain Composition (GTDB-Tk)' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['Bacteria', 'Archaea', 'Unknown'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Bins' },
+    mkChart('prok-domain-chart', samplesBar({
+      samples, title: 'Binette — Domain Composition (GTDB-Tk)', valueName: 'Bins', stack: true,
       series: [
-        { name: 'Bacteria', type: 'bar', stack: 'd', color: '#0d9488', data: samples.map(s => (binner[s] || {})['Binette (final)']?.bacteria || 0) },
-        { name: 'Archaea',  type: 'bar', stack: 'd', color: '#d97706', data: samples.map(s => (binner[s] || {})['Binette (final)']?.archaea  || 0) },
-        { name: 'Unknown',  type: 'bar', stack: 'd', color: '#64748b', data: samples.map(s => (binner[s] || {})['Binette (final)']?.unknown  || 0) },
+        { name: 'Bacteria', color: '#0d9488', data: samples.map(s => (binner[s] || {})['Binette (final)']?.bacteria || 0) },
+        { name: 'Archaea',  color: '#d97706', data: samples.map(s => (binner[s] || {})['Binette (final)']?.archaea  || 0) },
+        { name: 'Unknown',  color: PAL_MUTED, data: samples.map(s => (binner[s] || {})['Binette (final)']?.unknown  || 0) },
       ],
-      grid: { bottom: 70 },
-    });
+    }));
 
     // Genome size distribution per sample. distPlot picks the form from the
     // data (strip plot when a sample has few MAGs, density/ridgeline when it

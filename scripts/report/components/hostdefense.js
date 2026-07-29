@@ -55,15 +55,12 @@
       }),
     }));
 
-    mkChart('host-collapse-chart', {
-      title: { text: 'Viral Abundance by Predicted Host Genus (RPKM)' },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend: { data: topGenera, type: 'scroll', bottom: 0 },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'RPKM' },
-      series,
-      grid: { bottom: 90 },
-    });
+    mkChart('host-collapse-chart', samplesBar({
+      samples, title: 'Viral Abundance by Predicted Host Genus (RPKM)',
+      valueName: 'RPKM', stack: true,
+      series: series.map(s => ({ name: s.name, data: s.data,
+                                 color: s.color || (s.itemStyle || {}).color })),
+    }));
   }
 
   function _byCount(rows, key, samples) {
@@ -279,18 +276,13 @@
     const def  = typeof DEFENSE_DATA !== 'undefined' ? DEFENSE_DATA : [];
     const anti = typeof ANTIDEFENSE_DATA !== 'undefined' ? ANTIDEFENSE_DATA : [];
 
-    mkChart('defense-bar-chart', {
-      title: { text: 'Defense Systems per Sample (DefenseFinder)' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['DefenseFinder', 'AntiDefenseFinder'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Systems' },
+    mkChart('defense-bar-chart', samplesBar({
+      samples, title: 'Defense Systems per Sample (DefenseFinder)', valueName: 'Systems',
       series: [
-        { name: 'DefenseFinder',      type: 'bar', color: '#0d9488', data: _byCount(def, 'System', samples) },
-        { name: 'AntiDefenseFinder',  type: 'bar', color: '#7c3aed', data: _byCount(anti, 'System', samples) },
+        { name: 'DefenseFinder',     color: '#0d9488', data: _byCount(def,  'System', samples) },
+        { name: 'AntiDefenseFinder', color: '#7c3aed', data: _byCount(anti, 'System', samples) },
       ],
-      grid: { bottom: 70 },
-    });
+    }));
 
     const allRows = [
       ...def.map(r => ({ ...r, Tool: 'DefenseFinder', Kind: 'Defense' })),
@@ -316,22 +308,16 @@
       two:   rows.filter(r => r.sample === s && +r.n_tools === 2).length,
       one:   rows.filter(r => r.sample === s && +r.n_tools === 1).length,
     });
-    mkChart('amr-bar-chart', {
-      title: { text: 'AMR Loci per Sample — Consensus' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['3 tools', '2 tools', '1 tool'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'AMR loci' },
+    // Tool-support level is ordinal (3 > 2 > 1 tools agreeing), so it takes a
+    // graded ramp rather than three unrelated identity hues.
+    mkChart('amr-bar-chart', samplesBar({
+      samples, title: 'AMR Loci per Sample — Consensus', valueName: 'AMR loci', stack: true,
       series: [
-        { name: '3 tools', type: 'bar', stack: 'amr', color: '#0d9488',
-          data: samples.map(s => byNTools(s).three) },
-        { name: '2 tools', type: 'bar', stack: 'amr', color: '#0891b2',
-          data: samples.map(s => byNTools(s).two) },
-        { name: '1 tool',  type: 'bar', stack: 'amr', color: '#94a3b8',
-          data: samples.map(s => byNTools(s).one) },
+        { name: '3 tools', color: '#0d9488', data: samples.map(s => byNTools(s).three) },
+        { name: '2 tools', color: '#5eead4', data: samples.map(s => byNTools(s).two) },
+        { name: '1 tool',  color: '#94a3b8', data: samples.map(s => byNTools(s).one) },
       ],
-      grid: { bottom: 70 },
-    });
+    }));
 
     makeTable('amr-table', rows, [
       { key: 'sample',         label: 'Sample' },
@@ -431,17 +417,13 @@
       bySampleMech.get(key)[mech] += 1;
     });
 
-    mkChart('defense-mechanism-chart', {
-      tooltip: { trigger: 'axis' },
-      legend: { data: order, top: 0 },
-      grid: { bottom: 70, left: 50, right: 20, top: 50 },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Defense systems' },
+    mkChart('defense-mechanism-chart', samplesBar({
+      samples, valueName: 'Defense systems', stack: true,
       series: order.map(mech => ({
-        name: mech, type: 'bar', stack: 'mech', color: colors[mech],
+        name: mech, color: colors[mech],
         data: samples.map(s => (bySampleMech.get(s) || {})[mech] || 0),
       })),
-    });
+    }));
   }
 
   // ── Defense System Co-occurrence (top systems by frequency) ──────────────
@@ -700,17 +682,13 @@
     const df     = typeof ANTIDEFENSE_VIRAL_DF !== 'undefined' ? ANTIDEFENSE_VIRAL_DF : [];
     const dbapis = typeof ANTIDEFENSE_VIRAL_DBAPIS !== 'undefined' ? ANTIDEFENSE_VIRAL_DBAPIS : [];
 
-    mkChart('viral-antidefense-chart', {
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['DefenseFinder (viral)', 'dbAPIS'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Anti-defense hits' },
+    mkChart('viral-antidefense-chart', samplesBar({
+      samples, valueName: 'Anti-defense hits',
       series: [
-        { name: 'DefenseFinder (viral)', type: 'bar', color: '#7c3aed', data: _byCount(df, 'System', samples) },
-        { name: 'dbAPIS',                type: 'bar', color: '#db2777', data: _byCount(dbapis, 'Virus', samples) },
+        { name: 'DefenseFinder (viral)', color: '#7c3aed', data: _byCount(df, 'System', samples) },
+        { name: 'dbAPIS',                color: '#db2777', data: _byCount(dbapis, 'Virus', samples) },
       ],
-      grid: { bottom: 70 },
-    });
+    }));
 
     const allRows = [
       ...df.map(r => ({ ...r, Hit: r.System, Detail: r.System_id })),

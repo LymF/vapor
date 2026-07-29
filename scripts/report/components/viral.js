@@ -18,33 +18,23 @@
     const sup = typeof SUPPORT     !== 'undefined' ? SUPPORT     : {};
 
     const tools = ['VirSorter2', 'GeNomad', 'VIBRANT'];
-    mkChart('vir-tools-chart', {
-      title: { text: 'Viral Contigs per Tool' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: tools },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Contigs' },
+    mkChart('vir-tools-chart', samplesBar({
+      samples, title: 'Viral Contigs per Tool', valueName: 'Contigs',
       series: tools.map((t, i) => ({
-        name: t, type: 'bar',
-        data: samples.map(s => (vt[s] || {})[t] || 0),
-        color: PAL[i % PAL.length],
+        name: t, color: PAL[i], data: samples.map(s => (vt[s] || {})[t] || 0),
       })),
-      grid: { bottom: 70 },
-    });
+    }));
 
-    mkChart('vir-consensus-chart', {
-      title: { text: 'Tool Agreement — Consensus Filter' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['1 tool', '2 tools', '≥3 tools'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Contigs' },
+    // Support level (1 / 2 / >=3 tools) is ORDINAL -- more agreement is
+    // stronger evidence -- so it takes a graded ramp, not identity hues.
+    mkChart('vir-consensus-chart', samplesBar({
+      samples, title: 'Tool Agreement — Consensus Filter', valueName: 'Contigs', stack: true,
       series: [
-        { name: '1 tool',   type: 'bar', stack: 'c', data: samples.map(s => (sup[s] || {})[1] || 0), color: '#64748b' },
-        { name: '2 tools',  type: 'bar', stack: 'c', data: samples.map(s => (sup[s] || {})[2] || 0), color: '#d97706' },
-        { name: '≥3 tools', type: 'bar', stack: 'c', data: samples.map(s => (sup[s] || {})[3] || 0), color: '#0d9488' },
+        { name: '1 tool',   color: '#94a3b8', data: samples.map(s => (sup[s] || {})[1] || 0) },
+        { name: '2 tools',  color: '#5eead4', data: samples.map(s => (sup[s] || {})[2] || 0) },
+        { name: '≥3 tools', color: '#0d9488', data: samples.map(s => (sup[s] || {})[3] || 0) },
       ],
-      grid: { bottom: 70 },
-    });
+    }));
 
     // Tool support heatmap (sample × tool, value = count)
     const heatData = [];
@@ -209,19 +199,14 @@
     }
 
     // vRhyme summary
-    mkChart('vir-vrhyme-chart', {
-      title: { text: 'vRhyme — vMAG Summary' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['Consensus input', 'vMAGs formed', 'Contigs binned'] },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Count' },
+    mkChart('vir-vrhyme-chart', samplesBar({
+      samples, title: 'vRhyme — vMAG Summary', valueName: 'Count',
       series: [
-        { name: 'Consensus input', type: 'bar', data: samples.map(s => ((sup[s]||{})[3]||0) + ((sup[s]||{})[4]||0)), color: '#0891b2' },
-        { name: 'vMAGs formed',    type: 'bar', data: samples.map(s => (vrh[s] || {}).n_bins || 0),         color: '#0d9488' },
-        { name: 'Contigs binned',  type: 'bar', data: samples.map(s => (vrh[s] || {}).total_members || 0),  color: '#d97706' },
+        { name: 'Consensus input', color: '#0891b2', data: samples.map(s => ((sup[s]||{})[3]||0) + ((sup[s]||{})[4]||0)) },
+        { name: 'vMAGs formed',    color: '#0d9488', data: samples.map(s => (vrh[s] || {}).n_bins || 0) },
+        { name: 'Contigs binned',  color: '#d97706', data: samples.map(s => (vrh[s] || {}).total_members || 0) },
       ],
-      grid: { bottom: 70 },
-    });
+    }));
 
     // Viral contig length / depth per sample. Both are heavily right-skewed, so
     // they are drawn on a log axis; distPlot picks strip vs density vs ridgeline
@@ -347,15 +332,14 @@
       data: samples.map(s => (ls[s] || {})[l.toLowerCase()] || 0),
     }));
 
-    mkChart('vir-lifestyle-chart', {
-      title: { text: 'Viral Lifestyle Prediction (VIBRANT) — Lytic vs Lysogenic' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: labels },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: 'Count' },
-      series,
-      grid: { bottom: 70 },
-    });
+    mkChart('vir-lifestyle-chart', samplesBar({
+      samples, title: 'Viral Lifestyle Prediction (VIBRANT) — Lytic vs Lysogenic',
+      valueName: 'Count', stack: true,
+      series: labels.map((l, i) => ({
+        name: l, color: cols[i],
+        data: samples.map(s => (ls[s] || {})[l.toLowerCase()] || 0),
+      })),
+    }));
 
     // AMG table
     const amg = typeof VIBRANT_AMG !== 'undefined' ? VIBRANT_AMG : [];

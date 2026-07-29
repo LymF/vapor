@@ -54,15 +54,12 @@
         : (eggnog[s] || {})[cat] || 0),
     }));
 
-    mkChart('ann-cog-chart', {
-      title:   { text: 'COG Functional Categories (EggNOG-mapper)' },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend:  { type: 'scroll', data: cogTop, top: 'bottom' },
-      xAxis:   { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis:   { type: 'value', name: 'Gene count' },
-      series:  cogSeries,
-      grid:    { bottom: 90 },
-    });
+    mkChart('ann-cog-chart', samplesBar({
+      samples, title: 'COG Functional Categories (EggNOG-mapper)',
+      valueName: 'Gene count', stack: true,
+      series: cogSeries.map(s => ({ name: s.name, data: s.data,
+                                    color: s.color || (s.itemStyle || {}).color })),
+    }));
 
     // PHROGS categories — same fold-to-top-7+Other treatment as COG above.
     const phrogsTotals = {};
@@ -79,15 +76,12 @@
         : (phrogs[s] || {})[cat] || 0),
     }));
 
-    mkChart('ann-phrogs-chart', {
-      title:   { text: 'PHROGS Functional Categories (Pharokka)' },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend:  { type: 'scroll', data: phrogsTop, top: 'bottom' },
-      xAxis:   { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-      yAxis:   { type: 'value', name: 'Gene count' },
-      series:  phrogsSeries,
-      grid:    { bottom: 90 },
-    });
+    mkChart('ann-phrogs-chart', samplesBar({
+      samples, title: 'PHROGS Functional Categories (Pharokka)',
+      valueName: 'Gene count', stack: true,
+      series: phrogsSeries.map(s => ({ name: s.name, data: s.data,
+                                       color: s.color || (s.itemStyle || {}).color })),
+    }));
   }
 
   // ── Phage annotation table (VIBRANT scaffolds) ────────────────────────────
