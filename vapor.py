@@ -73,6 +73,7 @@ _PATH_KEYS = [
     "card_db", "deeparg_db", "defense_finder_models_db", "apis_db",
     "custom_prok_mmseqs_db", "custom_viral_mmseqs_db",
     "host_genome", "host_index",
+    "reads_classify_tax_dir", "reads_classify_genome_fasta",
 ]
 
 _VALID_TRACKS = ("reads", "viral", "prok")
@@ -164,21 +165,31 @@ def _collect_bind_paths(config_path):
     except Exception:
         return []
 
-    raw: set[Path] = set()
-    for key in _PATH_KEYS:
-        val = cfg.get(key, "")
+    def _add(val):
         if not val or not isinstance(val, str):
-            continue
+            return
         p = Path(os.path.expanduser(val)).resolve()
         # Walk up to the first existing ancestor (outdir may not exist yet).
         while not p.exists() and p != p.parent:
             p = p.parent
         if not p.exists():
-            continue
+            return
         # Always bind directories, not individual files.
         if p.is_file():
             p = p.parent
         raw.add(p)
+
+    raw: set[Path] = set()
+    for key in _PATH_KEYS:
+        _add(cfg.get(key, ""))
+
+    # reads_classify databases live under a nested dict (imgvr/uhgv/gtdb/custom)
+    # — flat _PATH_KEYS scanning misses them, so sylph's .syldb parent dir never
+    # gets bound and sylph fails with "No such file" even though the DB exists.
+    rc_dbs = cfg.get("reads_classify_dbs", {})
+    if isinstance(rc_dbs, dict):
+        for val in rc_dbs.values():
+            _add(val)
 
     # Drop any path that is a sub-directory of another path already in the set
     # to prevent redundant / conflicting bind mounts (e.g. fastq_dir + outdir
