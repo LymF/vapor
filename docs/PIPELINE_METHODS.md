@@ -107,9 +107,18 @@ intersection so the same contig from different tools is matched.
 - Clustering: connected components (union-find) over the edge set defined by the rule above.
 - **Representative** per cluster = the member with the highest CheckV completeness
   (tie-break: earliest in the member list).
-- Representative sets: `votu_all_reps.fasta` (all), `votu_mq_reps.fasta` (MQ+ =
-  Complete/HQ/MQ or completeness ≥ 50%), `votu_hq_10kb_reps.fasta` (HQ+ and ≥ 10 kb, for
-  vConTACT3).
+- Representative sets: `votu_all_reps.fasta` (all), `votu_mq_reps.fasta` (the
+  **annotation subset** feeding taxonomy / PHIST / pharokka / genome maps),
+  `votu_hq_10kb_reps.fasta` (HQ+ and ≥ 10 kb, for vConTACT3).
+- **`votu_mq_reps` quality gate is configurable** via `viral_min_quality`
+  (`complete | high | medium | low | not_determined`, default **medium** =
+  Complete/HQ/MQ or completeness ≥ 50%). Lower it for high-novelty /
+  short-fragment data (e.g. IonTorrent viromes) where most contigs are
+  Low-quality/Not-determined and the default would leave taxonomy/host/annotation
+  empty. Implemented in `pipeline_config.py::viral_keep_tiers`; the completeness
+  ≥ 50% fallback applies only at the `medium` threshold. **vConTACT3 keeps its own
+  HQ+/≥10 kb gate regardless** (genome-network clustering needs near-complete
+  genomes). Same gate mirrored in `coassembly_viral_votu_reps`.
 
 ---
 
@@ -141,6 +150,14 @@ re-run on the vMAGs (`checkv_vrhyme`).
 - **MAG dereplication** (galah, `mag_derep`): cluster MAGs at **ANI ≥ `MAG_DEREP_ANI`
   (95%)**, keep the CheckM2-best representative per cluster.
 - **GTDB-Tk** — taxonomy (bac120 + ar53).
+- **Prok annotation quality gate (Bakta)**: MAGs are annotated by Bakta only if
+  completeness ≥ `prok_min_completeness` (default **50%**, MIMAG-MQ) AND
+  contamination ≤ `prok_max_contamination` (default **10%**) — the prokaryotic
+  analogue of `viral_min_quality`. Lower `prok_min_completeness` for fragmented /
+  high-novelty MAGs (e.g. IonTorrent) that rarely reach MQ. **AMR, defense and
+  GTDB-Tk are NOT gated** — they run on every Binette/VAMB bin (or the whole
+  contig set as a pseudo-genome under `low_depth_mode`). Legacy
+  `bakta_min_completeness`/`bakta_max_contamination` keys still override the gate.
 
 ---
 
@@ -335,6 +352,8 @@ both viral + prok tracks + short reads).
 | `viral_consensus_mode` / `min_viral_tools` | consensus rule / N tools | hybrid / 2 |
 | `score_vs2_min` / `score_genomad_min` | detector score thresholds | 0.5 / 0.5 |
 | `votu_ani` / `votu_af` | vOTU ANI / aligned fraction (%) | 95 / 85 |
+| `viral_min_quality` | CheckV tier gate for viral annotation subset (`complete`…`not_determined`) | medium |
+| `prok_min_completeness` / `prok_max_contamination` | MAG quality gate for Bakta annotation (%) | 50 / 10 |
 | `mag_derep_ani` | MAG dereplication ANI (%) | 95 |
 | `coverm_method` | abundance metric | rpkm |
 | CheckM2 MIMAG | HQ ≥90%/≤5%, MQ ≥50%/≤10% | — |

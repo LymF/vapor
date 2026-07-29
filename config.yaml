@@ -100,6 +100,14 @@ score_genomad_min:    0.5
 votu_ani: 95.0   # % ANI threshold (ICTV standard)
 votu_af:  85.0   # % aligned fraction
 
+# Minimum CheckV quality tier kept for downstream viral analyses (taxonomy,
+# host prediction, pharokka/phold annotation, genome maps). Lower it for
+# high-novelty / short-fragment data (e.g. IonTorrent viromes) where most
+# contigs are Low-quality/Not-determined and the default would leave those
+# analyses empty. vConTACT3 keeps its own HQ+/>=10kb gate regardless.
+#   complete | high | medium | low | not_determined
+viral_min_quality: medium
+
 
 # ══ PROKARYOTIC BINNING ════════════════════════════════════════════════
 
@@ -119,8 +127,14 @@ mag_derep_ani: 95.0   # % ANI threshold for clustering MAGs
 # ══ ANNOTATION ═════════════════════════════════════════════════════════
 
 pharokka_min_completeness: 90.0   # % CheckV completeness to annotate a phage
-bakta_min_completeness:    70.0   # % CheckM2 completeness threshold for MAG annotation
-bakta_max_contamination:   10.0   # % CheckM2 contamination threshold for MAG annotation
+
+# Prokaryotic MAG quality gate for Bakta annotation (MIMAG Medium-quality by
+# default). Analogous to viral_min_quality: lower it for high-novelty /
+# fragmented data (e.g. IonTorrent) where MAGs rarely reach 50% completeness.
+# AMR, defense and GTDB-Tk are NOT gated — they always run on every bin.
+prok_min_completeness:     50.0   # % CheckM2 completeness to annotate a MAG (Bakta)
+prok_max_contamination:    10.0   # % CheckM2 contamination cap to annotate a MAG (Bakta)
+# Legacy overrides (optional): bakta_min_completeness / bakta_max_contamination
 
 # Genome maps
 genome_map_top_n:                  5     # max maps per category per sample

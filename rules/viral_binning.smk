@@ -427,9 +427,16 @@ rule viral_votu_reps:
             for row in csv.DictReader(fh, delimiter='\t'):
                 reps.add(row['representative'])
 
-        # CheckV quality sets for filtering
-        mq_plus = set()   # Complete / HQ / MQ or completeness >= 50%
-        hq_plus = set()   # Complete / HQ only
+        # CheckV quality sets for filtering.
+        #   keep_mq — downstream annotation subset (taxonomy/PHIST/Pharokka/maps).
+        #             Tier gate controlled by config `viral_min_quality`
+        #             (VIRAL_KEEP_TIERS). At the default "medium" threshold,
+        #             completeness >= 50% is also admitted (parity with CheckV's
+        #             own MQ definition).
+        #   hq_plus — Complete / HQ only, for vConTACT3. Config-independent.
+        keep_mq = set()
+        hq_plus = set()
+        _comp_fallback = VIRAL_MIN_QUALITY_RANK == 2
         with open(str(input.checkv)) as fh:
             for row in csv.DictReader(fh, delimiter='\t'):
                 cid = row.get('contig_id', '').strip()
@@ -438,8 +445,8 @@ rule viral_votu_reps:
                     comp = float(row.get('completeness', '0') or 0)
                 except (ValueError, TypeError):
                     comp = 0.0
-                if q in ('Complete', 'High-quality', 'Medium-quality') or comp >= 50:
-                    mq_plus.add(cid)
+                if q in VIRAL_KEEP_TIERS or (_comp_fallback and comp >= 50):
+                    keep_mq.add(cid)
                 if q in ('Complete', 'High-quality'):
                     hq_plus.add(cid)
 
@@ -474,7 +481,7 @@ rule viral_votu_reps:
             return written
 
         n_all      = write_filtered(reps, str(output.all_fasta))
-        mq_reps    = reps & mq_plus
+        mq_reps    = reps & keep_mq
         n_mq       = write_filtered(mq_reps, str(output.mq_fasta))
         hq_reps    = reps & hq_plus
         n_hq_10kb  = write_filtered(hq_reps, str(output.hq_10kb_fasta),
@@ -482,7 +489,9 @@ rule viral_votu_reps:
 
         with open(str(log[0]), 'w') as lf:
             lf.write(f'[viral_votu_reps] Total vOTU reps: {n_all}\n')
-            lf.write(f'[viral_votu_reps] MQ+ reps (taxonomy/PHIST/Pharokka): {n_mq}\n')
+            lf.write(f'[viral_votu_reps] min quality gate: {VIRAL_MIN_QUALITY} '
+                     f'(tiers kept: {sorted(VIRAL_KEEP_TIERS)})\n')
+            lf.write(f'[viral_votu_reps] annotation subset (taxonomy/PHIST/Pharokka): {n_mq}\n')
             lf.write(f'[viral_votu_reps] HQ+/>=10kb reps (vConTACT3): {n_hq_10kb}\n')
 
 

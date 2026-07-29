@@ -1,5 +1,10 @@
 import pytest
-from pipeline_config import resolve_pipeline_config, validate_pipeline_config
+from pipeline_config import (
+    resolve_pipeline_config,
+    validate_pipeline_config,
+    viral_keep_tiers,
+    viral_min_quality_rank,
+)
 
 
 def test_defaults_preserve_current_behavior():
@@ -55,3 +60,37 @@ def test_validate_rejects_bad_grouping():
 
 def test_validate_accepts_defaults():
     validate_pipeline_config({})   # não levanta
+
+
+def test_viral_min_quality_defaults_to_medium():
+    r = resolve_pipeline_config({})
+    assert r["viral_min_quality"] == "medium"
+    assert r["viral_min_quality_rank"] == 2
+    assert r["viral_keep_tiers"] == frozenset(
+        {"Medium-quality", "High-quality", "Complete"})
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("not_determined", {"Not-determined", "Low-quality", "Medium-quality",
+                        "High-quality", "Complete"}),
+    ("low",     {"Low-quality", "Medium-quality", "High-quality", "Complete"}),
+    ("medium",  {"Medium-quality", "High-quality", "Complete"}),
+    ("high",    {"High-quality", "Complete"}),
+    ("complete", {"Complete"}),
+])
+def test_viral_keep_tiers_levels(value, expected):
+    assert viral_keep_tiers(value) == frozenset(expected)
+    # Lower thresholds are strict supersets of higher ones.
+    assert viral_keep_tiers("medium") <= viral_keep_tiers(value) or \
+        viral_min_quality_rank(value) > 2
+
+
+def test_viral_min_quality_case_insensitive():
+    r = resolve_pipeline_config({"viral_min_quality": "LOW"})
+    assert r["viral_min_quality"] == "low"
+    assert r["viral_min_quality_rank"] == 1
+
+
+def test_validate_rejects_bad_viral_min_quality():
+    with pytest.raises(ValueError, match="viral_min_quality"):
+        validate_pipeline_config({"viral_min_quality": "garbage"})

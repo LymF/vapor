@@ -499,14 +499,86 @@
       </div>
     </section>
 
-    <!-- Co-assembly (group MAGs + vOTUs) -->
+    <!-- Co-assembly (per group: viral + prokaryotic, mirrors per-sample tabs) -->
     <section id="tab-coassembly" class="tab-panel" role="tabpanel" aria-labelledby="nav-coassembly" hidden>
-      <h2 class="section-title">Co-assembly MAGs</h2>
+      <h2 class="section-title">Co-assembly (per group)</h2>
       <div id="coassembly-empty" class="empty-state muted" style="display:none">Co-assembly not run.</div>
-      <div id="coassembly-table" class="table-wrap"></div>
-      <h2 class="section-title mt-md">Group vOTUs</h2>
-      <div id="coassembly-votus-empty" class="empty-state muted" style="display:none">No group vOTUs.</div>
-      <div id="coassembly-votus-table" class="table-wrap"></div>
+
+      <div id="coas-content">
+        <div class="toolbar">
+          <label>Group: <select id="coas-group-sel"></select></label>
+        </div>
+        <div class="sub-nav" role="tablist">
+          <button class="sub-tab active" data-sub="coas-overview">Overview</button>
+          <button class="sub-tab" data-sub="coas-viral">Viral</button>
+          <button class="sub-tab" data-sub="coas-prok">Prokaryotic</button>
+        </div>
+
+        <!-- Overview -->
+        <div id="sub-coas-overview" class="sub-panel active">
+          <div class="grid-2">
+            <div class="chart-card"><div id="coas-votu-count-chart" class="echarts-box"></div></div>
+            <div class="chart-card"><div id="coas-mag-count-chart"  class="echarts-box"></div></div>
+          </div>
+          <div class="chart-card mt-md">
+            <h3 class="section-title">Group MAGs</h3>
+            <div id="coassembly-table" class="table-wrap"></div>
+          </div>
+          <div class="chart-card mt-md">
+            <h3 class="section-title">Group vOTUs</h3>
+            <div id="coassembly-votus-table" class="table-wrap"></div>
+          </div>
+        </div>
+
+        <!-- Viral -->
+        <div id="sub-coas-viral" class="sub-panel" style="display:none">
+          <div class="grid-2">
+            <div class="chart-card"><div id="coas-checkv-bar-chart" class="echarts-box"></div></div>
+            <div class="chart-card"><div id="coas-checkv-vrh-chart" class="echarts-box"></div></div>
+          </div>
+          <div class="chart-card mt-md"><div id="coas-checkv-scatter-chart" class="echarts-box" style="height:480px"></div></div>
+          <div class="grid-2 mt-md">
+            <div class="chart-card"><div id="coas-vlen-chart"       class="echarts-box"></div></div>
+            <div class="chart-card"><div id="coas-tax-source-chart" class="echarts-box"></div></div>
+          </div>
+          <div class="chart-card mt-md">
+            <div class="toolbar" style="margin-bottom:.25rem">
+              <button id="coas-tax-order-btn"  class="btn-sm" type="button" data-level="order">Order</button>
+              <button id="coas-tax-family-btn" class="btn-sm" type="button" data-level="family">Family</button>
+              <button id="coas-tax-genus-btn"  class="btn-sm" type="button" data-level="genus">Genus</button>
+            </div>
+            <div id="coas-tax-rank-chart" class="echarts-box"></div>
+          </div>
+          <div class="chart-card mt-md">
+            <h3 class="section-title">Classified Viruses (vOTU representatives)</h3>
+            <div class="toolbar"><input id="coas-tax-search" type="search" placeholder="Filter…" class="search-input"></div>
+            <div id="coas-tax-table" class="table-wrap"></div>
+          </div>
+        </div>
+
+        <!-- Prokaryotic -->
+        <div id="sub-coas-prok" class="sub-panel" style="display:none">
+          <div class="chart-card"><div id="coas-checkm2-chart" class="echarts-box" style="height:480px"></div></div>
+          <div class="grid-2 mt-md">
+            <div class="chart-card"><div id="coas-cm2-comp-chart" class="echarts-box"></div></div>
+            <div class="chart-card"><div id="coas-cm2-cont-chart" class="echarts-box"></div></div>
+          </div>
+          <div class="chart-card mt-md"><div id="coas-size-chart" class="echarts-box"></div></div>
+          <div class="grid-2 mt-md">
+            <div class="chart-card"><div id="coas-prok-domain-chart" class="echarts-box"></div></div>
+            <div class="chart-card"><div id="coas-prok-phyla-chart"  class="echarts-box"></div></div>
+          </div>
+          <div class="chart-card mt-md">
+            <h3 class="section-title">MIMAG Summary</h3>
+            <div id="coas-mimag-table" class="table-wrap"></div>
+          </div>
+          <div class="chart-card mt-md">
+            <h3 class="section-title">MAG Taxonomy (GTDB-Tk)</h3>
+            <div class="toolbar"><input id="coas-prok-tax-search" type="search" placeholder="Filter…" class="search-input"></div>
+            <div id="coas-prok-tax-table" class="table-wrap"></div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- About -->

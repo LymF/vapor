@@ -176,8 +176,16 @@ PHAROKKA_DB               = config.get("pharokka_db", "")
 PHOLD_DB                  = config.get("phold_db", "")
 PHAROKKA_MIN_COMPLETENESS = config.get("pharokka_min_completeness", 90.0)
 BAKTA_DB                  = config.get("bakta_db", "")
-BAKTA_MIN_COMPLETENESS    = config.get("bakta_min_completeness", 70.0)
-BAKTA_MAX_CONTAMINATION   = config.get("bakta_max_contamination", 10.0)
+# Prokaryotic MAG quality gate for downstream annotation (Bakta), MIMAG
+# Medium-quality by default (>=50% completeness, <=10% contamination). Lower
+# `prok_min_completeness` for high-novelty / fragmented datasets (e.g.
+# IonTorrent) where MAGs rarely reach MQ — analogous to `viral_min_quality`
+# on the viral side. AMR / defense / GTDB-Tk are NOT gated (they already run
+# on every bin). Legacy bakta_* keys still override the unified gate.
+PROK_MIN_COMPLETENESS     = config.get("prok_min_completeness", 50.0)
+PROK_MAX_CONTAMINATION    = config.get("prok_max_contamination", 10.0)
+BAKTA_MIN_COMPLETENESS    = config.get("bakta_min_completeness", PROK_MIN_COMPLETENESS)
+BAKTA_MAX_CONTAMINATION   = config.get("bakta_max_contamination", PROK_MAX_CONTAMINATION)
 EGGNOG_DB                 = config.get("eggnog_db", "")
 
 # ── Defense systems + AMR (prokaryotic bins) ───────────────────────────
@@ -238,6 +246,14 @@ COASSEMBLY_GROUPING  = _PCFG["coassembly_grouping"]
 COASSEMBLY_VIRAL     = _PCFG["coassembly_viral"]
 COASSEMBLY_BINNING   = _PCFG["coassembly_binning"]
 COBINNING_MULTISPLIT = _PCFG["cobinning_multisplit"]
+# Minimum CheckV quality tier kept for the viral subset that feeds taxonomy /
+# host prediction / annotation (votu_mq_reps.fasta). Default "medium". Lower to
+# "low"/"not_determined" for high-novelty datasets (e.g. IonTorrent viromes)
+# where most contigs are Low-quality/Not-determined. vConTACT3 is unaffected
+# (it keeps its own HQ+/>=10kb gate).
+VIRAL_MIN_QUALITY      = _PCFG["viral_min_quality"]
+VIRAL_MIN_QUALITY_RANK = _PCFG["viral_min_quality_rank"]
+VIRAL_KEEP_TIERS       = _PCFG["viral_keep_tiers"]
 
 # Selecting the reads track implies the reads-classify module runs.
 READS_CLASSIFY_ENABLED = READS_CLASSIFY_ENABLED or TRACK_READS
@@ -521,6 +537,10 @@ def _t_coassembly():
         if not produced:
             for g in GROUPS:
                 t.append(f"{OUTDIR}/coassembly/{g}/contigs.fa")
+        # Clean per-group final/ tree (mirrors per-sample organize_outputs).
+        if produced:
+            for g in GROUPS:
+                t.append(f"{OUTDIR}/coassembly/{g}/final/done.txt")
     if COBINNING_MULTISPLIT and not LONG_READS:
         t.append(f"{OUTDIR}/coassembly/multisplit/gtdbtk/done.txt")
         t.append(f"{OUTDIR}/coassembly/multisplit/checkm2/quality_report.tsv")

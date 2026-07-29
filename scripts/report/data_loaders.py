@@ -1548,3 +1548,66 @@ def load_coassembly(outdir, groups):
                 "votu_families": votu_families,
             })
     return {"groups": out, "has_data": bool(out)}
+
+
+def load_coassembly_rich(outdir, groups):
+    """Per-group rich data mirroring the per-sample viral + prokaryotic tabs,
+    for the Co-assembly report tab. Reuses the same file-path-based loaders as
+    the per-sample side (load_viral_taxonomy / load_gtdbtk / merge_prok_taxonomy
+    / parse_tsv), passing GROUP names where those loaders expect sample names —
+    every record it emits is keyed by group under the 'sample' field, so the JS
+    render functions can filter by the selected group exactly like per-sample.
+
+    Report-only: consumes what the co-assembly rules already produce. There is
+    no group `make_votu_table`/VIBRANT aggregation, so vOTU lifestyle/abundance
+    are intentionally absent (see the compact `load_coassembly` for counts)."""
+    groups = list(groups or [])
+    if not groups:
+        return {"units": [], "checkv": {}, "checkv_vrh": {}, "checkm2": {},
+                "tax": [], "source_dist": {}, "merged_prok": [], "mimag": {},
+                "vlen": {}}
+
+    def _g(g, *parts):
+        return os.path.join(outdir, "coassembly", g, *parts)
+
+    checkv     = {g: parse_tsv(_g(g, "viral", "checkv", "quality_summary.tsv")) for g in groups}
+    checkv_vrh = {g: parse_tsv(_g(g, "viral", "checkv_vrhyme", "quality_summary.tsv")) for g in groups}
+    checkm2    = {g: parse_tsv(_g(g, "checkm2", "quality_report.tsv")) for g in groups}
+
+    tax_paths = [_g(g, "viral", "taxonomy", "viral_taxonomy_merged.tsv") for g in groups]
+    tax = load_viral_taxonomy(tax_paths, groups)
+    tax = enrich_taxonomy_with_checkv(tax, checkv)
+    source_dist = load_viral_source_distribution(tax_paths, groups)
+
+    bac_paths = [_g(g, "gtdbtk", "classify", "gtdbtk.bac120.summary.tsv") for g in groups]
+    arc_paths = [_g(g, "gtdbtk", "classify", "gtdbtk.ar53.summary.tsv") for g in groups]
+    gtdb = load_gtdbtk(bac_paths, arc_paths, groups)
+    merged_prok = merge_prok_taxonomy(gtdb, [], checkm2, low_depth_mode=False)
+
+    mimag = {}
+    for g in groups:
+        hq = mq = lq = 0
+        for row in checkm2[g]:
+            comp = safe_float(row.get('Completeness', 0))
+            cont = safe_float(row.get('Contamination', 100))
+            if comp >= 90 and cont <= 5:    hq += 1
+            elif comp >= 50 and cont <= 10: mq += 1
+            else:                           lq += 1
+        mimag[g] = {'HQ': hq, 'MQ': mq, 'LQ': lq, 'total': hq + mq + lq}
+
+    vlen = {}
+    for g in groups:
+        fa = _g(g, "viral", "votu", "votu_all_reps.fasta")
+        vlen[g] = parse_fasta_lengths(fa) if os.path.exists(fa) else []
+
+    tax_groups  = {r.get('sample', '') for r in tax}
+    gtdb_groups = {r.get('sample', '') for r in gtdb}
+    units = [g for g in groups
+             if checkv[g] or checkm2[g] or vlen[g]
+             or g in tax_groups or g in gtdb_groups]
+    return {
+        "units": units,
+        "checkv": checkv, "checkv_vrh": checkv_vrh, "checkm2": checkm2,
+        "tax": tax, "source_dist": source_dist,
+        "merged_prok": merged_prok, "mimag": mimag, "vlen": vlen,
+    }

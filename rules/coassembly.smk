@@ -1882,9 +1882,13 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 for row in csv.DictReader(fh, delimiter='\t'):
                     reps.add(row['representative'])
 
-            # CheckV quality sets for filtering
-            mq_plus = set()   # Complete / HQ / MQ or completeness >= 50%
-            hq_plus = set()   # Complete / HQ only
+            # CheckV quality sets for filtering — see `rule viral_votu_reps`
+            # (rules/viral_binning.smk). keep_mq is gated by config
+            # `viral_min_quality` (VIRAL_KEEP_TIERS); hq_plus (vConTACT3) is
+            # config-independent (Complete/HQ only, + >=10kb below).
+            keep_mq = set()
+            hq_plus = set()
+            _comp_fallback = VIRAL_MIN_QUALITY_RANK == 2
             with open(str(input.checkv)) as fh:
                 for row in csv.DictReader(fh, delimiter='\t'):
                     cid = row.get('contig_id', '').strip()
@@ -1893,8 +1897,8 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                         comp = float(row.get('completeness', '0') or 0)
                     except (ValueError, TypeError):
                         comp = 0.0
-                    if q in ('Complete', 'High-quality', 'Medium-quality') or comp >= 50:
-                        mq_plus.add(cid)
+                    if q in VIRAL_KEEP_TIERS or (_comp_fallback and comp >= 50):
+                        keep_mq.add(cid)
                     if q in ('Complete', 'High-quality'):
                         hq_plus.add(cid)
 
@@ -1929,7 +1933,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 return written
 
             n_all      = write_filtered(reps, str(output.all_fasta))
-            mq_reps    = reps & mq_plus
+            mq_reps    = reps & keep_mq
             n_mq       = write_filtered(mq_reps, str(output.mq_fasta))
             hq_reps    = reps & hq_plus
             n_hq_10kb  = write_filtered(hq_reps, str(output.hq_10kb_fasta),
@@ -1937,7 +1941,9 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
 
             with open(str(log[0]), 'w') as lf:
                 lf.write(f'[viral_votu_reps] Total vOTU reps: {n_all}\n')
-                lf.write(f'[viral_votu_reps] MQ+ reps (taxonomy/PHIST/Pharokka): {n_mq}\n')
+                lf.write(f'[viral_votu_reps] min quality gate: {VIRAL_MIN_QUALITY} '
+                         f'(tiers kept: {sorted(VIRAL_KEEP_TIERS)})\n')
+                lf.write(f'[viral_votu_reps] annotation subset (taxonomy/PHIST/Pharokka): {n_mq}\n')
                 lf.write(f'[viral_votu_reps] HQ+/>=10kb reps (vConTACT3): {n_hq_10kb}\n')
 
 
@@ -3428,3 +3434,193 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and COASSEMBLY_BINNING and not LONG_R
             fi
             touch {output.done}
             """
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Organize final outputs per co-assembly group — mirrors the per-sample
+#  `rule organize_outputs` (rules/finalize.smk). Builds a clean
+#  coassembly/{group}/final/ tree with the group's main viral + prokaryotic
+#  results. Inputs are given as explicit paths (not rules.<name>.output) so the
+#  rule stays valid regardless of which coassembly_* rules are defined under
+#  their own guards; the gating below mirrors `_t_coassembly` in the Snakefile,
+#  so it never requests an output that was not scheduled to be produced.
+# ══════════════════════════════════════════════════════════════════════
+if COASSEMBLY_ENABLED and GROUPS:
+
+    # Group prokaryotic co-binning layer runs on short reads only.
+    _COAS_PROK = COASSEMBLY_BINNING and not LONG_READS
+
+    def _coas_final_inputs(group):
+        b = f"{OUTDIR}/coassembly/{group}"
+        d = {}
+        if _COAS_PROK:
+            d["checkm2"] = f"{b}/checkm2/quality_report.tsv"
+            d["gtdbtk"]  = f"{b}/gtdbtk/done.txt"
+            d["bakta"]   = f"{b}/annotation/bakta/done.txt"
+            if DEFENSE_AMR_ENABLED:
+                d["pdef"]      = f"{b}/bins/defensefinder/done.txt"
+                d["amrfinder"] = f"{b}/bins/amrfinderplus/done.txt"
+                d["rgi"]       = f"{b}/bins/rgi/done.txt"
+                d["deeparg"]   = f"{b}/bins/deeparg/done.txt"
+            if ABRICATE_ENABLED:
+                d["abricate"] = f"{b}/bins/abricate/done.txt"
+            if ARGNORM_ENABLED:
+                d["argnorm"] = f"{b}/bins/argnorm/done.txt"
+        if COASSEMBLY_VIRAL:
+            d["checkv"]   = f"{b}/viral/checkv/quality_summary.tsv"
+            d["taxonomy"] = f"{b}/viral/taxonomy/taxonomy_done.txt"
+            d["votu_all"] = f"{b}/viral/votu/votu_all_reps.fasta"
+            if DEFENSE_AMR_VIRAL_ENABLED:
+                d["vdef"]   = f"{b}/viral/defensefinder/done.txt"
+                d["dbapis"] = f"{b}/viral/dbapis/done.txt"
+            if not LONG_READS:
+                d["vrhyme"] = f"{b}/bins/vrhyme/done.txt"
+                if COASSEMBLY_BINNING:
+                    d["phist"] = f"{b}/viral/phist/done.txt"
+        return d
+
+    rule coassembly_organize_outputs:
+        """
+        Assemble coassembly/{group}/final/ — the group analogue of the
+        per-sample `rule organize_outputs`. Copies the group's main viral
+        (vOTU reps, CheckV, taxonomy, host, defense) and prokaryotic (MAGs by
+        domain, CheckM2, GTDB-Tk, AMR/defense, annotation) outputs, each with
+        an existence guard. Group MAGs are VAMB `.fna` bins (not `.fa`).
+        """
+        input:
+            unpack(lambda wc: _coas_final_inputs(wc.group)),
+        output:
+            done = f"{OUTDIR}/coassembly/{{group}}/final/done.txt",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/organize_outputs.log"
+        params:
+            base       = f"{OUTDIR}/coassembly/{{group}}",
+            bins_dir   = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
+            vrhyme_dir = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme/vRhyme_best_bins_fasta",
+        run:
+            import os, glob, shutil
+
+            b     = params.base
+            final = f"{b}/final"
+            for d in [
+                f"{final}/viral/viral_bins",
+                f"{final}/viral/taxonomy",
+                f"{final}/viral/host_prediction",
+                f"{final}/viral/defense_amr",
+                f"{final}/bins/bacteria",
+                f"{final}/bins/archaea",
+                f"{final}/bins/unclassified",
+                f"{final}/bins/taxonomy",
+                f"{final}/bins/defense_amr",
+                f"{final}/annotation",
+            ]:
+                os.makedirs(d, exist_ok=True)
+
+            def cp(src, dst):
+                if src and os.path.exists(str(src)) and os.path.getsize(str(src)) > 0:
+                    shutil.copy(str(src), dst)
+
+            with open(log[0], "w") as lf:
+
+                # ── Viral core + vOTU reps ────────────────────────────
+                if COASSEMBLY_VIRAL:
+                    cp(f"{b}/viral/consensus/{wildcards.group}_viral_consensus.fasta",
+                       f"{final}/viral/viral_consensus.fasta")
+                    cp(f"{b}/viral/checkv/{wildcards.group}_viral_trimmed.fasta",
+                       f"{final}/viral/viral_nonredundant.fasta")
+                    cp(f"{b}/viral/checkv/quality_summary.tsv",
+                       f"{final}/viral/checkv_quality.tsv")
+                    cp(f"{b}/viral/votu/votu_all_reps.fasta",
+                       f"{final}/viral/votu_all_reps.fasta")
+                    cp(f"{b}/viral/votu/votu_mq_reps.fasta",
+                       f"{final}/viral/votu_annotation_reps.fasta")
+                    cp(f"{b}/viral/taxonomy/viral_taxonomy_merged.tsv",
+                       f"{final}/viral/taxonomy/viral_taxonomy_merged.tsv")
+
+                    # vRhyme vMAGs (short reads only)
+                    if not LONG_READS:
+                        vbins = glob.glob(f"{params.vrhyme_dir}/*.fasta") + \
+                                glob.glob(f"{params.vrhyme_dir}/*.fna")
+                        for vf in vbins:
+                            shutil.copy(vf, f"{final}/viral/viral_bins/")
+                        lf.write(f"vRhyme bins: {len(vbins)}\n")
+
+                    # Host prediction
+                    cp(f"{b}/viral/phist/phist_results.csv",
+                       f"{final}/viral/host_prediction/phist_results.csv")
+
+                    # Viral defense / anti-defense
+                    cp(f"{b}/viral/defensefinder/viral_defense_systems.tsv",
+                       f"{final}/viral/defense_amr/viral_defense_systems.tsv")
+                    cp(f"{b}/viral/defensefinder/viral_antidefense_systems.tsv",
+                       f"{final}/viral/defense_amr/viral_antidefense_systems.tsv")
+                    cp(f"{b}/viral/dbapis/dbapis_hits.tsv",
+                       f"{final}/viral/defense_amr/dbapis_hits.tsv")
+
+                # ── Prokaryotic MAGs — classify with GTDB-Tk ──────────
+                archaea_bins, bacteria_bins = set(), set()
+                if _COAS_PROK:
+                    for tsv_path, is_arc in [
+                        (f"{b}/gtdbtk/classify/gtdbtk.bac120.summary.tsv", False),
+                        (f"{b}/gtdbtk/classify/gtdbtk.ar53.summary.tsv",   True),
+                    ]:
+                        if not os.path.exists(tsv_path):
+                            continue
+                        with open(tsv_path) as f:
+                            hdr = None
+                            for line in f:
+                                parts = line.strip().split('\t')
+                                if hdr is None:
+                                    hdr = parts; continue
+                                if not parts or len(parts) < 2:
+                                    continue
+                                (archaea_bins if is_arc else bacteria_bins).add(parts[0])
+
+                    lf.write(f"GTDB-Tk — Bacteria: {len(bacteria_bins)}, "
+                             f"Archaea: {len(archaea_bins)}\n")
+
+                    copied = {'bacteria': 0, 'archaea': 0, 'unclassified': 0}
+                    for bf in glob.glob(f"{params.bins_dir}/*.fna"):
+                        name = os.path.splitext(os.path.basename(bf))[0]
+                        if name in archaea_bins:
+                            shutil.copy(bf, f"{final}/bins/archaea/"); copied['archaea'] += 1
+                        elif name in bacteria_bins:
+                            shutil.copy(bf, f"{final}/bins/bacteria/"); copied['bacteria'] += 1
+                        else:
+                            shutil.copy(bf, f"{final}/bins/unclassified/"); copied['unclassified'] += 1
+                    lf.write(f"Bins copied: {copied}\n")
+
+                    # Prok QC + taxonomy
+                    cp(f"{b}/checkm2/quality_report.tsv",
+                       f"{final}/bins/all_bins_checkm2.tsv")
+                    cp(f"{b}/gtdbtk/classify/gtdbtk.bac120.summary.tsv",
+                       f"{final}/bins/taxonomy/gtdbtk_bacteria.tsv")
+                    cp(f"{b}/gtdbtk/classify/gtdbtk.ar53.summary.tsv",
+                       f"{final}/bins/taxonomy/gtdbtk_archaea.tsv")
+
+                    # Prok defense / anti-defense + AMR
+                    cp(f"{b}/bins/defensefinder/defensefinder_systems.tsv",
+                       f"{final}/bins/defense_amr/defensefinder_systems.tsv")
+                    cp(f"{b}/bins/defensefinder/antidefensefinder_systems.tsv",
+                       f"{final}/bins/defense_amr/antidefensefinder_systems.tsv")
+                    cp(f"{b}/bins/amrfinderplus/amrfinder_results.tsv",
+                       f"{final}/bins/defense_amr/amrfinder_results.tsv")
+                    cp(f"{b}/bins/rgi/rgi_results.txt",
+                       f"{final}/bins/defense_amr/rgi_results.txt")
+                    cp(f"{b}/bins/deeparg/deeparg_results.mapping.ARG",
+                       f"{final}/bins/defense_amr/deeparg_results.tsv")
+                    cp(f"{b}/bins/abricate/vfdb_results.tsv",
+                       f"{final}/bins/defense_amr/vfdb_results.tsv")
+                    cp(f"{b}/bins/abricate/plasmidfinder_results.tsv",
+                       f"{final}/bins/defense_amr/plasmidfinder_results.tsv")
+                    cp(f"{b}/bins/argnorm/amrfinderplus_normed.tsv",
+                       f"{final}/bins/defense_amr/amrfinderplus_normed.tsv")
+                    cp(f"{b}/bins/argnorm/deeparg_normed.tsv",
+                       f"{final}/bins/defense_amr/deeparg_normed.tsv")
+
+                    # Prok annotation summaries
+                    cp(f"{b}/annotation/bakta/bakta_summary.tsv",
+                       f"{final}/annotation/bakta_summary.tsv")
+
+            with open(output.done, 'w') as f:
+                f.write('ok\n')
