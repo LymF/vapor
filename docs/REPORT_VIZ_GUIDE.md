@@ -188,7 +188,9 @@ re-implementing:
 | `mkChart(id, option)` | ECharts wrapper: registers the instance, handles resize and theme. Honours `option.__height` for forms whose height depends on the data |
 | `VIZ` | the numeric triggers of §4, in one object |
 | `samplesBar({samples, series, stack, valueName, sort})` | one value per sample, N series. Vertical bars while small; **horizontal + sorted** past `VIZ.manySamples` |
-| `distPlot({groups, xName, log, cutoffs, xMin, xMax})` | distribution per unit. Picks **strip plot** (median n < `VIZ.densityMinN`), **density**, or **ridgeline** (groups > `VIZ.manyGroups`); `cutoffs` draws threshold lines |
+| `distPlot({groups, xName, log, cutoffs, xMin, xMax, colors})` | distribution per unit. Picks **strip plot** (median n < `VIZ.densityMinN`), **density**, or **ridgeline** (groups > `VIZ.manyGroups`); `cutoffs` draws threshold lines |
+| `upsetPlot({sets, combos, valueName})` | set-intersection sizes + membership matrix — the readable form for tool/detector agreement |
+| `hexbin(pts, {threshold, cols})` | hex-grid density binning for saturated scatters; returns `null` below `VIZ.denseScatter` so the caller keeps drawing points |
 | `makeTable(id, rows, cols, opts)` | paginated + searchable table (the "table view" the a11y pass requires) |
 | `boxStats(values)` | quartiles + outliers |
 | `foldOther(map, max)` | folds a `{name: count}` tail into "Other" — the ≤8 series rule |

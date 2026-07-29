@@ -214,10 +214,20 @@
     (isAll ? units : [unit]).forEach(u => {
       Object.entries(allSrc[u] || {}).forEach(([k, v]) => { srcDist[k] = (srcDist[k] || 0) + v; });
     });
+    const srcRows = Object.entries(srcDist).sort((a, b) => a[1] - b[1]);
+    const srcTotal = srcRows.reduce((a, [, v]) => a + v, 0) || 1;
     mkChart('coas-tax-source-chart', {
       title: { text: `${label} — Classification Source` },
-      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-      series: [{ type: 'pie', radius: ['35%', '60%'], data: Object.entries(srcDist).map(([name, value]) => ({ name, value })), label: { formatter: '{b}\n{d}%' } }],
+      tooltip: { trigger: 'item',
+                 formatter: p => `${p.name}: ${p.value} (${(p.value / srcTotal * 100).toFixed(1)}%)` },
+      legend: { show: false },
+      xAxis: { type: 'value', name: 'Contigs', nameLocation: 'middle', nameGap: 28 },
+      yAxis: { type: 'category', data: srcRows.map(r => r[0]) },
+      series: [{ type: 'bar', data: srcRows.map(r => r[1]), barMaxWidth: 26,
+                 itemStyle: { color: PAL[0], borderRadius: [0, 3, 3, 0] },
+                 label: { show: true, position: 'right', fontSize: 10,
+                          formatter: p => `${(p.value / srcTotal * 100).toFixed(0)}%` } }],
+      grid: { left: 12, right: 52, bottom: 44, containLabel: true },
     });
 
     _renderRankBar(tax, label);

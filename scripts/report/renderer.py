@@ -10,7 +10,7 @@ import traceback
 
 from .data_loaders import (
     safe_float, safe_int, parse_tsv, load_tsv, load_csv,
-    parse_quast_all, parse_support, parse_fastp_json, parse_mapping_rate,
+    parse_quast_all, parse_support, parse_support_combos, parse_fastp_json, parse_mapping_rate,
     parse_total_reads, build_host_collapse,
     collect_depth_data, parse_fasta_lengths,
     collect_viral_tool_counts, collect_vrhyme_stats, collect_binner_counts,
@@ -118,6 +118,7 @@ def _build(snakemake):
     checkv_data    = {s: parse_tsv(checkv_paths[s])      for s in samples}
     checkv_vrh_data= {s: parse_tsv(checkv_vrh_paths[s])  for s in samples}
     support_data   = {s: parse_support(support_paths[s]) for s in samples}
+    support_combos = {s: parse_support_combos(support_paths[s]) for s in samples}
     fastp_data     = {s: parse_fastp_json(outdir, s)     for s in samples}
     mapping_data   = {s: parse_mapping_rate(outdir, s)   for s in samples}
     viral_tool_counts = {s: collect_viral_tool_counts(outdir, s) for s in samples}
@@ -389,6 +390,7 @@ def _build(snakemake):
         "CHECKV_VRH":   {s: [dict(r) for r in checkv_vrh_data[s]] for s in samples},
         "CHECKM2":      {s: [dict(r) for r in checkm2_data[s]] for s in samples},
         "SUPPORT":      support_data,
+        "SUPPORT_COMBOS": support_combos,
         "FASTP":        {s: {
             "reads": fastp_data[s]["reads"],
             "trim":  fastp_data[s]["trim"],

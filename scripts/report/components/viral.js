@@ -36,33 +36,21 @@
       ],
     }));
 
-    // Tool support heatmap (sample × tool, value = count)
-    const heatData = [];
-    samples.forEach((s, si) => {
-      tools.forEach((t, ti) => {
-        heatData.push([ti, si, (vt[s] || {})[t] || 0]);
-      });
-    });
-    mkChart('vir-heatmap-chart', {
-      title: { text: 'Tool Detection Matrix' },
-      tooltip: {
-        formatter: p => `${samples[p.data[1]]} / ${tools[p.data[0]]}: ${p.data[2]} contigs`,
-      },
-      xAxis: { type: 'category', data: tools },
-      yAxis: { type: 'category', data: samples },
-      visualMap: {
-        min: 0, max: Math.max(1, ...heatData.map(d => d[2])),
-        inRange: { color: ['#f0fdfa', '#0d9488', '#0f172a'] },
-        show: true, orient: 'horizontal', left: 'right', bottom: 10,
-        textStyle: { color: 'inherit' },
-      },
-      series: [{
-        type: 'heatmap',
-        data: heatData,
-        label: { show: true, formatter: p => p.data[2] },
-      }],
-      grid: { bottom: 60, top: 40 },
-    });
+    // Tool agreement as an UpSet: which COMBINATION of detectors supports each
+    // contig. The old sample x tool heatmap showed per-tool totals, which cannot
+    // answer "what does VIBRANT find that the other two miss" -- the question a
+    // consensus filter exists to settle. Aggregated across samples; the
+    // per-sample stacked bar above keeps the sample-level view.
+    const combosAll = {};
+    const sc = typeof SUPPORT_COMBOS !== 'undefined' ? SUPPORT_COMBOS : {};
+    samples.forEach(s => Object.entries(sc[s] || {}).forEach(([k, v]) => {
+      combosAll[k] = (combosAll[k] || 0) + v;
+    }));
+    mkChart('vir-heatmap-chart', upsetPlot({
+      sets: tools, combos: combosAll,
+      title: 'Detector Agreement — Contigs per Tool Combination (all samples)',
+      valueName: 'Contigs', unit: 'contigs',
+    }));
   }
 
   // ── Binning & Quality ─────────────────────────────────────────────────────
@@ -157,7 +145,37 @@
       });
     });
 
-    mkChart('vir-checkv-scatter-chart', {
+    // Past VIZ.denseScatter the per-contig marks overlap into a blob, so the
+    // same data is shown as a hex-binned density instead — the quality zones and
+    // cutoff lines stay either way, since they are what the chart is for.
+    const allPts = [];
+    scatterSeries.forEach(s => s.data.forEach(d => allPts.push([Math.log10(d.value[0]), d.value[1]])));
+    const hb = window.hexbin(allPts);
+    const scatterOpt = hb ? {
+      title: { text: `CheckV — Length vs Completeness (${hb.total.toLocaleString()} contigs, hex-binned)` },
+      tooltip: { trigger: 'item',
+                 formatter: p => `${Math.round(Math.pow(10, p.value[0])).toLocaleString()} bp`
+                               + `<br>${p.value[1].toFixed(0)}% complete<br><strong>${p.value[2]}</strong> contigs` },
+      legend: { show: false },
+      xAxis: { type: 'value', name: 'Length (log10 bp)', nameLocation: 'middle', nameGap: 30,
+               min: v => Math.floor(v.min * 2) / 2, max: v => Math.ceil(v.max * 2) / 2 },
+      yAxis: { type: 'value', name: 'Completeness (%)', min: 0, max: 105 },
+      visualMap: { min: 1, max: hb.max, calculable: false, orient: 'horizontal',
+                   left: 'right', bottom: 6, itemHeight: 80, text: ['dense', 'sparse'],
+                   inRange: { color: ['#ccfbf1', '#5eead4', '#0d9488', '#134e4a'] },
+                   textStyle: { fontSize: 10 } },
+      series: [{ type: 'scatter', data: hb.cells, symbol: 'circle', symbolSize: 9,
+                 itemStyle: { opacity: 0.9 },
+                 // The MQ/HQ completeness cutoffs are the reason this chart
+                 // exists, so they are drawn in both the point and binned forms.
+                 markLine: { silent: true, symbol: 'none', data: [
+                   { yAxis: 90, lineStyle: { type: 'dashed', color: '#16a34a' },
+                     label: { formatter: '≥90% HQ', color: '#16a34a', fontSize: 10 } },
+                   { yAxis: 50, lineStyle: { type: 'dotted', color: '#d97706' },
+                     label: { formatter: '≥50% MQ', color: '#d97706', fontSize: 10 } },
+                 ] } }],
+      grid: { bottom: 70, top: 50 },
+    } : {
       title: { text: 'CheckV — Length vs Completeness (● consensus  ◆ vRhyme)' },
       tooltip: {
         trigger: 'item',
@@ -168,11 +186,12 @@
       yAxis: { type: 'value', name: 'Completeness (%)', min: 0, max: 105 },
       series: scatterSeries,
       grid: { bottom: 60, top: 70 },
-    });
+    };
+    mkChart('vir-checkv-scatter-chart', scatterOpt);
 
     // Add quality zones (markArea + markLine) identical pattern to CheckM2
     const cvChart = window._charts['vir-checkv-scatter-chart'];
-    if (cvChart) {
+    if (cvChart && !hb) {
       cvChart.setOption({
         series: [
           ...scatterSeries,
@@ -244,11 +263,22 @@
     } else {
       srcDist = allSrcDist[sample] || {};
     }
-    const srcPieData = Object.entries(srcDist).map(([name, value]) => ({ name, value }));
+    // Sorted horizontal bar, not a pie: sources routinely exceed the ~4 slices
+    // an angle comparison can carry, and bar length is read directly.
+    const srcRows = Object.entries(srcDist).sort((a, b) => a[1] - b[1]);
+    const srcTotal = srcRows.reduce((a, [, v]) => a + v, 0) || 1;
     mkChart('vir-tax-source-chart', {
       title: { text: `${label} — Classification Source` },
-      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-      series: [{ type: 'pie', radius: ['35%', '60%'], data: srcPieData, label: { formatter: '{b}\n{d}%' } }],
+      tooltip: { trigger: 'item',
+                 formatter: p => `${p.name}: ${p.value} (${(p.value / srcTotal * 100).toFixed(1)}%)` },
+      legend: { show: false },
+      xAxis: { type: 'value', name: 'Contigs', nameLocation: 'middle', nameGap: 28 },
+      yAxis: { type: 'category', data: srcRows.map(r => r[0]) },
+      series: [{ type: 'bar', data: srcRows.map(r => r[1]), barMaxWidth: 26,
+                 itemStyle: { color: PAL[0], borderRadius: [0, 3, 3, 0] },
+                 label: { show: true, position: 'right', fontSize: 10,
+                          formatter: p => `${(p.value / srcTotal * 100).toFixed(0)}%` } }],
+      grid: { left: 12, right: 52, bottom: 44, containLabel: true },
     });
 
     // Order/Family/Genus bar (top 20) — only contigs with an assignment at that rank.

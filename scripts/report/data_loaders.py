@@ -90,6 +90,25 @@ def parse_support(path):
     return counts
 
 
+def parse_support_combos(path):
+    """Which *combination* of detectors supports each contig, not just how many.
+
+    The tool-support TSV written by rules/viral_detection.smk carries a `tools`
+    column ("GeNomad,VirSorter2"), so the exact set intersections are already on
+    disk — parse_support collapses them to a degree count, which cannot answer
+    "what does VIBRANT find that the others miss?". Returns
+    {"GeNomad,VirSorter2": n, …} with the tool names sorted inside each key."""
+    combos = Counter()
+    for row in parse_tsv(path):
+        tools = (row.get("tools", "") or "").strip()
+        if not tools:
+            continue
+        key = ",".join(sorted(t.strip() for t in tools.split(",") if t.strip()))
+        if key:
+            combos[key] += 1
+    return dict(combos)
+
+
 # ── fastp ─────────────────────────────────────────────────────────────────────
 
 def parse_fastp_json(outdir, sample):

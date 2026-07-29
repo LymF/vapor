@@ -347,6 +347,132 @@
     };
   };
 
+  /**
+   * UpSet plot — the readable form for "which of these sets overlap".
+   * `combos` is {"A": n, "A,B": n, …} (members sorted inside the key), `sets`
+   * the full member list. A Venn cannot be read past 3 sets and a set x set
+   * heatmap only shows pairs, so neither answers "what does tool C find that
+   * A and B both miss" — the single most useful question about a consensus.
+   * Upper grid: intersection sizes. Lower grid: the membership matrix.
+   */
+  window.upsetPlot = function (opts) {
+    const sets  = opts.sets || [];
+    const combos = Object.entries(opts.combos || {})
+      .filter(([, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, opts.maxCombos || 14);
+    const dark  = document.documentElement.dataset.theme === 'dark';
+    const ink   = dark ? '#94a3b8' : '#64748b';
+    const off   = dark ? '#243244' : '#e2e8f0';
+    const on    = opts.color || window.PAL[0];
+    if (!combos.length || !sets.length) {
+      return { title: { text: opts.title || '' },
+               graphic: { type: 'text', left: 'center', top: 'middle',
+                          style: { text: 'No overlap data', fill: ink, fontSize: 12 } } };
+    }
+
+    const labels = combos.map(([k]) => k.split(',').join(' + '));
+    const sizes  = combos.map(([, v]) => v);
+    const matrixH = sets.length * 22 + 16;
+
+    // Membership matrix: every cell drawn (empty ones as context), plus a
+    // connector so a multi-set intersection reads as one unit.
+    const cellsOn = [], cellsOff = [], links = [];
+    combos.forEach(([key], ci) => {
+      const members = new Set(key.split(','));
+      let lo = null, hi = null;
+      sets.forEach((s, si) => {
+        if (members.has(s)) { cellsOn.push([ci, si]); lo = lo === null ? si : Math.min(lo, si); hi = hi === null ? si : Math.max(hi, si); }
+        else cellsOff.push([ci, si]);
+      });
+      if (lo !== null && hi !== lo) links.push([[ci, lo], [ci, hi]]);
+    });
+
+    return {
+      __height: 210 + matrixH,
+      title: { text: opts.title || '' },
+      legend: { show: false },
+      tooltip: {
+        trigger: 'item',
+        formatter: p => {
+          const ci = Array.isArray(p.value) ? p.value[0] : p.dataIndex;
+          return `${labels[ci]}<br>${sizes[ci].toLocaleString()} ${opts.unit || 'items'}`;
+        },
+      },
+      grid: [
+        { top: 44, height: 120, left: 150, right: 24, containLabel: false },
+        { top: 176, height: matrixH, left: 150, right: 24, containLabel: false },
+      ],
+      xAxis: [
+        { gridIndex: 0, type: 'category', data: labels, show: false },
+        { gridIndex: 1, type: 'category', data: labels, show: false },
+      ],
+      yAxis: [
+        { gridIndex: 0, type: 'value', name: opts.valueName || 'Contigs',
+          nameLocation: 'middle', nameGap: 46, splitLine: { show: true } },
+        { gridIndex: 1, type: 'category', data: sets, inverse: true,
+          axisLabel: { color: ink, fontSize: 11 },
+          axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } },
+      ],
+      series: [
+        { type: 'bar', xAxisIndex: 0, yAxisIndex: 0, data: sizes, barMaxWidth: 34,
+          itemStyle: { color: on, borderRadius: [3, 3, 0, 0] },
+          label: { show: true, position: 'top', fontSize: 10, color: ink,
+                   formatter: p => p.value.toLocaleString() } },
+        { type: 'scatter', xAxisIndex: 1, yAxisIndex: 1, data: cellsOff,
+          symbolSize: 11, itemStyle: { color: off }, silent: true },
+        { type: 'scatter', xAxisIndex: 1, yAxisIndex: 1, data: cellsOn,
+          symbolSize: 13, itemStyle: { color: on } },
+        { type: 'custom', xAxisIndex: 1, yAxisIndex: 1, data: links,
+          renderItem: (params, api) => {
+            const seg = links[params.dataIndex];
+            const a = api.coord(seg[0]), b = api.coord(seg[1]);
+            return { type: 'line', shape: { x1: a[0], y1: a[1], x2: b[0], y2: b[1] },
+                     style: { stroke: on, lineWidth: 2 } };
+          }, silent: true },
+      ],
+    };
+  };
+
+  /**
+   * Bin 2-D points into a hex grid. Past VIZ.denseScatter a scatter stops being
+   * a scatter — the marks overlap into a solid blob and the reader can no longer
+   * tell a dense core from a sparse tail. Returns null when the caller should
+   * just draw the points.
+   * `pts` are [x, y] in DATA units; binning happens in normalised space so the
+   * grid is square on screen regardless of the axis units, and log axes are
+   * binned in log space by the caller transforming first.
+   */
+  window.hexbin = function (pts, opts = {}) {
+    const n = (pts || []).length;
+    if (n <= (opts.threshold || window.VIZ.denseScatter)) return null;
+    const cols = opts.cols || 34;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    pts.forEach(p => {
+      if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+      if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+    });
+    const sx = (x1 - x0) || 1, sy = (y1 - y0) || 1;
+    const dx = 1 / cols, dy = dx * Math.sqrt(3) / 2;
+    const bins = new Map();
+    pts.forEach(p => {
+      const nx = (p[0] - x0) / sx, ny = (p[1] - y0) / sy;
+      const row = Math.round(ny / dy);
+      const off = (row % 2) * dx / 2;                 // offset rows -> hex packing
+      const col = Math.round((nx - off) / dx);
+      const key = row + ':' + col;
+      const cell = bins.get(key);
+      if (cell) cell.n += 1;
+      else bins.set(key, { n: 1, x: x0 + (col * dx + off) * sx, y: y0 + row * dy * sy });
+    });
+    const cells = [...bins.values()];
+    return {
+      cells: cells.map(c => [c.x, c.y, c.n]),
+      max: cells.reduce((a, c) => Math.max(a, c.n), 1),
+      total: n,
+    };
+  };
+
   // ── ECharts base theme ────────────────────────────────────────────────────
   function echartsTheme() {
     const dark = document.documentElement.dataset.theme === 'dark';

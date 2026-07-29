@@ -35,10 +35,11 @@
         genusMax[d.genus] = Math.max(genusMax[d.genus] || 0, d.total_rpkm);
       });
     });
-    const topGenera = Object.entries(genusMax)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 12)
-      .map(e => e[0]);
+    // Cap at the validated 7 hues + "Other": 12 stacked genera cycled PAL, so
+    // genus 1 and genus 9 were drawn in the same colour while the legend
+    // claimed they were different series.
+    const topGenera = foldOther(genusMax, window.VIZ.maxSeries - 1)
+      .map(e => e[0]).filter(g => g !== 'Other');
 
     if (!topGenera.length) {
       const el = document.getElementById('host-collapse-chart');
@@ -46,20 +47,25 @@
       return;
     }
 
+    const topSet = new Set(topGenera);
     const series = topGenera.map((genus, i) => ({
-      name: genus, type: 'bar', stack: 'hc',
-      color: PAL[i % PAL.length],
+      name: genus, color: PAL[i],
       data: samples.map(s => {
         const row = (hc[s] || []).find(d => d.genus === genus);
         return row ? +row.total_rpkm.toFixed(2) : 0;
       }),
     }));
+    const otherData = samples.map(s => +((hc[s] || [])
+      .filter(d => !topSet.has(d.genus))
+      .reduce((a, d) => a + d.total_rpkm, 0)).toFixed(2));
+    if (otherData.some(v => v > 0)) {
+      series.push({ name: 'Other', color: PAL_MUTED, data: otherData });
+    }
 
     mkChart('host-collapse-chart', samplesBar({
       samples, title: 'Viral Abundance by Predicted Host Genus (RPKM)',
       valueName: 'RPKM', stack: true,
-      series: series.map(s => ({ name: s.name, data: s.data,
-                                 color: s.color || (s.itemStyle || {}).color })),
+      series,
     }));
   }
 
