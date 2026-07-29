@@ -153,30 +153,14 @@
       grid: { bottom: 70 },
     });
 
-    // Contig length distribution (boxplot per sample — scales to any sample count)
+    // Contig length distribution per sample (log axis — heavily right-skewed).
     const lenData = typeof VIRAL_LENGTHS !== 'undefined' ? VIRAL_LENGTHS : {};
-
-    const boxData  = [];
-    const outliers = [];
-    samples.forEach((s, i) => {
-      const { box, outliers: out } = window.boxStats(lenData[s] || []);
-      boxData.push(box);
-      out.forEach(v => outliers.push([i, v]));
-    });
-
-    mkChart('seq-depth-chart', {
-      title: { text: 'Viral Contig Length Distribution (bp)' },
-      tooltip: { trigger: 'item' },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
-      yAxis: { type: 'log', name: 'Length (bp)' },
-      series: [
-        { name: 'Length',  type: 'boxplot', data: boxData,
-          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
-        { name: 'Outlier', type: 'scatter', data: outliers,
-          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
-      ],
-      grid: { bottom: 90 },
-    });
+    mkChart('seq-depth-chart', distPlot({
+      groups: samples.map(s => ({ name: s, values: (lenData[s] || []).filter(v => v > 0) })),
+      title: 'Viral Contig Length Distribution (bp)',
+      xName: 'Length (bp)',
+      log: true,
+    }));
 
     // ── Assembly tab ──────────────────────────────────────────────────────────
     const asmStages = ['MEGAHIT', 'metaSPAdes', 'metaviralSPAdes', 'merged_filtered', 'deduplicated'];
@@ -222,29 +206,18 @@
       grid: { bottom: 70 },
     });
 
-    // Total assembly length per stage — boxplot across samples (one box per stage)
-    const asmLenBox = [];
-    const asmLenOutliers = [];
-    asmStages.forEach((st, i) => {
-      const vals = samples.map(s => +(quast[s]?.[st]?.['Total length'] || 0)).filter(v => v > 0);
-      const { box, outliers: out } = window.boxStats(vals);
-      asmLenBox.push(box);
-      out.forEach(v => asmLenOutliers.push([i, v]));
-    });
-
-    mkChart('seq-asm-len-chart', {
-      title: { text: 'Total Assembly Length per Stage (bp)' },
-      tooltip: { trigger: 'item' },
-      xAxis: { type: 'category', data: asmStages, axisLabel: { rotate: 20 }, boundaryGap: true },
-      yAxis: { type: 'value', name: 'Total length (bp)' },
-      series: [
-        { name: 'Total length', type: 'boxplot', data: asmLenBox,
-          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
-        { name: 'Outlier', type: 'scatter', data: asmLenOutliers,
-          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
-      ],
-      grid: { bottom: 70 },
-    });
+    // Total assembly length per stage, distribution across samples. Stages are
+    // ORDINAL (assembler -> merged -> deduplicated), so they wear the ordinal
+    // ramp rather than categorical identity hues.
+    mkChart('seq-asm-len-chart', distPlot({
+      groups: asmStages.map(st => ({
+        name: st,
+        values: samples.map(s => +(quast[s]?.[st]?.['Total length'] || 0)).filter(v => v > 0),
+      })),
+      title: 'Total Assembly Length per Stage (bp)',
+      xName: 'Total length (bp)',
+      colors: window.ordinalRamp(asmStages.length),
+    }));
   };
 
 })();

@@ -42,30 +42,19 @@
       grid: { bottom: 70 },
     });
 
-    // Genome size distribution — boxplot per sample
+    // Genome size distribution per sample. distPlot picks the form from the
+    // data (strip plot when a sample has few MAGs, density/ridgeline when it
+    // has many) -- see docs/REPORT_VIZ_GUIDE.md §4.
     const cm = typeof CHECKM2 !== 'undefined' ? CHECKM2 : {};
-    const sizeBox = [];
-    const sizeOutliers = [];
-    samples.forEach((s, i) => {
-      const sizes = (cm[s] || []).map(r => +(r.Genome_Size || r.genome_size || 0) / 1e6).filter(v => v > 0);
-      const { box, outliers: out } = window.boxStats(sizes);
-      sizeBox.push(box);
-      out.forEach(v => sizeOutliers.push([i, v]));
-    });
-
-    mkChart('prok-size-chart', {
-      title: { text: 'MAG Genome Size Distribution (Mb)' },
-      tooltip: { trigger: 'item' },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
-      yAxis: { type: 'value', name: 'Genome size (Mb)' },
-      series: [
-        { name: 'Genome size', type: 'boxplot', data: sizeBox,
-          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
-        { name: 'Outlier', type: 'scatter', data: sizeOutliers,
-          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
-      ],
-      grid: { bottom: 90 },
-    });
+    mkChart('prok-size-chart', distPlot({
+      groups: samples.map(s => ({
+        name: s,
+        values: (cm[s] || []).map(r => +(r.Genome_Size || r.genome_size || 0) / 1e6).filter(v => v > 0),
+      })),
+      title: 'MAG Genome Size Distribution (Mb)',
+      xName: 'Genome size (Mb)',
+      xMin: 0,
+    }));
   }
 
   // ── Quality (CheckM2) ─────────────────────────────────────────────────────
@@ -130,51 +119,25 @@
       }, false);
     }
 
-    // Completeness distribution — boxplot per sample
-    const compBox = [];
-    const compOutliers = [];
-    samples.forEach((s, i) => {
-      const vals = (cm[s] || []).map(r => +(r.Completeness || 0));
-      const { box, outliers: out } = window.boxStats(vals);
-      compBox.push(box);
-      out.forEach(v => compOutliers.push([i, v]));
-    });
-    mkChart('prok-cm2-comp-chart', {
-      title: { text: 'Completeness Distribution (%)' },
-      tooltip: { trigger: 'item' },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
-      yAxis: { type: 'value', name: 'Completeness (%)', min: 0, max: 100 },
-      series: [
-        { name: 'Completeness', type: 'boxplot', data: compBox,
-          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
-        { name: 'Outlier', type: 'scatter', data: compOutliers,
-          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
-      ],
-      grid: { bottom: 90 },
-    });
+    // Completeness/contamination per sample, with the MIMAG cutoffs drawn in.
+    // A boxplot here hid bimodality -- a pile of fragmented bins near 0 plus a
+    // good group near 90 shares its box with a single broad distribution. The
+    // cutoff lines are the point: they show how close bins sit to MQ/HQ.
+    mkChart('prok-cm2-comp-chart', distPlot({
+      groups: samples.map(s => ({ name: s, values: (cm[s] || []).map(r => +(r.Completeness || 0)) })),
+      title: 'MAG Completeness Distribution (%)',
+      xName: 'Completeness (%)',
+      xMin: 0, xMax: 100,
+      cutoffs: [{ value: 50, label: 'MQ 50%' }, { value: 90, label: 'HQ 90%' }],
+    }));
 
-    // Contamination distribution — boxplot per sample
-    const contBox = [];
-    const contOutliers = [];
-    samples.forEach((s, i) => {
-      const vals = (cm[s] || []).map(r => +(r.Contamination || 0));
-      const { box, outliers: out } = window.boxStats(vals);
-      contBox.push(box);
-      out.forEach(v => contOutliers.push([i, v]));
-    });
-    mkChart('prok-cm2-cont-chart', {
-      title: { text: 'Contamination Distribution (%)' },
-      tooltip: { trigger: 'item' },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
-      yAxis: { type: 'value', name: 'Contamination (%)', min: 0 },
-      series: [
-        { name: 'Contamination', type: 'boxplot', data: contBox,
-          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
-        { name: 'Outlier', type: 'scatter', data: contOutliers,
-          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
-      ],
-      grid: { bottom: 90 },
-    });
+    mkChart('prok-cm2-cont-chart', distPlot({
+      groups: samples.map(s => ({ name: s, values: (cm[s] || []).map(r => +(r.Contamination || 0)) })),
+      title: 'MAG Contamination Distribution (%)',
+      xName: 'Contamination (%)',
+      xMin: 0,
+      cutoffs: [{ value: 5, label: 'HQ ≤5%' }, { value: 10, label: 'MQ ≤10%' }],
+    }));
 
     // MIMAG table
     const mimag = typeof MIMAG !== 'undefined' ? MIMAG : {};

@@ -116,14 +116,29 @@
     const cm   = R.checkm2 || {};
     const vlen = R.vlen || {};
 
-    _boxplotPerUnit('coas-vlen-chart', 'vOTU Length Distribution (bp)', 'Length (bp)',
-      units, u => (vlen[u] || []), { log: true });
-    _boxplotPerUnit('coas-size-chart', 'MAG Genome Size Distribution (Mb)', 'Genome size (Mb)',
-      units, u => (cm[u] || []).map(r => +(r.Genome_Size || r.genome_size || 0) / 1e6).filter(v => v > 0));
-    _boxplotPerUnit('coas-cm2-comp-chart', 'MAG Completeness Distribution (%)', 'Completeness (%)',
-      units, u => (cm[u] || []).map(r => +(r.Completeness || 0)));
-    _boxplotPerUnit('coas-cm2-cont-chart', 'MAG Contamination Distribution (%)', 'Contamination (%)',
-      units, u => (cm[u] || []).map(r => +(r.Contamination || 0)));
+    // Distributions per group. distPlot picks strip vs density vs ridgeline from
+    // the data and draws the MIMAG cutoffs (docs/REPORT_VIZ_GUIDE.md §4) — group
+    // MAG counts are often small, where a KDE would fabricate a smooth curve.
+    const byUnit = (fn) => units.map(u => ({ name: u, values: fn(u) }));
+    mkChart('coas-vlen-chart', distPlot({
+      groups: byUnit(u => (vlen[u] || []).filter(v => v > 0)),
+      title: 'vOTU Length Distribution (bp)', xName: 'Length (bp)', log: true,
+    }));
+    mkChart('coas-size-chart', distPlot({
+      groups: byUnit(u => (cm[u] || []).map(r => +(r.Genome_Size || r.genome_size || 0) / 1e6).filter(v => v > 0)),
+      title: 'MAG Genome Size Distribution (Mb)', xName: 'Genome size (Mb)', xMin: 0,
+    }));
+    mkChart('coas-cm2-comp-chart', distPlot({
+      groups: byUnit(u => (cm[u] || []).map(r => +(r.Completeness || 0))),
+      title: 'MAG Completeness Distribution (%)', xName: 'Completeness (%)',
+      xMin: 0, xMax: 100,
+      cutoffs: [{ value: 50, label: 'MQ 50%' }, { value: 90, label: 'HQ 90%' }],
+    }));
+    mkChart('coas-cm2-cont-chart', distPlot({
+      groups: byUnit(u => (cm[u] || []).map(r => +(r.Contamination || 0))),
+      title: 'MAG Contamination Distribution (%)', xName: 'Contamination (%)', xMin: 0,
+      cutoffs: [{ value: 5, label: 'HQ ≤5%' }, { value: 10, label: 'MQ ≤10%' }],
+    }));
 
     const mimag = R.mimag || {};
     const mimagRows = units.map(u => ({ group: u, ...(mimag[u] || { HQ: 0, MQ: 0, LQ: 0, total: 0 }) }));
@@ -134,26 +149,6 @@
       { key: 'LQ', label: 'LQ (other)' },
       { key: 'total', label: 'Total' },
     ]);
-  }
-
-  function _boxplotPerUnit(id, title, yName, units, valuesOf, opts = {}) {
-    const box = [], outliers = [];
-    units.forEach((u, i) => {
-      const { box: b, outliers: out } = window.boxStats(valuesOf(u) || []);
-      box.push(b);
-      out.forEach(v => outliers.push([i, v]));
-    });
-    mkChart(id, {
-      title: { text: title },
-      tooltip: { trigger: 'item' },
-      xAxis: { type: 'category', data: units, axisLabel: { rotate: 45 }, boundaryGap: true },
-      yAxis: { type: opts.log ? 'log' : 'value', name: yName, min: opts.log ? undefined : 0 },
-      series: [
-        { name: yName, type: 'boxplot', data: box, itemStyle: { color: PAL[0], borderColor: PAL[1] } },
-        { name: 'Outlier', type: 'scatter', data: outliers, symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
-      ],
-      grid: { bottom: 90 },
-    });
   }
 
   // ── Viral (selection-driven) ────────────────────────────────────────────────

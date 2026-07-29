@@ -172,12 +172,25 @@
     let lo = Math.min(...all), hi = Math.max(...all);
     if (!(hi > lo)) { hi = lo + 1; lo = lo - 1; }
     const padv = (hi - lo) * 0.06;
-    [lo, hi] = _niceBounds(lo - padv, hi + padv);
+    // On a log axis the working values are exponents, so whole numbers are the
+    // readable bounds (10^4, 10^5); _niceBounds would land on 10^6.5 = 3162278.
+    [lo, hi] = log
+      ? [Math.floor(lo - padv), Math.ceil(hi + padv)]
+      : _niceBounds(lo - padv, hi + padv);
     // Bounded measures (percentages) should not get an axis running to -20/120
     // just because the rounding padded outward — callers pass their real domain.
     if (opts.xMin !== undefined) lo = Math.max(lo, tx(opts.xMin));
     if (opts.xMax !== undefined) hi = Math.min(hi, tx(opts.xMax));
 
+    // Row colour. Ordinal groups (pipeline stages, tiers) pass their own ramp.
+    // Past the categorical budget every row takes ONE hue instead of cycling
+    // PAL: identity here is carried by the row label and position, so a cycled
+    // hue would claim a distinction it cannot deliver (slot 1 and slot 9 are the
+    // same colour) -- see REPORT_VIZ_GUIDE §5.
+    const _single = groups.length > window.VIZ.maxSeries;
+    const _pal = i => (opts.colors && opts.colors.length)
+      ? opts.colors[i % opts.colors.length]
+      : (_single ? window.PAL[0] : window.PAL[i]);
     const useDots = _median(groups.map(g => g.values.length)) < window.VIZ.densityMinN;
     const rows    = groups.length;
     const rowH    = rows > window.VIZ.manyGroups ? 26 : 46;
@@ -228,7 +241,7 @@
       };
       base.series = [{
         type: 'scatter', symbolSize: 7, data: pts,
-        itemStyle: { color: p => window.PAL[p.data[3] % window.PAL.length], opacity: 0.72,
+        itemStyle: { color: p => _pal(p.data[3]), opacity: 0.72,
                      borderColor: dark ? '#0b1220' : '#fff', borderWidth: 1 },
         markLine: cutLines.length ? { silent: true, symbol: 'none', data: cutLines } : undefined,
       }];
@@ -258,7 +271,7 @@
         if (!curve.length) return null;
         const top = curve.map(p => api.coord([inv(p[0]), i - p[1] * overlap]));
         const bot = curve.map(p => api.coord([inv(p[0]), i])).reverse();
-        const col = window.PAL[i % window.PAL.length];
+        const col = _pal(i);
         return {
           type: 'polygon',
           shape: { points: top.concat(bot) },

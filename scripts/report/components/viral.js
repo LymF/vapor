@@ -223,53 +223,24 @@
       grid: { bottom: 70 },
     });
 
-    // Viral contig length distribution — boxplot per sample
+    // Viral contig length / depth per sample. Both are heavily right-skewed, so
+    // they are drawn on a log axis; distPlot picks strip vs density vs ridgeline
+    // from the data (docs/REPORT_VIZ_GUIDE.md §4).
     const lenData = typeof VIRAL_LENGTHS !== 'undefined' ? VIRAL_LENGTHS : {};
-    const lenBox = [];
-    const lenOutliers = [];
-    samples.forEach((s, i) => {
-      const { box, outliers: out } = window.boxStats(lenData[s] || []);
-      lenBox.push(box);
-      out.forEach(v => lenOutliers.push([i, v]));
-    });
+    mkChart('vir-len-chart', distPlot({
+      groups: samples.map(s => ({ name: s, values: (lenData[s] || []).filter(v => v > 0) })),
+      title: 'Viral Contig Length Distribution (bp)',
+      xName: 'Length (bp)',
+      log: true,
+    }));
 
-    mkChart('vir-len-chart', {
-      title: { text: 'Viral Contig Length Distribution (bp)' },
-      tooltip: { trigger: 'item' },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
-      yAxis: { type: 'log', name: 'Length (bp)' },
-      series: [
-        { name: 'Length',  type: 'boxplot', data: lenBox,
-          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
-        { name: 'Outlier', type: 'scatter', data: lenOutliers,
-          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
-      ],
-      grid: { bottom: 90 },
-    });
-
-    // Viral contig depth distribution — boxplot per sample
     const depthData = typeof VIRAL_DEPTH !== 'undefined' ? VIRAL_DEPTH : {};
-    const depthBox = [];
-    const depthOutliers = [];
-    samples.forEach((s, i) => {
-      const { box, outliers: out } = window.boxStats(depthData[s] || []);
-      depthBox.push(box);
-      out.forEach(v => depthOutliers.push([i, v]));
-    });
-
-    mkChart('vir-depth-chart', {
-      title: { text: 'Viral Contig Coverage Depth Distribution (×)' },
-      tooltip: { trigger: 'item' },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 }, boundaryGap: true },
-      yAxis: { type: 'log', name: 'Depth (×)' },
-      series: [
-        { name: 'Depth',   type: 'boxplot', data: depthBox,
-          itemStyle: { color: PAL[0], borderColor: PAL[1] } },
-        { name: 'Outlier', type: 'scatter', data: depthOutliers,
-          symbolSize: 4, itemStyle: { color: PAL[3], opacity: 0.5 } },
-      ],
-      grid: { bottom: 90 },
-    });
+    mkChart('vir-depth-chart', distPlot({
+      groups: samples.map(s => ({ name: s, values: (depthData[s] || []).filter(v => v > 0) })),
+      title: 'Viral Contig Coverage Depth Distribution (×)',
+      xName: 'Depth (×)',
+      log: true,
+    }));
   }
 
   // ── Taxonomy ──────────────────────────────────────────────────────────────
