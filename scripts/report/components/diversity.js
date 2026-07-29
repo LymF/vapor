@@ -31,27 +31,43 @@
       const label   = dom === 'prok' ? 'Prokaryotic' : dom.charAt(0).toUpperCase() + dom.slice(1);
       const domData = byDomain[dom] || {};
 
-      const series = indices.filter(idx => domData[idx]).map((idx, i) => ({
-        name:   idx.charAt(0).toUpperCase() + idx.slice(1),
-        type:   'bar',
-        color:  PAL[i % PAL.length],
-        data:   samples.map(s => +(domData[idx]?.[s] || 0).toFixed(3)),
-      }));
-
-      if (!series.length) {
+      // Shannon (~0-5), Simpson (0-1), observed and Chao1 (often hundreds)
+      // were plotted as bars on ONE value axis: the richness indices flattened
+      // Shannon and Simpson into invisible slivers. Different measures, so each
+      // is normalised to its own maximum and shown as a heatmap (index x
+      // sample) with raw values in the tooltip -- REPORT_VIZ_GUIDE §3.
+      const present = indices.filter(idx => domData[idx]);
+      if (!present.length) {
         const el = document.getElementById(chartId);
         if (el) el.innerHTML = '<p style="color:var(--text-muted);font-size:.8rem;padding:1rem">No alpha diversity data for this domain.</p>';
         return;
       }
 
+      const rawByIdx = present.map(idx => samples.map(s => +(domData[idx]?.[s] || 0)));
+      const maxByIdx = rawByIdx.map(row => Math.max(...row, 1e-9));
+      const cells = [];
+      present.forEach((idx, mi) => samples.forEach((s, si) => {
+        cells.push({ value: [si, mi, +(rawByIdx[mi][si] / maxByIdx[mi] * 100).toFixed(1)],
+                     raw: rawByIdx[mi][si] });
+      }));
+      const idxLabels = present.map(i => i.charAt(0).toUpperCase() + i.slice(1));
+
       mkChart(chartId, {
-        title: { text: `Alpha Diversity — ${label}` },
-        tooltip: { trigger: 'axis' },
-        legend: { data: series.map(s => s.name) },
+        __height: Math.max(230, 120 + present.length * 34),
+        title: { text: `Alpha Diversity — ${label} (% of the highest sample per index)` },
+        tooltip: { trigger: 'item',
+          formatter: p => `${samples[p.value[0]]}<br>${idxLabels[p.value[1]]}: `
+                        + `<strong>${p.data.raw.toFixed(3)}</strong><br>${p.value[2]}% of max` },
+        legend: { show: false },
         xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30 } },
-        yAxis: { type: 'value', name: 'Index value' },
-        series,
-        grid: { bottom: 70 },
+        yAxis: { type: 'category', data: idxLabels },
+        visualMap: { min: 0, max: 100, calculable: false, show: true,
+          orient: 'horizontal', left: 'center', bottom: 4, itemHeight: 90,
+          inRange: { color: ['#f0fdfa', '#5eead4', '#0d9488', '#134e4a'] },
+          textStyle: { fontSize: 10 } },
+        series: [{ type: 'heatmap', data: cells,
+                   itemStyle: { borderColor: 'transparent', borderWidth: 2 } }],
+        grid: { top: 44, bottom: 78, left: 12, right: 20, containLabel: true },
       });
     });
   }
@@ -96,12 +112,16 @@
     const var1     = rows[0]?.var_pc1 ? (+rows[0].var_pc1 * 100).toFixed(1) : '?';
     const var2     = rows[0]?.var_pc2 ? (+rows[0].var_pc2 * 100).toFixed(1) : '?';
 
-    const xScale = d3.scaleLinear()
-      .domain([d3.min(pc1Vals) * 1.2, d3.max(pc1Vals) * 1.2]).range([0, iW]);
-    const yScale = d3.scaleLinear()
-      .domain([d3.min(pc2Vals) * 1.2, d3.max(pc2Vals) * 1.2]).range([iH, 0]);
-
-    const color  = d3.scaleOrdinal(PAL);
+    // Pad the extent additively. Scaling the bounds by 1.2 shrank the domain
+    // whenever min was positive (or max negative), clipping the outermost
+    // samples straight off the plot.
+    const padDom = (vals, f = 0.12) => {
+      const lo = d3.min(vals), hi = d3.max(vals);
+      const pad = ((hi - lo) || Math.abs(hi) || 1) * f;
+      return [lo - pad, hi + pad];
+    };
+    const xScale = d3.scaleLinear().domain(padDom(pc1Vals)).range([0, iW]);
+    const yScale = d3.scaleLinear().domain(padDom(pc2Vals)).range([iH, 0]);
 
     const svg = d3.select(el).append('svg').attr('width', W).attr('height', H);
     const g   = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
@@ -139,8 +159,11 @@
       .attr('cx', d => xScale(+d.pc1))
       .attr('cy', d => yScale(+d.pc2))
       .attr('r',  8)
-      .attr('fill', d => color(d.sample))
-      .attr('fill-opacity', 0.85)
+      // One hue: sample identity is carried by the tooltip, and keying an
+      // ordinal scale on sample name cycled PAL past 8 samples -- two different
+      // samples drawn in the same colour, implying a grouping that is not there.
+      .attr('fill', PAL[0])
+      .attr('fill-opacity', 0.8)
       .attr('stroke', dark ? '#0f172a' : '#fff')
       .attr('stroke-width', 1.5)
       .on('mouseover', (e, d) => {

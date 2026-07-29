@@ -87,22 +87,27 @@
       el.innerHTML = '<p class="muted" style="padding:20px;text-align:center">No data at this rank level</p>';
       return;
     }
-    const series = groups.map(g => ({
-      name: g.label,
-      type: 'bar',
-      stack: 'total',
+    // Fold to the validated 7 hues + "Other". `groups` arrives sorted by total
+    // abundance and could be 15 long -- stacking those cycled PAL, so taxon 1
+    // and taxon 9 were painted identically while the legend called them
+    // different. Routed through samplesBar so it also stays readable past
+    // VIZ.manySamples (REPORT_VIZ_GUIDE §4).
+    const keep = groups.slice(0, window.VIZ.maxSeries - 1);
+    const rest = groups.slice(window.VIZ.maxSeries - 1);
+    const series = keep.map((g, i) => ({
+      name: g.label, color: window.PAL[i],
       data: samples.map(s => +(g[s] || 0).toFixed(5)),
     }));
-    window.mkChart(chartId, {
-      title: { text: title, textStyle: { fontSize: 13 } },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
-        formatter: params => params.map(p => `${p.marker}${p.seriesName}: ${(+p.value).toFixed(3)}%`).join('<br>') },
-      legend: { type: 'scroll', bottom: 0, textStyle: { fontSize: 11 }, show: true },
-      grid: { bottom: 60 },
-      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 30, fontSize: 10 } },
-      yAxis: { type: 'value', name: 'Relative abundance (%)', axisLabel: { formatter: v => `${(+v).toFixed(1)}%` } },
-      series,
-    });
+    if (rest.length) {
+      const otherData = samples.map(s => +rest.reduce((a, g) => a + (g[s] || 0), 0).toFixed(5));
+      if (otherData.some(v => v > 0)) {
+        series.push({ name: `Other (${rest.length})`, color: window.PAL_MUTED, data: otherData });
+      }
+    }
+    window.mkChart(chartId, window.samplesBar({
+      samples, series, title, stack: true,
+      valueName: 'Relative abundance (%)',
+    }));
   }
 
   function _barChart(chartId, labels, values, title, color) {
@@ -114,7 +119,7 @@
       grid: { left: 120 },
       xAxis: { type: 'value', axisLabel: { formatter: v => `${(+v).toFixed(2)}` } },
       yAxis: { type: 'category', data: labels, axisLabel: { fontSize: 10 } },
-      series: [{ type: 'bar', data: values, itemStyle: { color: color || '#5b8ff9' } }],
+      series: [{ type: 'bar', data: values, itemStyle: { color: color || window.PAL[0] } }],
     });
   }
 
@@ -149,7 +154,7 @@
 
     // Richness (detected taxa per sample)
     const richness = samples.map(s => viral.filter(r => (r[s] || 0) > 0).length);
-    _barChart('rc-viral-richness-chart', samples, richness, 'Detected Viral Taxa per Sample', '#5ad8a6');
+    _barChart('rc-viral-richness-chart', samples, richness, 'Detected Viral Taxa per Sample', window.PAL[4]);
 
     // Class breakdown — most environmental viromes are Caudoviricetes-dominated
     const classes = _aggregateByRank(viral, 'class', 8);
@@ -196,7 +201,7 @@
 
     // Richness
     const richness = samples.map(s => prok.filter(r => (r[s]||0) > 0).length);
-    _barChart('rc-prok-richness-chart', samples, richness, 'Prokaryotic Taxa Detected per Sample', '#5d7092');
+    _barChart('rc-prok-richness-chart', samples, richness, 'Prokaryotic Taxa Detected per Sample', window.PAL_MUTED);
 
     // Table
     const tableRows = prok
@@ -232,7 +237,7 @@
     const labels = top.map(r => r.host_genus || 'Unknown');
     const values = top.map(r => samples.reduce((t, s) => t + (r[s] || 0), 0) / samples.length);
     _barChart('rc-host-chart', labels.reverse(), values.reverse(),
-      'Mean Viral Relative Abundance by Predicted Host Genus', '#e8684a');
+      'Mean Viral Relative Abundance by Predicted Host Genus', window.PAL[1]);
 
     const tableRows = host.map(r => ({
       'Host Genus': r.host_genus || 'Unknown',
