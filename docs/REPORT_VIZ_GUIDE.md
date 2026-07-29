@@ -71,9 +71,12 @@ The core table. "n" is the number of items actually plotted.
 The rules that make the report adapt to any dataset. Implement them as thresholds,
 never as per-dataset special cases.
 
+All thresholds live in one object, `window.VIZ` (`app.js`) — change one there and
+every chart built on the helpers follows.
+
 | Trigger | Threshold | Behavior |
 |---|---|---|
-| **Samples on a category axis** | n > 12 | bars stop being readable → switch to heatmap, small multiples, or sort + top-N |
+| **Samples on a category axis** | n > 12 | the axis flips **horizontal** and rows sort by total, so names read straight and every sample stays visible (`samplesBar`) |
 | **Distribution, few points** | n < 20 | **dot / strip plot** — a KDE over few points invents structure that is not in the data |
 | **Distribution, enough points** | n ≥ 20 | histogram or density |
 | **Distributions across samples** | samples > 8 | **ridgeline** instead of a row of boxplots |
@@ -182,7 +185,10 @@ re-implementing:
 
 | Helper | Purpose |
 |---|---|
-| `mkChart(id, option)` | ECharts wrapper: registers the instance, handles resize and theme |
+| `mkChart(id, option)` | ECharts wrapper: registers the instance, handles resize and theme. Honours `option.__height` for forms whose height depends on the data |
+| `VIZ` | the numeric triggers of §4, in one object |
+| `samplesBar({samples, series, stack, valueName, sort})` | one value per sample, N series. Vertical bars while small; **horizontal + sorted** past `VIZ.manySamples` |
+| `distPlot({groups, xName, log, cutoffs, xMin, xMax})` | distribution per unit. Picks **strip plot** (median n < `VIZ.densityMinN`), **density**, or **ridgeline** (groups > `VIZ.manyGroups`); `cutoffs` draws threshold lines |
 | `makeTable(id, rows, cols, opts)` | paginated + searchable table (the "table view" the a11y pass requires) |
 | `boxStats(values)` | quartiles + outliers |
 | `foldOther(map, max)` | folds a `{name: count}` tail into "Other" — the ≤8 series rule |

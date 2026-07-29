@@ -77,6 +77,250 @@
     };
   };
 
+  // ══ Data-shape helpers ═══════════════════════════════════════════════════
+  // The numeric triggers from docs/REPORT_VIZ_GUIDE.md §4, in one place. Charts
+  // adapt to the SHAPE of the data (how many samples, how many points) so the
+  // report works on a 3-sample run and a 300-sample run without per-dataset
+  // special cases. Change a threshold here and every chart follows.
+  window.VIZ = {
+    manySamples:  12,   // above this a per-sample category axis stops being readable
+    densityMinN:  20,   // below this a KDE invents structure -> show the points
+    manyGroups:    8,   // above this, distributions go to a ridgeline
+    denseScatter: 500,  // above this a scatter overplots -> hexbin / 2-D density
+    maxSeries:     8,   // validated categorical budget (see foldOther)
+  };
+
+  // Gaussian KDE on a fixed grid, Silverman bandwidth. Returns [[x, density], …]
+  // normalised so the peak is 1 — ridgeline rows are shape comparisons, not
+  // absolute-density comparisons, and per-row normalisation is what makes rows
+  // with very different n readable side by side.
+  function _kde(values, gridN, lo, hi) {
+    const v = values.filter(x => Number.isFinite(x));
+    const n = v.length;
+    if (!n) return [];
+    const mean = v.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(v.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1)) || 1e-9;
+    const sorted = v.slice().sort((a, b) => a - b);
+    const q = p => sorted[Math.min(n - 1, Math.max(0, Math.round((n - 1) * p)))];
+    const iqr = q(0.75) - q(0.25);
+    // Silverman: 0.9 * min(sd, IQR/1.34) * n^(-1/5)
+    let bw = 0.9 * Math.min(sd, (iqr || sd) / 1.34) * Math.pow(n, -0.2);
+    if (!(bw > 0)) bw = (hi - lo) / 50 || 1e-6;
+    const out = [];
+    let peak = 0;
+    for (let i = 0; i < gridN; i++) {
+      const x = lo + (hi - lo) * i / (gridN - 1);
+      let d = 0;
+      for (let j = 0; j < n; j++) {
+        const z = (x - v[j]) / bw;
+        d += Math.exp(-0.5 * z * z);
+      }
+      d /= (n * bw * Math.sqrt(2 * Math.PI));
+      if (d > peak) peak = d;
+      out.push([x, d]);
+    }
+    if (peak > 0) out.forEach(p => { p[1] /= peak; });
+    return out;
+  }
+
+  // Round an interval outward to human-readable bounds (1/2/5 x 10^k). Explicit
+  // axis min/max are unavoidable for the ridgeline (a `custom` series carries
+  // index data, so ECharts cannot infer the value extent from it) and raw
+  // float extents would print as "44.228926583" on the axis.
+  function _niceBounds(lo, hi) {
+    const span = hi - lo;
+    if (!(span > 0)) return [lo - 1, hi + 1];
+    const raw = span / 4;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag;
+    const step = mag * (norm >= 5 ? 5 : norm >= 2 ? 2 : 1);
+    return [Math.floor(lo / step) * step, Math.ceil(hi / step) * step];
+  }
+
+  function _median(a) {
+    const s = a.slice().sort((x, y) => x - y);
+    if (!s.length) return 0;
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+
+  /**
+   * Distribution of a continuous variable, one row per unit (sample/group).
+   * Picks the form from the data, per REPORT_VIZ_GUIDE §4:
+   *   median group n < VIZ.densityMinN -> strip plot (real points, no KDE)
+   *   otherwise                        -> kernel density
+   *   groups > VIZ.manyGroups          -> ridgeline layout
+   * `cutoffs` draws threshold lines (MIMAG 50/90, CheckV tiers …) — the whole
+   * point of showing the distribution is seeing how close things sit to them.
+   */
+  window.distPlot = function (opts) {
+    const groups  = (opts.groups || []).filter(g => (g.values || []).length);
+    const log     = !!opts.log;
+    const cutoffs = opts.cutoffs || [];
+    const dark    = document.documentElement.dataset.theme === 'dark';
+    const axisInk = dark ? '#94a3b8' : '#64748b';
+    if (!groups.length) {
+      return { title: { text: opts.title || '' },
+               graphic: { type: 'text', left: 'center', top: 'middle',
+                          style: { text: 'No data', fill: axisInk, fontSize: 12 } } };
+    }
+
+    const tx = v => log ? Math.log10(Math.max(v, 1e-9)) : v;
+    const inv = v => log ? Math.pow(10, v) : v;
+    const all = [];
+    groups.forEach(g => g.values.forEach(v => { if (Number.isFinite(v)) all.push(tx(v)); }));
+    let lo = Math.min(...all), hi = Math.max(...all);
+    if (!(hi > lo)) { hi = lo + 1; lo = lo - 1; }
+    const padv = (hi - lo) * 0.06;
+    [lo, hi] = _niceBounds(lo - padv, hi + padv);
+    // Bounded measures (percentages) should not get an axis running to -20/120
+    // just because the rounding padded outward — callers pass their real domain.
+    if (opts.xMin !== undefined) lo = Math.max(lo, tx(opts.xMin));
+    if (opts.xMax !== undefined) hi = Math.min(hi, tx(opts.xMax));
+
+    const useDots = _median(groups.map(g => g.values.length)) < window.VIZ.densityMinN;
+    const rows    = groups.length;
+    const rowH    = rows > window.VIZ.manyGroups ? 26 : 46;
+    const height  = Math.max(220, 74 + rows * rowH);
+    const names   = groups.map(g => g.name);
+    const overlap = rows > window.VIZ.manyGroups ? 1.5 : 0.82;
+    // Row labels come from a value axis, so `interval: 1` only lands on integers
+    // when min is itself an integer — otherwise ticks fall on 0.4/1.4/… and the
+    // formatter looks up names[0.4] and renders nothing.
+    const minY = Math.floor(useDots ? -0.8 : -(overlap + 0.35));
+
+    const cutLines = cutoffs.map(c => ({
+      xAxis: inv(tx(c.value)),
+      lineStyle: { color: c.color || (dark ? '#f87171' : '#ef4444'), type: 'dashed', width: 1.2 },
+      label: { formatter: c.label || String(c.value), color: axisInk, fontSize: 10, position: 'insideEndTop' },
+    }));
+
+    const base = {
+      __height: height,
+      title: { text: opts.title || '' },
+      legend: { show: false },
+      grid: { top: 44, bottom: 46, left: 12, right: 22, containLabel: true },
+      xAxis: {
+        type: log ? 'log' : 'value',
+        name: opts.xName || '', nameLocation: 'middle', nameGap: 28,
+        min: inv(lo), max: inv(hi),
+        splitLine: { show: true },
+      },
+      yAxis: {
+        type: 'value', min: minY, max: rows - 1 + 0.45, inverse: true,
+        interval: 1,
+        axisLabel: { formatter: v => names[v] !== undefined ? names[v] : '', color: axisInk, fontSize: 11 },
+        splitLine: { show: false }, axisLine: { show: false }, axisTick: { show: false },
+      },
+    };
+
+    if (useDots) {
+      // Strip plot: every observation drawn, deterministic jitter within the row.
+      const pts = [];
+      groups.forEach((g, i) => g.values.forEach((v, k) => {
+        if (!Number.isFinite(v)) return;
+        const jitter = ((k * 2654435761 % 1000) / 1000 - 0.5) * 0.36;
+        pts.push([inv(tx(v)), i + jitter, g.name, i]);
+      }));
+      base.tooltip = {
+        trigger: 'item',
+        formatter: p => `${p.data[2]}<br>${opts.xName || 'value'}: ${(+p.data[0]).toLocaleString()}`,
+      };
+      base.series = [{
+        type: 'scatter', symbolSize: 7, data: pts,
+        itemStyle: { color: p => window.PAL[p.data[3] % window.PAL.length], opacity: 0.72,
+                     borderColor: dark ? '#0b1220' : '#fff', borderWidth: 1 },
+        markLine: cutLines.length ? { silent: true, symbol: 'none', data: cutLines } : undefined,
+      }];
+      base.__mode = 'dots';
+      return base;
+    }
+
+    // Density / ridgeline: one filled polygon per row, drawn by a single custom
+    // series (one series per group would blow past the legend/series budget).
+    const curves = groups.map(g => _kde(g.values.map(tx), 72, lo, hi));
+    base.tooltip = {
+      trigger: 'item',
+      formatter: p => {
+        const g = groups[p.dataIndex];
+        const s = g.values.slice().sort((a, b) => a - b);
+        return `<strong>${g.name}</strong><br>n = ${s.length}`
+             + `<br>median: ${(+_median(s)).toLocaleString()}`
+             + `<br>range: ${(+s[0]).toLocaleString()} – ${(+s[s.length - 1]).toLocaleString()}`;
+      },
+    };
+    base.series = [{
+      type: 'custom',
+      data: groups.map((_, i) => i),
+      renderItem: (params, api) => {
+        const i = params.dataIndex;
+        const curve = curves[i];
+        if (!curve.length) return null;
+        const top = curve.map(p => api.coord([inv(p[0]), i - p[1] * overlap]));
+        const bot = curve.map(p => api.coord([inv(p[0]), i])).reverse();
+        const col = window.PAL[i % window.PAL.length];
+        return {
+          type: 'polygon',
+          shape: { points: top.concat(bot) },
+          style: { fill: col, opacity: 0.72, stroke: col, lineWidth: 1.4 },
+        };
+      },
+      markLine: cutLines.length ? { silent: true, symbol: 'none', data: cutLines } : undefined,
+    }];
+    base.__mode = 'density';
+    return base;
+  };
+
+  /**
+   * One value per sample, optionally several series. Vertical bars while the
+   * sample count is small; past VIZ.manySamples the axis flips horizontal
+   * (names read straight, height grows) and rows sort by total, which keeps
+   * every sample visible instead of degrading into an unreadable comb.
+   */
+  window.samplesBar = function (opts) {
+    const samples = opts.samples || [];
+    const series  = opts.series  || [];
+    const many    = samples.length > window.VIZ.manySamples;
+    const stack   = opts.stack ? 'total' : undefined;
+
+    let order = samples.map((_, i) => i);
+    if (many && opts.sort !== false) {
+      const totals = samples.map((_, i) => series.reduce((a, s) => a + (+s.data[i] || 0), 0));
+      order = order.sort((a, b) => totals[a] - totals[b]);   // ascending: biggest on top
+    }
+    const cats = order.map(i => samples[i]);
+    const mk   = s => ({
+      name: s.name, type: 'bar', stack,
+      itemStyle: { color: s.color, borderRadius: stack ? 0 : [0, 3, 3, 0] },
+      barMaxWidth: many ? 18 : 42,
+      data: order.map(i => s.data[i]),
+    });
+
+    const common = {
+      title: { text: opts.title || '' },
+      legend: series.length > 1 ? { data: series.map(s => s.name) } : { show: false },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      series: series.map(mk),
+    };
+
+    if (!many) {
+      return {
+        ...common,
+        xAxis: { type: 'category', data: cats, axisLabel: { rotate: 30 } },
+        yAxis: { type: 'value', name: opts.valueName || '' },
+        grid: { bottom: 70 },
+        series: common.series.map(s => ({ ...s, itemStyle: { ...s.itemStyle, borderRadius: stack ? 0 : [3, 3, 0, 0] } })),
+      };
+    }
+    return {
+      ...common,
+      __height: Math.max(260, 70 + cats.length * 22),
+      xAxis: { type: 'value', name: opts.valueName || '', nameLocation: 'middle', nameGap: 28 },
+      yAxis: { type: 'category', data: cats, axisLabel: { fontSize: 11 } },
+      grid: { top: series.length > 1 ? 58 : 36, bottom: 46, left: 12, right: 26, containLabel: true },
+    };
+  };
+
   // ── ECharts base theme ────────────────────────────────────────────────────
   function echartsTheme() {
     const dark = document.documentElement.dataset.theme === 'dark';
@@ -125,6 +369,16 @@
   window.mkChart = function (id, option) {
     const el = document.getElementById(id);
     if (!el) return null;
+    // Forms whose height depends on the data (horizontal per-sample bars,
+    // ridgelines) ask for it via __height — the CSS box height is a default for
+    // fixed-height charts, not a cap on a chart with 200 rows.
+    if (option.__height) {
+      const h = Math.round(option.__height);
+      if (el.clientHeight !== h) {
+        el.style.height = h + 'px';
+        if (window._charts[id]) window._charts[id].resize();
+      }
+    }
     let chart = window._charts[id];
     if (!chart) {
       chart = echarts.init(el, null, { renderer: 'canvas' });
