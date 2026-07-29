@@ -231,6 +231,7 @@
     });
 
     _renderRankBar(tax, label);
+    _renderAccumulation(unit, isAll, units);
 
     const tableCard = document.querySelector('#coas-tax-table')?.closest('.chart-card');
     if (tableCard) tableCard.style.display = isAll ? 'none' : '';
@@ -245,6 +246,74 @@
         { key: 'Completeness', label: 'Completeness' },
       ], { searchId: 'coas-tax-search', format: { CheckV_quality: qualBadge } });
     }
+  }
+
+  // ── vOTU accumulation (collector curve) ─────────────────────────────────────
+  // Only meaningful on the co-assembly track: a group's vOTUs are clustered once
+  // over the co-assembled contigs, so vOTU identity is shared across the group's
+  // samples and can be accumulated. Sample order is arbitrary, so the loader
+  // averages over random permutations; the band is the 10-90 percentile.
+  // A curve still climbing at the last sample means the group is NOT saturated —
+  // more samples would keep yielding unseen vOTUs.
+  function _renderAccumulation(unit, isAll, units) {
+    const acc = typeof VOTU_ACCUM !== 'undefined' ? VOTU_ACCUM : {};
+    const keys = (isAll ? units : [unit]).filter(u => acc[u]);
+    const el = document.getElementById('coas-accum-chart');
+    if (!el) return;
+    if (!keys.length) {
+      mkChart('coas-accum-chart', {
+        title: { text: 'vOTU Accumulation' },
+        graphic: { type: 'text', left: 'center', top: 'middle',
+                   style: { text: 'Needs the group abundance matrix (short-read co-binning)',
+                            fill: PAL_MUTED, fontSize: 12 } },
+      });
+      return;
+    }
+
+    const maxN = Math.max(...keys.map(k => acc[k].n_samples));
+    const xs = Array.from({ length: maxN }, (_, i) => i + 1);
+    const series = [];
+
+    // Percentile band, single group only — overlapping bands are unreadable.
+    if (keys.length === 1) {
+      const c = acc[keys[0]];
+      series.push(
+        { name: 'lo', type: 'line', stack: 'band', symbol: 'none', silent: true,
+          lineStyle: { opacity: 0 }, areaStyle: { opacity: 0 }, data: c.lo },
+        { name: 'band', type: 'line', stack: 'band', symbol: 'none', silent: true,
+          lineStyle: { opacity: 0 },
+          areaStyle: { color: PAL[0], opacity: 0.16 },
+          data: c.hi.map((h, i) => h - c.lo[i]) },
+      );
+    }
+    keys.slice(0, window.VIZ.maxSeries).forEach((k, i) => {
+      series.push({
+        name: k, type: 'line', symbol: 'circle', symbolSize: 6, smooth: false,
+        lineStyle: { width: 2, color: PAL[i] }, itemStyle: { color: PAL[i] },
+        data: acc[k].mean,
+      });
+    });
+
+    const one = keys.length === 1 ? acc[keys[0]] : null;
+    mkChart('coas-accum-chart', {
+      title: { text: one
+        ? `vOTU Accumulation — ${keys[0]} (${one.total.toLocaleString()} vOTUs, `
+          + `${one.n_samples} samples, ≥${one.min_depth}× depth)`
+        : 'vOTU Accumulation per Group' },
+      tooltip: { trigger: 'axis',
+        formatter: ps => {
+          const p = ps.filter(x => x.seriesName !== 'lo' && x.seriesName !== 'band');
+          if (!p.length) return '';
+          return `${p[0].axisValue} sample(s)<br>`
+               + p.map(x => `${x.marker}${x.seriesName}: ${x.value} vOTUs`).join('<br>');
+        } },
+      legend: keys.length > 1 ? { data: keys.slice(0, window.VIZ.maxSeries) } : { show: false },
+      xAxis: { type: 'category', data: xs, name: 'Samples pooled',
+               nameLocation: 'middle', nameGap: 28, boundaryGap: false },
+      yAxis: { type: 'value', name: 'Distinct vOTUs' },
+      series,
+      grid: { top: keys.length > 1 ? 58 : 44, bottom: 52, left: 12, right: 24, containLabel: true },
+    });
   }
 
   function _renderRankBar(tax, label) {

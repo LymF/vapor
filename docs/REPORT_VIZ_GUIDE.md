@@ -61,7 +61,7 @@ The core table. "n" is the number of items actually plotted.
 | **Genomic coordinates** (defense islands, genome maps) | **track / browser**: bp ruler, strand-aware arrows, true feature widths | never plot gene *order* when coordinates exist |
 | **Pairwise relations** (gene sharing, phage–host) | node-link when sparse; **adjacency matrix** when dense; bipartite for two entity types | past ~150 nodes a node-link is a hairball — go to the matrix |
 | **Ordination** (PCoA / NMDS) | scatter, **% variance on both axes**, ellipses when groups exist | axes without variance % are incomplete |
-| **Effort vs discovery** | **accumulation / rarefaction curve** | required to support any saturation or novelty claim |
+| **Effort vs discovery** | **accumulation / rarefaction curve** | needs a feature space shared across samples. In VAPOR that exists **only on the co-assembly track** (a group's vOTUs are clustered once); per-sample vOTUs are clustered independently, so accumulating them would count the same virus repeatedly. Always average over random sample orders — one ordering is arbitrary |
 | **Ranked list with long names** | **horizontal bar**, top-N + "Other" | horizontal whenever labels exceed ~12 characters |
 
 ---
@@ -191,6 +191,7 @@ re-implementing:
 | `distPlot({groups, xName, log, cutoffs, xMin, xMax, colors})` | distribution per unit. Picks **strip plot** (median n < `VIZ.densityMinN`), **density**, or **ridgeline** (groups > `VIZ.manyGroups`); `cutoffs` draws threshold lines |
 | `upsetPlot({sets, combos, valueName})` | set-intersection sizes + membership matrix — the readable form for tool/detector agreement |
 | `hexbin(pts, {threshold, cols})` | hex-grid density binning for saturated scatters; returns `null` below `VIZ.denseScatter` so the caller keeps drawing points |
+| `load_votu_accumulation()` (Python) | per-group collector curve from the co-binning abundance matrix + vOTU clusters; permutation mean + 10–90 band |
 | `makeTable(id, rows, cols, opts)` | paginated + searchable table (the "table view" the a11y pass requires) |
 | `boxStats(values)` | quartiles + outliers |
 | `foldOther(map, max)` | folds a `{name: count}` tail into "Other" — the ≤8 series rule |

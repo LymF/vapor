@@ -24,6 +24,7 @@ from .data_loaders import (
     enrich_taxonomy_with_checkv, collapse_taxonomy_to_votu, merge_prok_taxonomy,
     load_alpha_diversity, load_pcoord, load_eggnog, load_phrogs,
     load_genome_maps, load_reads_classify, load_coassembly, load_coassembly_rich,
+    load_votu_accumulation,
     path_dict, collect_tool_versions,
 )
 
@@ -158,6 +159,7 @@ def _build(snakemake):
     _coas_groups = list(getattr(snakemake.params, "coassembly_groups", []) or [])
     coassembly_data = load_coassembly(outdir, _coas_groups)
     coassembly_rich = load_coassembly_rich(outdir, _coas_groups)
+    votu_accum      = load_votu_accumulation(outdir, _coas_groups)
 
     # ── Merge vConTACT3 into tax_data ─────────────────────────────────────────
     tax_genome_keys = {(r.get('sample', ''), r.get('Genome', '')) for r in tax_data}
@@ -445,6 +447,7 @@ def _build(snakemake):
         "TRACKS":       tracks_param,
         "COASSEMBLY_DATA": coassembly_data,
         "COAS_RICH":       coassembly_rich,
+        "VOTU_ACCUM":      votu_accum,
     })
 
     # ── Assemble HTML ─────────────────────────────────────────────────────────

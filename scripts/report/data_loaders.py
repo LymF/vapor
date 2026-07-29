@@ -3,7 +3,7 @@
 Ported verbatim from generate_report.py with new loaders added for
 alpha diversity, PCoA, KEGG, and eggnog aggregation.
 """
-import os, re, glob, csv, json, zipfile
+import os, re, glob, csv, json, random, zipfile
 from collections import Counter, defaultdict
 
 
@@ -1608,6 +1608,86 @@ def load_coassembly(outdir, groups):
                 "votu_families": votu_families,
             })
     return {"groups": out, "has_data": bool(out)}
+
+
+def load_votu_accumulation(outdir, groups, min_depth=1.0, n_perm=100, seed=0):
+    """vOTU accumulation (collector) curve per co-assembly group.
+
+    Only computable on the co-assembly track: a group's vOTUs are clustered ONCE
+    over the co-assembled contigs, so vOTU identity is shared across the group's
+    samples. (Per-sample vOTUs are clustered independently, so "vOTU_1" in two
+    samples are unrelated labels and cannot be accumulated — see
+    docs/REPORT_VIZ_GUIDE.md.)
+
+    Presence: a vOTU counts as seen in a sample when any of its member contigs
+    reaches `min_depth` mean coverage there, read from the group's VAMB
+    abundance matrix (contig x sample totalAvgDepth) that co-binning already
+    builds. Sample order is arbitrary, so the curve is averaged over `n_perm`
+    random orders and reported with a 10-90 percentile band rather than one
+    misleading ordering."""
+    rng = random.Random(seed)
+    out = {}
+    for g in groups or []:
+        matrix = os.path.join(outdir, "coassembly", g, "vamb", "abundance.tsv")
+        clusters = os.path.join(outdir, "coassembly", g, "viral", "votu", "vOTU_clusters.tsv")
+        if not (os.path.exists(matrix) and os.path.exists(clusters)):
+            continue
+
+        member_to_rep = {}
+        for row in load_tsv(clusters):
+            m, r = row.get("member", ""), row.get("representative", "")
+            if m and r:
+                member_to_rep[m] = r
+        if not member_to_rep:
+            continue
+
+        # rep -> set of samples where any member reaches min_depth
+        present = defaultdict(set)
+        samples = []
+        try:
+            with open(matrix) as fh:
+                header = fh.readline().rstrip("\n").split("\t")
+                samples = header[1:]
+                for line in fh:
+                    parts = line.rstrip("\n").split("\t")
+                    rep = member_to_rep.get(parts[0])
+                    if not rep:
+                        continue
+                    for i, s in enumerate(samples, start=1):
+                        if i < len(parts) and safe_float(parts[i]) >= min_depth:
+                            present[rep].add(s)
+        except Exception:
+            continue
+        if not present or len(samples) < 2:
+            continue
+
+        by_sample = {s: {rep for rep, ss in present.items() if s in ss} for s in samples}
+        n = len(samples)
+        curves = []
+        for _ in range(n_perm):
+            order = samples[:]
+            rng.shuffle(order)
+            seen, row = set(), []
+            for s in order:
+                seen |= by_sample[s]
+                row.append(len(seen))
+            curves.append(row)
+
+        def pct(vals, p):
+            v = sorted(vals)
+            return v[min(len(v) - 1, max(0, int(round((len(v) - 1) * p))))]
+
+        cols = list(zip(*curves))
+        out[g] = {
+            "x":    list(range(1, n + 1)),
+            "mean": [round(sum(c) / len(c), 1) for c in cols],
+            "lo":   [pct(c, 0.10) for c in cols],
+            "hi":   [pct(c, 0.90) for c in cols],
+            "total": len(present),
+            "n_samples": n,
+            "min_depth": min_depth,
+        }
+    return out
 
 
 def load_coassembly_rich(outdir, groups):
