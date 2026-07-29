@@ -112,7 +112,17 @@ if not LONG_READS:
                     -o {params.outdir} \
                     > {log} 2>&1
             fi
-            cp {params.outdir}/final.contigs.fa {output.contigs}
+            # Fail here rather than let an empty assembly surface as geNomad's
+            # cryptic "empty or duplicate identifiers" three rules later.
+            if [ ! -s {params.outdir}/final.contigs.fa ]; then
+                echo "[megahit_coassembly] ERROR: group {wildcards.group} produced no contigs >= {MIN_CONTIG} bp." >&2
+                echo "  Lower min_contig, or drop this group from the metadata TSV." >&2
+                exit 1
+            fi
+            # tmp + atomic mv: an interrupted `cp` leaves a 0-byte destination
+            # that Snakemake accepts as a finished output.
+            cp {params.outdir}/final.contigs.fa {output.contigs}.tmp
+            mv {output.contigs}.tmp {output.contigs}
             """
 
 
@@ -738,9 +748,13 @@ if LONG_READS:
                 --scaffold \
                 --iterations 2 \
                 >> {log} 2>&1 || true
-            [ -f {params.outdir}/assembly.fasta ] && \
-                cp {params.outdir}/assembly.fasta {output.contigs} || \
-                touch {output.contigs}
+            # Same guard as megahit_coassembly: never promote an empty assembly.
+            if [ ! -s {params.outdir}/assembly.fasta ]; then
+                echo "[flye_coassembly] ERROR: group {wildcards.group} produced no contigs (see {log})." >&2
+                exit 1
+            fi
+            cp {params.outdir}/assembly.fasta {output.contigs}.tmp
+            mv {output.contigs}.tmp {output.contigs}
             """
 
 
