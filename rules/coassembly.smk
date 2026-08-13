@@ -1733,13 +1733,13 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             mkdir -p {params.outdir}
             if [ "{params.enabled}" != "True" ]; then
                 echo "[skani_votu] Disabled via config" | tee {log}
-                printf "qname\trname\tani\taf_q\taf_r\n" > {output.ani}
+                printf "Ref_file\tQuery_file\tANI\tAlign_fraction_ref\tAlign_fraction_query\tRef_name\tQuery_name\n" > {output.ani}
                 exit 0
             fi
             N_SEQ=$(grep -c '^>' {input.fasta} 2>/dev/null || echo 0)
             if [ "$N_SEQ" -eq 0 ]; then
                 echo "[skani_votu] Empty viral set" | tee {log}
-                printf "qname\trname\tani\taf_q\taf_r\n" > {output.ani}
+                printf "Ref_file\tQuery_file\tANI\tAlign_fraction_ref\tAlign_fraction_query\tRef_name\tQuery_name\n" > {output.ani}
                 exit 0
             fi
             skani triangle \
@@ -1747,6 +1747,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 -o {output.ani} \
                 -t {threads} \
                 --slow \
+                --sparse \
                 >> {log} 2>&1 || echo "[skani_votu] WARNING: triangle failed" | tee -a {log}
             """
 
@@ -1780,12 +1781,17 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             enabled = VOTU_CLUSTERING_ENABLED,
         run:
             import csv
-            import sys
+            import sys as _sys
+            _sys.path.insert(0, SCRIPTS_DIR)
+            from votu_catalog import (
+                parse_skani_sparse, cluster_votus, write_clusters,
+            )
+
             with open(log[0], "w") as _lf:
                 if not params.enabled:
                     _lf.write("[skani_cluster] Disabled via config\n")
                     with open(output.clusters, "w") as f:
-                        f.write("representative\tmember\n")
+                        f.write("votu_id\trepresentative\tmember\n")
                 else:
                     ids = []
                     with open(input.fasta) as f:
@@ -1801,56 +1807,15 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                             except (KeyError, ValueError):
                                 continue
 
-                    neigh = {i: set() for i in ids}
-                    try:
-                        with open(input.ani) as f:
-                            f.readline()
-                            for line in f:
-                                parts = line.rstrip("\n").split("\t")
-                                if len(parts) < 5:
-                                    continue
-                                q, r = parts[0], parts[1]
-                                try:
-                                    ani = float(parts[2])
-                                    afq = float(parts[3])
-                                    afr = float(parts[4])
-                                except ValueError:
-                                    continue
-                                if ani >= params.ani_min and max(afq, afr) >= params.af_min:
-                                    if q in neigh and r in neigh:
-                                        neigh[q].add(r)
-                                        neigh[r].add(q)
-                    except FileNotFoundError:
-                        pass
+                    edges = parse_skani_sparse(str(input.ani), params.ani_min,
+                                               params.af_min, set(ids))
+                    clusters = cluster_votus(ids, edges, completeness)
+                    n_clusters = write_clusters(clusters, len(ids),
+                                                str(output.clusters), completeness)
 
-                    seen = set()
-                    clusters = []
-                    for n in ids:
-                        if n in seen:
-                            continue
-                        comp = []
-                        stack = [n]
-                        while stack:
-                            x = stack.pop()
-                            if x in seen:
-                                continue
-                            seen.add(x)
-                            comp.append(x)
-                            for y in neigh.get(x, ()):
-                                if y not in seen:
-                                    stack.append(y)
-                        clusters.append(comp)
-
-                    with open(output.clusters, "w") as f:
-                        f.write("representative\tmember\n")
-                        for comp in clusters:
-                            # Representative = highest CheckV completeness (ties -> FASTA order)
-                            rep = max(comp, key=lambda m: (completeness.get(m, 0.0), -comp.index(m)))
-                            for m in comp:
-                                f.write(f"{rep}\t{m}\n")
-
-                    msg = (f"[skani_cluster] genomes={len(ids)} clusters={len(clusters)} "
-                           f"ani>={params.ani_min} af>={params.af_min}\n")
+                    msg = (f"[skani_cluster] genomes={len(ids)} edges={len(edges)} "
+                           f"clusters={n_clusters} ani>={params.ani_min} "
+                           f"af>={params.af_min}\n")
                     _lf.write(msg)
                     print(msg, end="")
 
