@@ -248,11 +248,16 @@ rule viral_nonredundant:
 
 rule make_votu_table:
     """
-    Build the per-sample vOTU membership table — one row per cluster member.
+    Build the per-sample vOTU membership table — one row per cluster member
+    that belongs to THIS sample.
 
-    Representative-level annotations (CheckV, taxonomy, lifestyle, host) are
-    propagated to all members; cluster_size and is_rep columns let the report
-    reconstruct full cluster structure without a separate join.
+    vOTU identity (votu_id, representative) is global and stays namespaced
+    ("{source_id}|{contig_id}") since a vOTU's representative may belong to
+    a different sample than the one this table is built for. Members are
+    filtered to this sample's own contigs and their IDs are stripped back
+    to bare form so they match this sample's CheckV/VIBRANT/taxonomy/PHIST
+    tables; each member's annotations come from its own bare ID, not the
+    representative's. A vOTU with no member in this sample produces no row.
 
     Crosses:
       - vOTU_clusters.tsv        (global catalog votu_id/representative/member triples)
