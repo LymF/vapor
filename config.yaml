@@ -99,6 +99,10 @@ score_genomad_min:    0.5
 votu_ani: 95.0   # % ANI threshold (ICTV standard)
 votu_af:  85.0   # % aligned fraction
 
+votu_catalog_enabled:       true    # catálogo global de vOTU (substitui o clustering por amostra)
+votu_presence_min_coverage: 75.0    # % do representante coberto p/ contar presença (Roux 2017)
+votu_recruit_min_identity:  null    # % identidade mín. da leitura; null = 95 (SR/HiFi) ou 85 (ONT)
+
 # Minimum CheckV quality tier kept for downstream viral analyses (taxonomy,
 # host prediction, pharokka/phold annotation, genome maps). Lower it for
 # high-novelty / short-fragment data (e.g. IonTorrent viromes) where most

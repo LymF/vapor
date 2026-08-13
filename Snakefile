@@ -230,6 +230,17 @@ VOTU_CLUSTERING_ENABLED = config.get("use_votu", True)
 VOTU_ANI                = config.get("votu_ani", 95.0)
 VOTU_AF                 = config.get("votu_af", 85.0)
 
+VOTU_CATALOG_ENABLED   = config.get("votu_catalog_enabled", True)
+VOTU_PRESENCE_MIN_COV  = config.get("votu_presence_min_coverage", 75.0)
+
+# ONT reads carry a per-read error rate well above 5%, so the 95% identity
+# filter used for Illumina/HiFi would reject nearly every ONT alignment and
+# silently empty the presence matrix. Default per technology; overridable.
+_recruit_id = config.get("votu_recruit_min_identity")
+if _recruit_id is None:
+    _recruit_id = 85 if (LONG_READS and LR_TECH == "ont") else 95
+VOTU_RECRUIT_MIN_ID = _recruit_id
+
 # ── MAG dereplication (galah) ──────────────────────────────────────────
 MAG_DEREP_ENABLED = config.get("use_mag_derep", True)
 MAG_DEREP_ANI     = config.get("mag_derep_ani", 95.0)
@@ -366,6 +377,7 @@ include: "rules/viral_detection.smk"
 include: "rules/mapping.smk"
 include: "rules/cobra.smk"
 include: "rules/viral_binning.smk"
+include: "rules/votu_catalog.smk"
 include: "rules/prok_binning.smk"
 include: "rules/taxonomy.smk"
 include: "rules/host_prediction.smk"
@@ -435,9 +447,10 @@ def _t_viral():
     t += expand(f"{OUTDIR}/{{sample}}/bins/vrhyme/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme/quality_summary.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_nonredundant.fasta", sample=SAMPLES)
-    if VOTU_CLUSTERING_ENABLED:
-        t += expand(f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv", sample=SAMPLES)
-        t += expand(f"{OUTDIR}/{{sample}}/viral/votu/votu_all_reps.fasta", sample=SAMPLES)
+    if VOTU_CATALOG_ENABLED:
+        t.append(f"{OUTDIR}/votu_catalog/vOTU_clusters.tsv")
+        t.append(f"{OUTDIR}/votu_catalog/catalog_all_reps.fasta")
+        t.append(f"{OUTDIR}/votu_catalog/done.txt")
     t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_abundance.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt", sample=SAMPLES)
