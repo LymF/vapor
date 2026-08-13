@@ -53,3 +53,7 @@ singularity/
 *.tar.gz
 .DS_Store
 check_containers.sh
+
+# Baseline de regressão do catálogo de vOTU (regenerável — ver README no diretório)
+tests/data/votu_regression/*.fasta
+tests/data/votu_regression/*.tsv
