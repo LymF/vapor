@@ -270,3 +270,294 @@ rule votu_catalog_reps:
             lf.write(f"[votu_catalog_reps] MQ+ (taxonomy/PHIST/annotation): {n_mq}\n")
             lf.write(f"[votu_catalog_reps] HQ+/>=10kb (vConTACT3): {n_hq}\n")
         write_status(str(output.done), "ok")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Read recruitment against the catalog + presence/abundance matrices
+#
+# Two-branch pattern. Both variants produce the exact same temp SAM path
+# (`{CATALOG_DIR}/mapping/{sample}.catalog.sam`), so votu_catalog_sort,
+# votu_catalog_coverm and votu_catalog_matrices run without knowing which
+# technology was used -- same strategy as rules/mapping.smk with
+# bwa_mem / minimap2_lr.
+#
+# Alignment and sorting are separate rules, mandatorily. The containers
+# are distinct images (bwa-mem2, minimap2, samtools in containers.yaml),
+# so a `| samtools sort` inside the aligner's rule would fail because
+# samtools does not exist in that image. It would work under --use-conda
+# (env_mapping.yaml carries all three), which is exactly why the defect
+# would go unnoticed until the first container run. rules/mapping.smk
+# already splits for this reason; the catalog does the same.
+# ══════════════════════════════════════════════════════════════════════
+
+if LONG_READS:
+
+    rule votu_catalog_map:
+        """Long-read recruitment of one sample against the whole catalog.
+
+        minimap2 indexes the reference on the fly, so there is no separate
+        index rule on this branch. ONT: -ax map-ont; HiFi: -ax map-hifi.
+        """
+        input:
+            reads = _clean_lr,
+            fasta = rules.votu_catalog_reps.output.all_fasta,
+        output:
+            sam = temp(f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sam"),
+        log:
+            f"{OUTDIR}/{{sample}}/logs/votu_catalog_map.log"
+        benchmark:
+            f"{OUTDIR}/{{sample}}/benchmarks/votu_catalog_map.tsv"
+        conda: "../envs/env_mapping.yaml"
+        container: CONTAINERS.get("minimap2")
+        threads: THREADS
+        shell:
+            """
+            mkdir -p $(dirname {output.sam})
+            if [ ! -s {input.fasta} ]; then
+                echo "[votu_catalog_map] Empty catalog -- header-only SAM" | tee {log}
+                printf "@HD\tVN:1.6\tSO:unsorted\n" > {output.sam}
+                exit 0
+            fi
+            if [ "{LR_TECH}" = "hifi" ]; then
+                PRESET="map-hifi"
+            else
+                PRESET="map-ont"
+            fi
+            minimap2 -ax $PRESET \
+                -t {threads} \
+                {input.fasta} {input.reads} \
+                > {output.sam} 2> {log}
+            """
+
+else:
+
+    rule votu_catalog_index:
+        """Index the catalog once; every sample maps against the same reference."""
+        input:
+            fasta = rules.votu_catalog_reps.output.all_fasta,
+        output:
+            idx = f"{CATALOG_DIR}/mapping/catalog_index.bwt.2bit.64",
+        log:
+            f"{OUTDIR}/logs/votu_catalog_index.log"
+        conda: "../envs/env_mapping.yaml"
+        container: CONTAINERS.get("bwa_mem2")
+        params:
+            prefix = f"{CATALOG_DIR}/mapping/catalog_index",
+        shell:
+            """
+            mkdir -p $(dirname {output.idx})
+            bwa-mem2 index -p {params.prefix} {input.fasta} > {log} 2>&1
+            """
+
+    rule votu_catalog_map:
+        """Competitive short-read recruitment of one sample against the catalog.
+
+        This is what makes per-sample presence assembly-independent: a virus
+        present but too low-coverage to assemble in a sample is still detected
+        here, which assembly-derived presence cannot do.
+        """
+        input:
+            tr1   = _clean_r1,
+            tr2   = _clean_r2,
+            idx   = rules.votu_catalog_index.output.idx,
+            fasta = rules.votu_catalog_reps.output.all_fasta,
+        output:
+            sam = temp(f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sam"),
+        log:
+            f"{OUTDIR}/{{sample}}/logs/votu_catalog_map.log"
+        benchmark:
+            f"{OUTDIR}/{{sample}}/benchmarks/votu_catalog_map.tsv"
+        conda: "../envs/env_mapping.yaml"
+        container: CONTAINERS.get("bwa_mem2")
+        threads: THREADS
+        params:
+            prefix     = f"{CATALOG_DIR}/mapping/catalog_index",
+            single_end = SINGLE_END,
+        shell:
+            """
+            mkdir -p $(dirname {output.sam})
+            if [ ! -s {input.fasta} ]; then
+                echo "[votu_catalog_map] Empty catalog -- header-only SAM" | tee {log}
+                printf "@HD\tVN:1.6\tSO:unsorted\n" > {output.sam}
+                exit 0
+            fi
+            if [ "{params.single_end}" = "True" ]; then
+                bwa-mem2 mem -t {threads} {params.prefix} {input.tr1} \
+                    > {output.sam} 2> {log}
+            else
+                bwa-mem2 mem -t {threads} {params.prefix} {input.tr1} {input.tr2} \
+                    > {output.sam} 2> {log}
+            fi
+            """
+
+
+rule votu_catalog_sort:
+    """Sort and index the catalog alignment. Separate rule because samtools
+    lives in its own container image, not in the aligners'."""
+    input:
+        sam = rules.votu_catalog_map.output.sam,
+    output:
+        bam = f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sorted.bam",
+        bai = f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sorted.bam.bai",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/votu_catalog_sort.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/votu_catalog_sort.tsv"
+    conda: "../envs/env_mapping.yaml"
+    container: CONTAINERS.get("samtools")
+    threads: THREADS
+    shell:
+        """
+        samtools sort -@ {threads} -o {output.bam} {input.sam} 2> {log}
+        samtools index {output.bam} 2>> {log}
+        """
+
+
+rule votu_catalog_coverm:
+    """CoverM over the catalog BAM, with the same filters as coverm_viral."""
+    input:
+        bam   = rules.votu_catalog_sort.output.bam,
+        fasta = rules.votu_catalog_reps.output.all_fasta,
+    output:
+        tsv = f"{CATALOG_DIR}/coverm/{{sample}}.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/votu_catalog_coverm.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/votu_catalog_coverm.tsv"
+    conda: "../envs/env_coverm.yaml"
+    container: CONTAINERS.get("coverm")
+    threads: THREADS
+    params:
+        method   = COVERM_METHOD,
+        min_id   = VOTU_RECRUIT_MIN_ID,
+        long_reads = LONG_READS,
+    shell:
+        """
+        mkdir -p $(dirname {output.tsv})
+        if [ ! -s {input.fasta} ]; then
+            echo "[votu_catalog_coverm] Empty catalog" | tee {log}
+            printf "Contig\t{params.method}\tcovered_fraction\n" > {output.tsv}
+            exit 0
+        fi
+        # --min-read-aligned-length is a short-read filter: a 45 bp floor is
+        # meaningless for reads averaging kilobases, and on ONT it would only
+        # discard genuinely short alignments that carry real signal.
+        if [ "{params.long_reads}" = "True" ]; then
+            LEN_FILTER=""
+        else
+            LEN_FILTER="--min-read-aligned-length 45"
+        fi
+        echo "[votu_catalog_coverm] min identity: {params.min_id}%" | tee {log}
+        coverm contig \
+            --bam-files {input.bam} \
+            --min-read-percent-identity {params.min_id} \
+            $LEN_FILTER \
+            --contig-end-exclusion 75 \
+            --methods {params.method} covered_fraction \
+            --threads {threads} \
+            --output-file {output.tsv} \
+            >> {log} 2>&1
+        """
+
+
+rule votu_catalog_matrices:
+    """Build the vOTU x sample presence and abundance matrices.
+
+    Two independent presence signals, reported side by side and never merged:
+      assembled — the vOTU has a member contig from that sample (provenance)
+      recruited — >= votu_presence_min_coverage of the representative is
+                  covered by that sample's reads (Roux et al. 2017)
+    """
+    input:
+        clusters   = rules.votu_catalog_cluster.output.clusters,
+        provenance = rules.votu_catalog_pool.output.provenance,
+        coverm     = expand(f"{CATALOG_DIR}/coverm/{{sample}}.tsv", sample=SAMPLES),
+    output:
+        presence  = f"{CATALOG_DIR}/presence_matrix.tsv",
+        abundance = f"{CATALOG_DIR}/votu_abundance_matrix.tsv",
+        done      = f"{CATALOG_DIR}/matrices_done.txt",
+    log:
+        f"{OUTDIR}/logs/votu_catalog_matrices.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/votu_catalog_matrices.tsv"
+    params:
+        min_cov = VOTU_PRESENCE_MIN_COV,
+        method  = COVERM_METHOD,
+    run:
+        import csv
+        from collections import defaultdict
+
+        member_to_votu = {}
+        votu_rep = {}
+        with open(str(input.clusters)) as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                member_to_votu[row["member"]] = row["votu_id"]
+                votu_rep[row["votu_id"]] = row["representative"]
+
+        # assembled presence: straight from provenance x clusters, free.
+        assembled = defaultdict(set)
+        with open(str(input.provenance)) as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                votu = member_to_votu.get(row["member_id"])
+                if votu and row["source_type"] == "sample":
+                    assembled[votu].add(row["source_id"])
+
+        rep_to_votu = {rep: votu for votu, rep in votu_rep.items()}
+        recruited = defaultdict(set)
+        abundance = defaultdict(dict)
+        for sample, path in zip(SAMPLES, list(input.coverm)):
+            if not os.path.exists(path):
+                continue
+            with open(path) as fh:
+                rdr = csv.reader(fh, delimiter="\t")
+                header = next(rdr, None)
+                if not header:
+                    continue
+                # CoverM names columns "<bam> <method>"; positions are stable:
+                # 0 = Contig, 1 = configured method, 2 = covered_fraction.
+                for parts in rdr:
+                    if len(parts) < 3:
+                        continue
+                    votu = rep_to_votu.get(parts[0])
+                    if not votu:
+                        continue
+                    try:
+                        value = float(parts[1])
+                        covered = float(parts[2])
+                    except ValueError:
+                        continue
+                    # CoverM reports covered_fraction in [0,1]; the config
+                    # threshold is a percentage.
+                    if covered * 100.0 >= params.min_cov:
+                        recruited[votu].add(sample)
+                        abundance[votu][sample] = value
+
+        votus = sorted(votu_rep)
+        with open(str(output.presence), "w") as fh:
+            fh.write("votu_id\trepresentative\t" + "\t".join(SAMPLES) + "\n")
+            for votu in votus:
+                cells = []
+                for s in SAMPLES:
+                    a = s in assembled[votu]
+                    r = s in recruited[votu]
+                    cells.append("both" if (a and r) else
+                                 "assembled" if a else
+                                 "recruited" if r else "absent")
+                fh.write(f"{votu}\t{votu_rep[votu]}\t" + "\t".join(cells) + "\n")
+
+        with open(str(output.abundance), "w") as fh:
+            fh.write("votu_id\t" + "\t".join(SAMPLES) + "\n")
+            for votu in votus:
+                vals = [f"{abundance[votu].get(s, 0.0):.6g}" for s in SAMPLES]
+                fh.write(f"{votu}\t" + "\t".join(vals) + "\n")
+
+        with open(str(log[0]), "w") as lf:
+            lf.write(f"[votu_catalog_matrices] vOTUs: {len(votus)}\n")
+            lf.write(f"[votu_catalog_matrices] metric: {params.method}\n")
+            lf.write(f"[votu_catalog_matrices] presence cutoff: "
+                     f"{params.min_cov}% of representative covered\n")
+            for s in SAMPLES:
+                n_a = sum(1 for v in votus if s in assembled[v])
+                n_r = sum(1 for v in votus if s in recruited[v])
+                lf.write(f"  {s}: assembled={n_a} recruited={n_r}\n")
+        write_status(str(output.done), "ok")
