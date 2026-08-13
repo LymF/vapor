@@ -22,8 +22,12 @@ vapor/
 │   ├── viral_detection.smk      # BLOCK 5  — VirSorter2, GeNomad, VIBRANT, consensus
 │   ├── mapping.smk              # BLOCK 6  — BWA-MEM2 / minimap2, calc_depth
 │   ├── cobra.smk                # BLOCK 5.5— COBRA contig extension (optional, SR PE)
-│   ├── viral_binning.smk        # BLOCK 7  — CheckV, vRhyme, CheckV(vRhyme),
-│   │                            #            skani vOTU clustering (95% ANI + 85% AF)
+│   ├── viral_binning.smk        # BLOCK 7  — CheckV, provirus trim, vRhyme, CheckV(vRhyme)
+│   ├── votu_catalog.smk         # BLOCK 7.5— global vOTU catalog: pool (namespaced IDs) →
+│   │                            #            skani triangle --sparse → cluster (95% ANI +
+│   │                            #            85% AF) → 3-tier reps → read recruitment →
+│   │                            #            presence/abundance matrices. Replaces the
+│   │                            #            old per-sample skani clustering.
 │   ├── prok_binning.smk         # BLOCK 8  — viral→prok filter, MetaBAT2, VAMB,
 │   │                            #            SemiBin2, Binette, GUNC,
 │   │                            #            CheckM2, galah derep, GTDB-Tk
@@ -47,8 +51,9 @@ vapor/
 │   ├── split_viral_fastas.py    # split viral FASTA into per-genome files for PHIST
 │   ├── genome_map_universal.py  # circular genome maps (phage / virus / prok)
 │   ├── compute_diversity.py     # alpha, beta diversity, Procrustes
-│   ├── make_votu_table.py       # consolidated vOTU summary table
-│   ├── skani_cluster_votus.py   # greedy single-linkage vOTU BFS clustering (ICTV)
+│   ├── make_votu_table.py       # consolidated vOTU summary table (joins the global catalog)
+│   ├── votu_catalog.py          # pure logic for the global vOTU catalog: pooling,
+│   │                            #   sparse-skani parsing, single-linkage clustering (ICTV)
 │   ├── generate_report.py           # wrapper → scripts/report/ (ECharts + D3 HTML report)
 │   ├── pin_containers.py            # resolve quay.io tags → containers.lock.yaml
 │   └── reads_classify/              # reads-only classification helpers
@@ -184,7 +189,9 @@ All parameters are defined in **`config.yaml`** — no `.smk` files need to be e
 | `prok_filter_keep_provirus` | `true` to preserve provirus-containing contigs (default) |
 | `gunc_enabled` | `true` to run GUNC chimera detection on Binette final bins |
 | `gunc_db` | Path to `gunc_db_progenomes2.1.dmnd` |
-| `votu_clustering_enabled` | `true` to cluster vOTUs with skani (ICTV: 95% ANI + 85% AF) |
+| `votu_catalog_enabled` | `true` to build the global vOTU catalog with skani (ICTV: 95% ANI + 85% AF) |
+| `votu_presence_min_coverage` | % of a vOTU representative a sample's reads must cover to count as "recruited" presence (default `75.0`, Roux et al. 2017) |
+| `votu_recruit_min_identity` | Min. read identity (%) for catalog recruitment; `null` = 95 (short/HiFi) or 85 (ONT) |
 | `mag_derep_enabled` | `true` to dereplicte MAGs with galah before GTDB-Tk |
 | `mag_derep_ani` | ANI threshold for MAG dereplication (default `95.0`) |
 | `cobra_enabled` | `true` to extend viral contigs with COBRA (SR PE only, default `false`) |
@@ -271,7 +278,7 @@ VAPOR includes four optional quality-enhancement steps, all enabled by default a
 |---|---|---|
 | **Viral → prok filter** | `filter_viral_for_prok` | Removes free-living viral contigs from prokaryotic binner input; provirus-containing contigs are preserved (detected via CheckV + GeNomad metadata) |
 | **GUNC** | `gunc` | Detects chimeric MAGs by checking taxon consistency across Diamond-annotated genes; report appears in final summary |
-| **skani vOTU** | `skani_votu` | Clusters viral genomes at ICTV standard (95% ANI + 85% AF) using skani pairwise ANI; replaces the simpler MMseqs2 identity grouping |
+| **skani vOTU catalog** | `votu_catalog_skani`, `votu_catalog_cluster` | Clusters the pooled viral genomes of every sample and co-assembly group at ICTV standard (95% ANI + 85% AF) using skani pairwise ANI; replaces the simpler MMseqs2 identity grouping, and clusters once globally instead of per sample |
 | **galah MAG derep** | `galah_derep` | Dereplicates prokaryotic bins using CheckM2 quality scores; selects highest-quality representative per cluster before GTDB-Tk |
 | **COBRA** | `cobra_megahit`, `cobra_spades`, `cobra_merge` | Extends fragmented viral contigs by traversing the assembly graph k-mer overlap; runs twice (MEGAHIT + SPAdes params), longest extension wins; disabled by default — beneficial for low-diversity viromes |
 
@@ -344,12 +351,12 @@ python3 scripts/split_viral_fastas.py \
     viral_consensus.fasta vrhyme_dir/ output_fastas_dir/
 ```
 
-### `skani_cluster_votus.py`
-```bash
-# Used internally by the skani_votu rule; can also be run standalone
-python3 scripts/skani_cluster_votus.py \
-    skani_triangle.tsv viral.fasta 95.0 85.0 vOTU_clusters.tsv
-```
+### `votu_catalog.py`
+Pure-logic module for the global vOTU catalog (`rules/votu_catalog.smk`): pooling every
+sample's/group's viral set with namespaced IDs, parsing `skani triangle --sparse` output,
+single-linkage clustering at the ICTV threshold (95% ANI + 85% AF), and picking
+representatives. No CLI — it is imported directly by the `votu_catalog_*` rules and
+covered by `tests/test_votu_catalog.py`.
 
 ### `reads_classify/build_imgvr_taxonomy.py`
 

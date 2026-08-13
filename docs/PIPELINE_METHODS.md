@@ -15,7 +15,8 @@ is transcribed from the actual implementation (file:function noted).
 
 ### 1.1 Tracks (selectable via `config.yaml → tracks`)
 - **reads** — reference-based read classification (sylph), no assembly.
-- **viral** — assembly-based viral detection → vOTUs (per-sample).
+- **viral** — assembly-based viral detection, feeding a single global vOTU catalog
+  built once across every sample and co-assembly group (§5).
 - **prok** — assembly-based prokaryotic MAGs (per-sample).
 
 Resolution + validation is a pure module: `pipeline_config.py::resolve_pipeline_config` /
@@ -46,8 +47,11 @@ Samples are grouped (metadata TSV `group` column | `all` | `none`). Per group:
   matrix → **VAMB** on the *viral-filtered* contigs → group MAGs → CheckM2 + GTDB.
 - **Multi-split** (`cobinning_multisplit`) — VAMB over the concatenated *individual*
   assemblies (preserves strains), independent of co-assembly.
-- **Viral consumer** (SR+LR) — full viral pipeline on the co-assembly → group vOTUs.
-- Group MAGs/vOTUs get the same functional layer (AMR, defense, annotation, host, vRhyme).
+- **Viral consumer** (SR+LR) — full viral detection pipeline runs on the co-assembly;
+  the group's trimmed viral contigs are pooled into the same global vOTU catalog as every
+  sample (§5), namespaced by group ID instead of sample ID.
+- Group MAGs get the same functional layer (AMR, defense, annotation, host, vRhyme); group
+  contigs feed vOTU clustering exactly as sample contigs do.
 
 VAMB group bins are written as **`*.fna`** (per-sample Binette bins are `*.fa`).
 
@@ -96,29 +100,89 @@ intersection so the same contig from different tools is matched.
 
 ---
 
-## 5. vOTU clustering (species-level viral OTUs)
+## 5. Global vOTU catalog (species-level viral OTUs)
 
-`viral_binning.smk::skani_votu` → `skani_cluster`, ICTV / **Roux et al. 2019** definition:
+A vOTU is defined **once**, over the pooled viral sets of every sample and every
+co-assembly group — not per sample. Clustering the same virus separately in each sample
+it happens to appear in would assign it a different vOTU ID per sample, making richness
+and presence/absence numbers incomparable across samples and inflated relative to the true
+population count. `rules/votu_catalog.smk` (`votu_catalog_pool` → `votu_catalog_skani` →
+`votu_catalog_cluster` → `votu_catalog_reps`) builds the catalog once; per-sample
+presence is then derived from read recruitment against it (§5.2), not from re-clustering.
+Pure logic lives in `scripts/votu_catalog.py`.
 
-> Two viral genomes are in the same vOTU iff **ANI ≥ `VOTU_ANI` (95%) AND
-> max(af_query, af_ref) ≥ `VOTU_AF` (85%)**.
+Measured on a 6-sample slice of the reference dataset: **9653 viral contigs collapse
+into 5524 vOTUs (42.8% redundancy removed)**; summing each sample's own viral contig
+count instead of using the catalog inflates apparent richness **1.75×** over the same
+slice, because the same virus recovered in several samples is counted once per sample
+rather than once per vOTU.
 
-- ANI/aligned-fraction matrix from **skani triangle**.
-- Clustering: connected components (union-find) over the edge set defined by the rule above.
-- **Representative** per cluster = the member with the highest CheckV completeness
-  (tie-break: earliest in the member list).
-- Representative sets: `votu_all_reps.fasta` (all), `votu_mq_reps.fasta` (the
-  **annotation subset** feeding taxonomy / PHIST / pharokka / genome maps),
-  `votu_hq_10kb_reps.fasta` (HQ+ and ≥ 10 kb, for vConTACT3).
-- **`votu_mq_reps` quality gate is configurable** via `viral_min_quality`
+### 5.1 Pooling and clustering
+- **`votu_catalog_pool`** concatenates every sample's `{sample}_viral_nonredundant.fasta`
+  and every co-assembly group's trimmed viral set into one FASTA. Contig IDs are only
+  unique within their own assembly, so every sequence is renamed
+  `{source_id}|{contig_id}` (`source_id` = sample name or group name) before pooling —
+  otherwise contigs from different assemblies that happen to share an ID would silently
+  merge. A `provenance.tsv` records `source_type`/`source_id`/`member_id` for every
+  pooled sequence.
+- **`votu_catalog_skani`** runs `skani triangle --sparse` once over the whole pool.
+  `--sparse` is required, not an optimization: skani's default dense matrix reports ANI
+  only, with no aligned fraction, so the AF criterion below cannot be evaluated from it.
+- **`votu_catalog_cluster`** applies the ICTV / **Roux et al. 2019** species definition
+  (MIUViG standard):
+
+  > Two viral genomes belong to the same vOTU iff **ANI ≥ `votu_ani` (95%) AND
+  > max(af_query, af_ref) ≥ `votu_af` (85%)**.
+
+  Clustering is single-linkage (connected components) over the edge set defined by that
+  rule. **Representative** per cluster = the member with the highest CheckV completeness
+  (tie-break: earliest in a deterministic traversal order), so vOTU IDs stay stable
+  across reruns.
+- **`votu_catalog_reps`** extracts three representative tiers, same quality gates as
+  before but applied once over the global catalog instead of per sample:
+  `catalog_all_reps.fasta` (all vOTUs), `catalog_mq_reps.fasta` (the **annotation
+  subset** feeding taxonomy / PHIST / pharokka / genome maps), `catalog_hq_10kb_reps.fasta`
+  (HQ+/Complete and ≥ 10 kb, for vConTACT3).
+- **`catalog_mq_reps` quality gate is configurable** via `viral_min_quality`
   (`complete | high | medium | low | not_determined`, default **medium** =
-  Complete/HQ/MQ or completeness ≥ 50%). Lower it for high-novelty /
-  short-fragment data (e.g. IonTorrent viromes) where most contigs are
-  Low-quality/Not-determined and the default would leave taxonomy/host/annotation
-  empty. Implemented in `pipeline_config.py::viral_keep_tiers`; the completeness
-  ≥ 50% fallback applies only at the `medium` threshold. **vConTACT3 keeps its own
-  HQ+/≥10 kb gate regardless** (genome-network clustering needs near-complete
-  genomes). Same gate mirrored in `coassembly_viral_votu_reps`.
+  Complete/HQ/MQ or completeness ≥ 50%). Lower it for high-novelty / short-fragment data
+  (e.g. IonTorrent viromes) where most contigs are Low-quality/Not-determined and the
+  default would leave taxonomy/host/annotation empty. Implemented in
+  `pipeline_config.py::viral_keep_tiers`; the completeness ≥ 50% fallback applies only
+  at the `medium` threshold. **vConTACT3 keeps its own HQ+/≥10 kb gate regardless**
+  (genome-network clustering needs near-complete genomes).
+
+### 5.2 Presence: two independent signals
+Per-sample presence in the catalog is reported as two signals, side by side, **never
+merged into one**, because they answer different questions:
+
+- **`assembled`** — a contig from that sample's own assembly is a member of the vOTU
+  (read straight off `provenance.tsv` + the cluster membership, no extra computation).
+- **`recruited`** — that sample's reads, mapped competitively against the catalog's
+  `all` representative set (`votu_catalog_map` → `votu_catalog_sort` →
+  `votu_catalog_coverm`, bwa-mem2 for short reads / minimap2 for ONT and HiFi), cover
+  ≥ `votu_presence_min_coverage` (default **75%**) of the representative's length —
+  the breadth-of-coverage presence cutoff from **Roux et al. 2017**. This is what makes
+  presence assembly-independent: a virus too low-abundance to assemble in a sample can
+  still be detected here.
+
+A vOTU can be `assembled` only, `recruited` only, `both`, or `absent` in a given sample.
+Read identity for recruitment (`votu_recruit_min_identity`) defaults to 95% for
+short/HiFi reads or 85% for ONT (configurable; `null` picks the technology-appropriate
+default).
+
+### 5.3 Output matrices (`votu_catalog_matrices`)
+- **`presence_matrix.tsv`** — one row per vOTU, one column per sample, cell ∈
+  `{assembled, recruited, both, absent}`.
+- **`votu_abundance_matrix.tsv`** — one row per vOTU, one column per sample, cell =
+  the configured CoverM metric (default rpkm) for that sample against the
+  representative, when recruitment clears the presence cutoff.
+
+Co-assembly groups have no reads of their own — recruitment is always per sample — so a
+vOTU recovered only in a co-assembly group gets `assembled` presence attributed to the
+group (visible in `provenance.tsv`) while its `recruited` presence in the matrix comes
+from whichever samples' reads actually cover it; `presence_matrix.tsv` itself only has
+sample columns.
 
 ---
 
@@ -214,19 +278,27 @@ covered_fraction_i ∈ [0, 1]                       # bounded, NOT of that form
 - **mean** = mean read depth. **covered_fraction** = fraction of the contig with ≥1× coverage.
 - `coverm_prok` uses **genome mode** (each MAG = one genome unit).
 
-### 10.2 vOTU-level aggregation (`abundance.smk::votu_abundance`)
-Members of a vOTU (95% ANI/85% AF) represent the same viral population; summing their
-length-normalized values (rpkm/tpm/mean) would double-count. So:
+### 10.2 Per-sample vOTU re-projection (`abundance.smk::votu_abundance`)
+This is a **per-sample view** of the global catalog, kept alongside the catalog-level
+matrices (§5.3) for per-sample reporting: it takes that sample's own per-contig CoverM
+table and re-keys it onto the global vOTU clusters (`votu_catalog_cluster` output,
+namespaced IDs stripped of this sample's own prefix). Members of a vOTU (95% ANI/85% AF,
+§5.1) represent the same viral population; summing their length-normalized values
+(rpkm/tpm/mean) would double-count. So:
 
-1. **Sum raw read COUNTS** across all cluster members (counts are additive):
-   `count_vOTU = Σ_{m ∈ cluster} count_m`.
+1. **Sum raw read COUNTS** across all cluster members present in this sample (counts are
+   additive): `count_vOTU = Σ_{m ∈ cluster ∩ sample} count_m`.
 2. Re-apply the per-sample normalization to the summed count. The per-sample **scale
    factor is backed out empirically** from the existing per-contig CoverM values (since
    `value_i = count_i/length_i_kb * scale`, `scale` is recovered as
    `median_i(value_i * length_i_kb / count_i)`), then
    `value_vOTU = (count_vOTU / length_rep_kb) * scale`.
-3. **covered_fraction** is NOT summable (bounded) → the representative's own value is used.
-- Degrades to a 1:1 identity mapping when vOTU clustering is off or found no clusters.
+3. **covered_fraction** is NOT summable (bounded) → the max across this sample's members
+   is used.
+- Degrades to a 1:1 identity mapping for any contig missing from the global clusters file.
+- This differs from `votu_abundance_matrix.tsv` (§5.3), which is recruitment-based (reads
+  mapped against the catalog representative, whether or not this sample assembled it);
+  `votu_abundance` here only sums contigs this sample actually assembled.
 
 ---
 
@@ -313,9 +385,10 @@ Metrics computed at report time (not stored by rules):
 - Genome scale: 1 kb minor / 5 kb major ticks.
 
 ### vOTU membership table (`scripts/make_votu_table.py`)
-One row per cluster member (rep included); representative annotations (CheckV quality,
-taxonomy, lifestyle, host) are **propagated to all members** — no new metric, just the join
-that makes the vOTU the reporting unit.
+One row per cluster member (rep included), joined against the global catalog's
+`vOTU_clusters.tsv` by member ID; representative annotations (CheckV quality, taxonomy,
+lifestyle, host) are **propagated to all members** — no new metric, just the join that
+makes the vOTU the reporting unit.
 
 ---
 
@@ -337,10 +410,11 @@ that makes the vOTU the reporting unit.
 ---
 
 ## 14. Host prediction
-**PHIST** — k-mer phage↔host prediction; viral genomes (vOTU MQ+ reps) vs the recovered
-prokaryotic MAGs as candidate hosts (per-sample Binette bins; co-assembly: group VAMB MAGs).
-iPHoP was removed. Co-assembly `coassembly_phist` links **group vOTUs → group MAGs** (needs
-both viral + prok tracks + short reads).
+**PHIST** — k-mer phage↔host prediction; the global catalog's MQ+ representatives
+(`catalog_mq_reps.fasta`, §5.1) vs the recovered prokaryotic MAGs as candidate hosts
+(per-sample Binette bins; co-assembly: group VAMB MAGs). iPHoP was removed. Co-assembly
+`coassembly_phist` links the same global vOTU representatives → group MAGs (needs both
+viral + prok tracks + short reads).
 
 ---
 
@@ -351,13 +425,30 @@ both viral + prok tracks + short reads).
 | `min_seq_id` | MMseqs2 dedup identity | 0.95 |
 | `viral_consensus_mode` / `min_viral_tools` | consensus rule / N tools | hybrid / 2 |
 | `score_vs2_min` / `score_genomad_min` | detector score thresholds | 0.5 / 0.5 |
-| `votu_ani` / `votu_af` | vOTU ANI / aligned fraction (%) | 95 / 85 |
+| `votu_ani` / `votu_af` | vOTU ANI / aligned fraction (%), Roux et al. 2019 | 95 / 85 |
+| `votu_catalog_enabled` | build the global vOTU catalog (§5) | true |
+| `votu_presence_min_coverage` | % of representative covered by reads to count as `recruited` presence, Roux et al. 2017 | 75.0 |
+| `votu_recruit_min_identity` | min. read identity (%) for recruitment; `null` = 95 (SR/HiFi) or 85 (ONT) | null |
 | `viral_min_quality` | CheckV tier gate for viral annotation subset (`complete`…`not_determined`) | medium |
 | `prok_min_completeness` / `prok_max_contamination` | MAG quality gate for Bakta annotation (%) | 50 / 10 |
 | `mag_derep_ani` | MAG dereplication ANI (%) | 95 |
 | `coverm_method` | abundance metric | rpkm |
 | CheckM2 MIMAG | HQ ≥90%/≤5%, MQ ≥50%/≤10% | — |
 | `reads_classify_virulence_threshold` | BACPHLIP virulent cutoff | 0.5 |
+
+---
+
+## Referências
+
+- Roux, S., Adriaenssens, E. M., Dutilh, B. E., Koonin, E. V., Kropinski, A. M.,
+  Krupovic, M., Kuhn, J. H., Lavigne, R., Brister, J. R., Varsani, A., Amid, C.,
+  Aziz, R. K., Bordenstein, S. R., Bork, P., Breitbart, M., Cochrane, G. R.,
+  Daly, R. A., Desnues, C., Duhaime, M. B., … Eloe-Fadrosh, E. A. (2019). Minimum
+  Information about an Uncultivated Virus Genome (MIUViG). *Nature Biotechnology*,
+  37(1), 29–37. https://doi.org/10.1038/nbt.4306
+- Roux, S., Emerson, J. B., Eloe-Fadrosh, E. A., & Sullivan, M. B. (2017). Benchmarking
+  viromics: an in silico evaluation of metagenome-enabled estimates of viral community
+  composition and diversity. *PeerJ*, 5, e3817. https://doi.org/10.7717/peerj.3817
 
 ---
 
