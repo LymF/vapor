@@ -44,7 +44,7 @@
       { val: samples.length,    label: 'Samples' },
       { val: fmt(totalReads),   label: 'Total reads',       sub: 'raw' },
       { val: fmt(typeof VOTU_CATALOG !== 'undefined' ? VOTU_CATALOG.n_votus : 0),
-        label: 'Viral vOTUs', sub: 'catálogo global' },
+        label: 'Viral vOTUs', sub: 'global catalog' },
       { val: fmt(totalVmags),   label: 'vMAGs',             sub: 'vRhyme bins' },
       { val: fmt(totalMAGs),    label: 'MAGs',              sub: 'Binette final' },
       { val: fmt(hqViral),      label: 'HQ viral',          sub: 'CheckV Complete/HQ' },
@@ -161,10 +161,10 @@
       { val: fmt(ov.n_contigs),        label: 'Contigs' },
       { val: fmt(ov.n50),              label: 'N50 (bp)' },
       // ── Viral ─────────────────────────────────────────────────────────────
-      { val: fmt((VOTU_PRESENCE.per_sample[sample] || {}).total || 0),
-        label: 'vOTUs presentes' },
-      { val: fmt((VOTU_PRESENCE.per_sample[sample] || {}).assembled || 0),
-        label: 'vOTUs montados' },
+      { val: fmt(((typeof VOTU_PRESENCE !== 'undefined' ? VOTU_PRESENCE : {}).per_sample?.[sample] || {}).total || 0),
+        label: 'vOTUs present' },
+      { val: fmt(((typeof VOTU_PRESENCE !== 'undefined' ? VOTU_PRESENCE : {}).per_sample?.[sample] || {}).assembled || 0),
+        label: 'vOTUs assembled' },
       { val: fmt(ov.viral_consensus), label: 'Viral contigs' },
       { val: fmt(ov.complete_viral),   label: 'HQ/Complete viral' },
       { val: ov.pct_novel != null

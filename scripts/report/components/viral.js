@@ -10,11 +10,11 @@
     const box = document.getElementById('votu-catalog-summary');
     if (!box || !cat || !cat.n_votus) { if (box) box.innerHTML = ''; return; }
     box.innerHTML =
-      `<div class="chart-card"><h3 style="margin-top:0">Catálogo global de vOTU</h3>` +
-      `<p><strong>${cat.n_votus.toLocaleString()}</strong> vOTUs a partir de ` +
-      `<strong>${cat.n_pool.toLocaleString()}</strong> contigs virais ` +
-      `(${cat.reduction_pct}% de redundância removida). Clusterização ICTV: ` +
-      `95% ANI + 85% AF, num único passo sobre o conjunto completo.</p></div>`;
+      `<div class="chart-card"><h3 style="margin-top:0">Global vOTU Catalog</h3>` +
+      `<p><strong>${cat.n_votus.toLocaleString()}</strong> vOTUs from ` +
+      `<strong>${cat.n_pool.toLocaleString()}</strong> viral contigs ` +
+      `(${cat.reduction_pct}% redundancy removed). ICTV clustering: ` +
+      `95% ANI + 85% AF, in a single pass over the complete set.</p></div>`;
   }
 
   function buildVotuPresence() {
@@ -25,19 +25,19 @@
     const recruited = samples.map(s => (pres.per_sample[s] || {}).recruited || 0);
 
     mkChart('votu-presence-chart', {
-      title: { text: 'vOTUs por amostra — montagem vs recrutamento' },
+      title: { text: 'vOTUs per Sample — Assembly vs Read Recruitment' },
       tooltip: { trigger: 'axis' },
-      legend: { data: ['Montados', 'Recrutados'], top: 28 },
+      legend: { data: ['Assembled', 'Recruited'], top: 28 },
       xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 } },
       yAxis: { type: 'value', name: 'vOTUs' },
       grid: { bottom: 110, top: 70 },
       series: [
-        { name: 'Montados',  type: 'bar', data: assembled },
-        { name: 'Recrutados', type: 'bar', data: recruited },
+        { name: 'Assembled',  type: 'bar', data: assembled },
+        { name: 'Recruited', type: 'bar', data: recruited },
       ],
     });
 
-    // "Em qual amostra está cada vírus" -- capped for page weight.
+    // "Which sample(s) each virus is present in" -- capped for page weight.
     const box = document.getElementById('votu-presence-table');
     if (!box) return;
     const shown = pres.votus.slice(0, 500);
@@ -52,9 +52,9 @@
       return `<tr><td>${v.votu_id}</td>${cells}</tr>`;
     }).join('');
     box.innerHTML =
-      `<div class="chart-card"><h3 style="margin-top:0">Presença por amostra</h3>` +
-      `<p>● montado e recrutado · ◐ só montado · ○ só recrutado. ` +
-      `Mostrando ${shown.length} de ${pres.votus.length} vOTUs.</p>` +
+      `<div class="chart-card"><h3 style="margin-top:0">Presence by Sample</h3>` +
+      `<p>● assembled and recruited · ◐ assembled only · ○ recruited only. ` +
+      `Showing ${shown.length} of ${pres.votus.length} vOTUs.</p>` +
       `<div class="table-wrap"><table class="vapor-table"><thead><tr>${head}</tr></thead>` +
       `<tbody>${rows}</tbody></table></div></div>`;
   }
