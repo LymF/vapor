@@ -77,7 +77,7 @@ def _mmseqs_lca_rollup(hits_path, ranks):
 rule prodigal_viral:
     """Predict ORFs from the vOTU MQ+ representatives for taxonomy searches."""
     input:
-        viral = rules.viral_votu_reps.output.mq_fasta,
+        viral = rules.votu_catalog_reps.output.mq_fasta,
     output:
         faa  = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_proteins.faa",
         done = f"{OUTDIR}/{{sample}}/viral/taxonomy/prodigal_done.txt",
@@ -337,13 +337,13 @@ rule vcontact3:
     vConTACT3: protein-sharing network clustering, genus-level.
     Generally the most specific source when it resolves (compared by rank
     depth against other sources in viral_taxonomy, not a fixed priority).
-    Runs on HQ+/Complete vOTU representatives >= 10 kb only (viral_votu_reps
+    Runs on HQ+/Complete vOTU representatives >= 10 kb only (votu_catalog_reps
     hq_10kb_fasta) — shorter or lower-quality sequences add noise to the
     protein-sharing network without meaningful genus-level signal.
     Options: SqRoot metric, 10 iterations, --reduce-memory, family+genus ranks.
     """
     input:
-        viral = rules.viral_votu_reps.output.hq_10kb_fasta,
+        viral = rules.votu_catalog_reps.output.hq_10kb_fasta,
     output:
         done    = f"{OUTDIR}/{{sample}}/viral/vcontact3/done.txt",
         network = f"{OUTDIR}/{{sample}}/viral/vcontact3/genome_clusters.tsv",
@@ -435,7 +435,7 @@ rule viral_taxonomy:
         custom_done     = rules.mmseqs_taxonomy_custom_viral.output.done,
         vcontact3_net   = rules.vcontact3.output.network,
         vcontact3_done  = rules.vcontact3.output.done,
-        viral           = rules.viral_votu_reps.output.mq_fasta,
+        viral           = rules.votu_catalog_reps.output.mq_fasta,
     output:
         tsv  = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",
         done = f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",

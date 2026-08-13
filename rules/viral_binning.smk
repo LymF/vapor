@@ -5,7 +5,8 @@
 # checkv       — quality assessment on (cobra_extended | viral_consensus)
 # vrhyme       — groups viral contigs into vMAGs (coverage + protein homology)
 # checkv_vrhyme — quality assessment on vRhyme vMAGs
-# skani_votu   — ICTV vOTU clustering (95% ANI + 85% AF)
+# make_votu_table — per-sample vOTU membership table, sourced from the
+#                    global catalog built in rules/votu_catalog.smk
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -245,260 +246,6 @@ rule viral_nonredundant:
             lf.write(f'Total non-redundant set: {n_total}\n')
 
 
-rule skani_votu:
-    """
-    skani triangle — pairwise ANI matrix for viral genomes.
-    Clustering is done by the downstream skani_cluster rule (pure Python,
-    runs in Snakemake's own interpreter — no container needed).
-    """
-    input:
-        fasta = rules.viral_nonredundant.output.fasta,
-    output:
-        ani = f"{OUTDIR}/{{sample}}/viral/votu/skani_ani.tsv",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/skani_votu.log"
-    benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/skani_votu.tsv"
-    conda: "../envs/env_derep.yaml"
-    container: CONTAINERS.get("skani")
-    threads: THREADS
-    params:
-        outdir  = f"{OUTDIR}/{{sample}}/viral/votu",
-        enabled = VOTU_CLUSTERING_ENABLED,
-    shell:
-        """
-        mkdir -p {params.outdir}
-        if [ "{params.enabled}" != "True" ]; then
-            echo "[skani_votu] Disabled via config" | tee {log}
-            printf "qname\trname\tani\taf_q\taf_r\n" > {output.ani}
-            exit 0
-        fi
-        N_SEQ=$(grep -c '^>' {input.fasta} 2>/dev/null || echo 0)
-        if [ "$N_SEQ" -eq 0 ]; then
-            echo "[skani_votu] Empty viral set" | tee {log}
-            printf "qname\trname\tani\taf_q\taf_r\n" > {output.ani}
-            exit 0
-        fi
-        skani triangle \
-            -i {input.fasta} \
-            -o {output.ani} \
-            -t {threads} \
-            --slow \
-            >> {log} 2>&1 || echo "[skani_votu] WARNING: triangle failed" | tee -a {log}
-        """
-
-
-rule skani_cluster:
-    """
-    Greedy single-linkage vOTU clustering from the skani ANI matrix.
-    Pure Python (stdlib only) — runs in Snakemake's interpreter, no container needed.
-    ICTV / Roux 2019 definition: ANI >= VOTU_ANI AND max(af_q, af_r) >= VOTU_AF.
-    The cluster representative is the member with the highest CheckV
-    completeness (ties broken by FASTA order) — not simply the first contig
-    encountered, since that's an arbitrary assembly-order artifact and the
-    representative's sequence/length is what downstream genome maps and
-    vOTU abundance use.
-    """
-    input:
-        ani    = rules.skani_votu.output.ani,
-        fasta  = rules.viral_nonredundant.output.fasta,
-        checkv = rules.checkv.output.summary,
-    output:
-        clusters = f"{OUTDIR}/{{sample}}/viral/votu/vOTU_clusters.tsv",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/skani_cluster.log"
-    benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/skani_cluster.tsv"
-    params:
-        ani_min = VOTU_ANI,
-        af_min  = VOTU_AF,
-        enabled = VOTU_CLUSTERING_ENABLED,
-    run:
-        import csv
-        import sys
-        with open(log[0], "w") as _lf:
-            if not params.enabled:
-                _lf.write("[skani_cluster] Disabled via config\n")
-                with open(output.clusters, "w") as f:
-                    f.write("representative\tmember\n")
-            else:
-                ids = []
-                with open(input.fasta) as f:
-                    for line in f:
-                        if line.startswith(">"):
-                            ids.append(line[1:].strip().split()[0])
-
-                completeness = {}
-                with open(input.checkv) as f:
-                    for row in csv.DictReader(f, delimiter="\t"):
-                        try:
-                            completeness[row["contig_id"]] = float(row.get("completeness", "0") or 0)
-                        except (KeyError, ValueError):
-                            continue
-
-                neigh = {i: set() for i in ids}
-                try:
-                    with open(input.ani) as f:
-                        f.readline()
-                        for line in f:
-                            parts = line.rstrip("\n").split("\t")
-                            if len(parts) < 5:
-                                continue
-                            q, r = parts[0], parts[1]
-                            try:
-                                ani = float(parts[2])
-                                afq = float(parts[3])
-                                afr = float(parts[4])
-                            except ValueError:
-                                continue
-                            if ani >= params.ani_min and max(afq, afr) >= params.af_min:
-                                if q in neigh and r in neigh:
-                                    neigh[q].add(r)
-                                    neigh[r].add(q)
-                except FileNotFoundError:
-                    pass
-
-                seen = set()
-                clusters = []
-                for n in ids:
-                    if n in seen:
-                        continue
-                    comp = []
-                    stack = [n]
-                    while stack:
-                        x = stack.pop()
-                        if x in seen:
-                            continue
-                        seen.add(x)
-                        comp.append(x)
-                        for y in neigh.get(x, ()):
-                            if y not in seen:
-                                stack.append(y)
-                    clusters.append(comp)
-
-                with open(output.clusters, "w") as f:
-                    f.write("representative\tmember\n")
-                    for comp in clusters:
-                        # Representative = highest CheckV completeness (ties -> FASTA order)
-                        rep = max(comp, key=lambda m: (completeness.get(m, 0.0), -comp.index(m)))
-                        for m in comp:
-                            f.write(f"{rep}\t{m}\n")
-
-                msg = (f"[skani_cluster] genomes={len(ids)} clusters={len(clusters)} "
-                       f"ani>={params.ani_min} af>={params.af_min}\n")
-                _lf.write(msg)
-                print(msg, end="")
-
-
-rule viral_votu_reps:
-    """
-    Extract vOTU representative sequences from viral_nonredundant.fasta and
-    produce quality-filtered subsets used by all downstream analyses.
-
-    Outputs:
-      all_fasta      — all representatives (one per vOTU cluster), for reporting
-      mq_fasta       — MQ+ (Complete/HQ/MQ or completeness>=50%) representatives,
-                       for prodigal_viral, PHIST, Pharokka, genome maps
-      hq_10kb_fasta  — HQ+/Complete AND >= 10 kb representatives, for vConTACT3
-
-    Why only representatives?
-      skani_cluster picks the highest-completeness member per cluster as the
-      canonical genome. Running taxonomy/PHIST/etc. on all members would inflate
-      compute by ~20–40% and produce duplicate annotations for near-identical
-      sequences, with no scientific gain. The make_votu_table rule propagates
-      representative annotations to all cluster members.
-    """
-    input:
-        fasta    = rules.viral_nonredundant.output.fasta,
-        clusters = rules.skani_cluster.output.clusters,
-        checkv   = rules.checkv.output.summary,
-    output:
-        all_fasta     = f"{OUTDIR}/{{sample}}/viral/votu/votu_all_reps.fasta",
-        mq_fasta      = f"{OUTDIR}/{{sample}}/viral/votu/votu_mq_reps.fasta",
-        hq_10kb_fasta = f"{OUTDIR}/{{sample}}/viral/votu/votu_hq_10kb_reps.fasta",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/viral_votu_reps.log"
-    benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/viral_votu_reps.tsv"
-    params:
-        hq_min_len = 10000,
-    run:
-        import csv, os
-
-        # Collect unique representatives from cluster TSV
-        reps = set()
-        with open(str(input.clusters)) as fh:
-            for row in csv.DictReader(fh, delimiter='\t'):
-                reps.add(row['representative'])
-
-        # CheckV quality sets for filtering.
-        #   keep_mq — downstream annotation subset (taxonomy/PHIST/Pharokka/maps).
-        #             Tier gate controlled by config `viral_min_quality`
-        #             (VIRAL_KEEP_TIERS). At the default "medium" threshold,
-        #             completeness >= 50% is also admitted (parity with CheckV's
-        #             own MQ definition).
-        #   hq_plus — Complete / HQ only, for vConTACT3. Config-independent.
-        keep_mq = set()
-        hq_plus = set()
-        _comp_fallback = VIRAL_MIN_QUALITY_RANK == 2
-        with open(str(input.checkv)) as fh:
-            for row in csv.DictReader(fh, delimiter='\t'):
-                cid = row.get('contig_id', '').strip()
-                q   = row.get('checkv_quality', '').strip()
-                try:
-                    comp = float(row.get('completeness', '0') or 0)
-                except (ValueError, TypeError):
-                    comp = 0.0
-                if q in VIRAL_KEEP_TIERS or (_comp_fallback and comp >= 50):
-                    keep_mq.add(cid)
-                if q in ('Complete', 'High-quality'):
-                    hq_plus.add(cid)
-
-        # Parse viral_nonredundant.fasta into dict
-        seqs = {}
-        with open(str(input.fasta)) as fh:
-            curr_hdr, curr_seq = None, []
-            for line in fh:
-                if line.startswith('>'):
-                    if curr_hdr:
-                        seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
-                    curr_hdr = line; curr_seq = []
-                else:
-                    curr_seq.append(line)
-            if curr_hdr:
-                seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
-
-        def write_filtered(names, path, length_min=0):
-            written = 0
-            with open(path, 'w') as out:
-                for name in names:
-                    if name not in seqs:
-                        continue
-                    hdr, seq_lines = seqs[name]
-                    if length_min > 0:
-                        length = sum(len(s.rstrip()) for s in seq_lines)
-                        if length < length_min:
-                            continue
-                    out.write(hdr)
-                    out.writelines(seq_lines)
-                    written += 1
-            return written
-
-        n_all      = write_filtered(reps, str(output.all_fasta))
-        mq_reps    = reps & keep_mq
-        n_mq       = write_filtered(mq_reps, str(output.mq_fasta))
-        hq_reps    = reps & hq_plus
-        n_hq_10kb  = write_filtered(hq_reps, str(output.hq_10kb_fasta),
-                                    length_min=params.hq_min_len)
-
-        with open(str(log[0]), 'w') as lf:
-            lf.write(f'[viral_votu_reps] Total vOTU reps: {n_all}\n')
-            lf.write(f'[viral_votu_reps] min quality gate: {VIRAL_MIN_QUALITY} '
-                     f'(tiers kept: {sorted(VIRAL_KEEP_TIERS)})\n')
-            lf.write(f'[viral_votu_reps] annotation subset (taxonomy/PHIST/Pharokka): {n_mq}\n')
-            lf.write(f'[viral_votu_reps] HQ+/>=10kb reps (vConTACT3): {n_hq_10kb}\n')
-
-
 rule make_votu_table:
     """
     Build the per-sample vOTU membership table — one row per cluster member.
@@ -508,8 +255,8 @@ rule make_votu_table:
     reconstruct full cluster structure without a separate join.
 
     Crosses:
-      - vOTU_clusters.tsv        (skani representative/member pairs)
-      - votu_all_reps.fasta      (representative lengths)
+      - vOTU_clusters.tsv        (global catalog votu_id/representative/member triples)
+      - catalog_all_reps.fasta   (representative lengths)
       - CheckV quality_summary   (completeness, quality tier, genome type)
       - VIBRANT output           (lifestyle: lytic/lysogenic; AMG count)
       - viral_taxonomy_merged    (family, genus, taxonomy source)
@@ -518,8 +265,8 @@ rule make_votu_table:
     Output: viral/votu/{sample}_vOTU_table.tsv
     """
     input:
-        votu_clusters = rules.skani_cluster.output.clusters,
-        votu_reps     = rules.viral_votu_reps.output.all_fasta,
+        votu_clusters = rules.votu_catalog_cluster.output.clusters,
+        votu_reps     = rules.votu_catalog_reps.output.all_fasta,
         checkv        = rules.checkv.output.summary,
         vibrant       = rules.vibrant.output.done,
         taxonomy      = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",

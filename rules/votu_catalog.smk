@@ -1,11 +1,11 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/votu_catalog.smk — BLOCK 7.5: Global vOTU catalog
 #
-# Replaces the former per-sample skani chain (skani_votu / skani_cluster /
-# viral_votu_reps). A vOTU is defined ONCE over the pooled viral sets of
-# every sample and co-assembly group, so richness is comparable across
-# samples and against the literature. Per-sample presence comes from
-# read recruitment against the catalog (see votu_catalog_abundance).
+# Replaces the former per-sample ANI-clustering chain (removed). A vOTU is
+# defined ONCE over the pooled viral sets of every sample and co-assembly
+# group, so richness is comparable across samples and against the
+# literature. Per-sample presence comes from read recruitment against the
+# catalog (see votu_catalog_abundance).
 #
 #   votu_catalog_pool    — concatenate all viral sets, namespacing IDs
 #   votu_catalog_skani   — skani triangle --sparse over the pool
@@ -196,8 +196,8 @@ rule votu_catalog_cluster:
 rule votu_catalog_reps:
     """Extract the three representative tiers used downstream.
 
-    Same quality gates as the removed per-sample viral_votu_reps, applied
-    once over the global catalog:
+    Same quality gates as the removed per-sample representative-extraction
+    rule, applied once over the global catalog:
       all      — one per vOTU; recruitment reference and report base
       mq       — MQ+ (Complete/HQ/MQ or completeness >= 50%); taxonomy,
                  PHIST, annotation

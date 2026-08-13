@@ -81,12 +81,12 @@ rule votu_abundance:
     and mean depth, but NOT for covered_fraction (bounded [0,1], not
     summable), which is instead reported as the representative's own value.
 
-    Gracefully degrades to a 1:1 identity mapping when vOTU clustering is
-    disabled (votu_clustering_enabled: false) or skani found no clusters
-    for a contig, so the table is always produced.
+    Gracefully degrades to a 1:1 identity mapping when a contig is missing
+    from the global vOTU catalog's clusters file, so the table is always
+    produced.
     """
     input:
-        clusters  = rules.skani_cluster.output.clusters,
+        clusters  = rules.votu_catalog_cluster.output.clusters,
         abundance = rules.coverm_viral.output.tsv,
         viral_nr  = rules.viral_nonredundant.output.fasta,
     output:
@@ -115,18 +115,34 @@ rule votu_abundance:
                 elif cur is not None:
                     lengths[cur] += len(line.strip())
 
-        # member -> representative; default to self (singleton) so disabled
-        # clustering or any contig missing from the clusters file still works.
-        member_to_rep = {cid: cid for cid in lengths}
+        # Parse the global catalog's clusters file. It has three columns
+        # (votu_id, representative, member) with namespaced IDs
+        # ("<sample>|<contig>") — read by header name, not position, since
+        # the old per-sample file only had two columns and bare IDs.
+        raw_member_to_rep = {}
         with open(input.clusters) as f:
-            f.readline()  # header
-            for line in f:
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) < 2:
-                    continue
-                rep, member = parts[0], parts[1]
-                if member in member_to_rep:
-                    member_to_rep[member] = rep
+            for row in csv.DictReader(f, delimiter="\t"):
+                rep, member = row.get("representative", ""), row.get("member", "")
+                if member:
+                    raw_member_to_rep[member] = rep
+
+        # Catalog IDs are namespaced ("<sample>|<contig>"), while this rule's
+        # CoverM table uses the sample's own bare contig IDs. Strip the
+        # prefix of THIS sample's members and ignore members from other
+        # samples.
+        prefix = f"{wildcards.sample}|"
+        cluster_member_to_rep = {
+            m[len(prefix):]: r[len(prefix):] if r.startswith(prefix) else r
+            for m, r in raw_member_to_rep.items()
+            if m.startswith(prefix)
+        }
+
+        # member -> representative; default to self (singleton) so any
+        # contig missing from the clusters file still works.
+        member_to_rep = {cid: cid for cid in lengths}
+        member_to_rep.update({
+            m: r for m, r in cluster_member_to_rep.items() if m in member_to_rep
+        })
 
         def _metric(row, suffix):
             suffix_l = suffix.lower()
