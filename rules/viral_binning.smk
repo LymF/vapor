@@ -58,6 +58,9 @@ rule vrhyme:
     NOTE: vRhyme creates its output dir itself — fails if it already exists.
           rm -rf before run; mkdir -p after ensures pipeline continues.
     NOTE: exits silently with no output if no contigs pass coverage threshold.
+    NOTE: vRhyme refuses -l below 2000 ("minimum scaffold length cannot be set
+          below 2000 for binning"), so MIN_CONTIG is clamped to that floor —
+          same pattern as MetaBAT2's 1500 bp clamp (prok_binning.smk).
     """
     input:
         viral    = _viral_qc_input,
@@ -78,12 +81,13 @@ rule vrhyme:
     shell:
         """
         rm -rf {params.outdir}
+        VRHYME_MIN=$(( {MIN_CONTIG} > 2000 ? {MIN_CONTIG} : 2000 ))
         vRhyme \
             -i {input.viral} \
             -b {input.bam} \
             -o {params.outdir} \
             -t {threads} \
-            -l {MIN_CONTIG} \
+            -l $VRHYME_MIN \
             > {log} 2>&1 || true
         mkdir -p {params.outdir}
         touch {output.done}

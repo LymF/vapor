@@ -7,6 +7,74 @@ import os, re, glob, csv, json, random, zipfile
 from collections import Counter, defaultdict
 
 
+# ── Rule execution status ─────────────────────────────────────────────────────
+#
+# Rules that soft-fail write their real outcome into done.txt ('ok',
+# 'skipped: <reason>' or 'failed: <reason>') instead of touching it empty.
+# Without this the report cannot tell "the tool crashed" from "the tool found
+# nothing", which is how a disk-full AMRFinderPlus run was once read as a
+# biological zero across every sample. A rule whose status is 'failed' must be
+# rendered as a gap, never as a count of 0.
+
+STATUS_TRACKED_TOOLS = {
+    "amrfinderplus": "bins/amrfinderplus/done.txt",
+    "rgi":           "bins/rgi/done.txt",
+    "galah_derep":   "bins/derep/done.txt",
+    "gtdbtk":        "bins/gtdbtk/done.txt",
+    "vcontact3":     "viral/vcontact3/done.txt",
+}
+
+
+def load_tool_status(outdir, samples):
+    """
+    Read done.txt for every status-tracked tool, per sample.
+
+    Returns {sample: {tool: {'state': ..., 'reason': ..., 'raw': ...}}}.
+    State is one of 'ok', 'skipped', 'failed', or 'unknown' — 'unknown' covers
+    both a missing done.txt and a legacy empty one written before rules
+    recorded status, and must not be presented as success.
+    """
+    status = {}
+    for sample in samples:
+        status[sample] = {}
+        for tool, rel in STATUS_TRACKED_TOOLS.items():
+            path = os.path.join(outdir, sample, rel)
+            raw = ""
+            if os.path.exists(path):
+                try:
+                    with open(path) as fh:
+                        raw = fh.read().strip()
+                except OSError:
+                    raw = ""
+            if not raw:
+                state, reason = "unknown", "no status recorded"
+            else:
+                head, _, tail = raw.partition(":")
+                head = head.strip().lower()
+                state = head if head in ("ok", "skipped", "failed") else "unknown"
+                reason = tail.strip() or ("" if state == "ok" else raw)
+            status[sample][tool] = {"state": state, "reason": reason, "raw": raw}
+    return status
+
+
+def tool_failed(status, sample, tool):
+    """True when a tool's count must be shown as a gap rather than as zero."""
+    return (status.get(sample, {}).get(tool, {}).get("state")
+            in ("failed", "unknown"))
+
+
+def summarize_tool_status(status):
+    """Flat list of non-ok entries, for the report's execution-status section."""
+    rows = []
+    for sample in sorted(status):
+        for tool in sorted(status[sample]):
+            entry = status[sample][tool]
+            if entry["state"] != "ok":
+                rows.append({"sample": sample, "tool": tool,
+                             "state": entry["state"], "reason": entry["reason"]})
+    return rows
+
+
 # ── Basic helpers ─────────────────────────────────────────────────────────────
 
 def safe_float(v, d=0.0):

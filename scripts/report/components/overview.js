@@ -220,7 +220,38 @@
     });
   }
 
+  // ── Rule execution status ────────────────────────────────────────────────
+  // A tool that crashed writes 'failed: <reason>' into its done.txt. Without
+  // surfacing that here, its empty output table is indistinguishable from a
+  // genuine biological zero — which is exactly how a disk-full AMRFinderPlus
+  // run was once reported as "0 AMR genes" across every sample.
+  function buildToolStatus() {
+    const box = document.getElementById('ov-tool-status');
+    if (!box) return;
+    const issues = typeof TOOL_STATUS_ISSUES !== 'undefined' ? TOOL_STATUS_ISSUES : [];
+    const bad = issues.filter(r => r.state === 'failed' || r.state === 'unknown');
+    if (!bad.length) { box.innerHTML = ''; return; }
+
+    const rows = bad.map(r =>
+      `<tr><td>${r.sample}</td><td>${r.tool}</td><td>${r.state}</td>` +
+      `<td>${r.reason || ''}</td></tr>`
+    ).join('');
+    const nSamples = new Set(bad.map(r => r.sample)).size;
+    box.innerHTML =
+      `<div class="chart-card" style="border-left:4px solid #d64545">` +
+      `<h3 style="margin-top:0">Incomplete results — ${bad.length} rule ` +
+      `run(s) across ${nSamples} sample(s)</h3>` +
+      `<p>These tools did not complete. Their tables are empty because the run ` +
+      `failed, <strong>not</strong> because nothing was detected — read the ` +
+      `corresponding counts as missing data, never as zero.</p>` +
+      `<div class="table-wrap"><table class="vapor-table"><thead><tr>` +
+      `<th>Sample</th><th>Tool</th><th>State</th><th>Reason</th></tr></thead>` +
+      `<tbody>${rows}</tbody></table></div>` +
+      `</div>`;
+  }
+
   window.renderOverview = function () {
+    buildToolStatus();
     buildGeneralStats();
     makeSampleDropdown('sample-sel-overview', buildPerSample);
   };

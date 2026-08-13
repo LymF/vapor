@@ -6,7 +6,6 @@ on:
     paths:
       - "docker/Dockerfile.genome-map"
       - "docker/Dockerfile.medaka-gpu"
-      - "docker/Dockerfile.comebin-gpu"
   release:
     types: [published]
   workflow_dispatch:

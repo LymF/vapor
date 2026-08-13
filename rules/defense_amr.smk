@@ -397,36 +397,48 @@ rule amrfinderplus:
         enabled = DEFENSE_AMR_ENABLED,
     run:
         import os
+        import subprocess as sp
         from pathlib import Path
 
         os.makedirs(params.outdir, exist_ok=True)
         all_faa = os.path.join(params.outdir, "all_genomes.faa")
 
-        def write_empty(msg):
+        def write_empty(msg, status):
             with open(str(log[0]), "a") as lf:
                 lf.write(msg + "\n")
             Path(str(output.results)).write_text("Protein identifier\tGene symbol\n")
-            Path(str(output.done)).touch()
+            write_status(str(output.done), status)
 
         if (not params.enabled or not os.path.exists(str(input.manifest))
                 or os.path.getsize(str(input.manifest)) == 0):
-            write_empty("[amrfinderplus] Disabled or no genome units -- skipping")
+            write_empty("[amrfinderplus] Disabled or no genome units -- skipping",
+                        "skipped: disabled or no genome units")
             return
 
         if not _concat_proteins(str(input.manifest), all_faa):
-            write_empty("[amrfinderplus] No proteins -- skipping")
+            write_empty("[amrfinderplus] No proteins -- skipping", "skipped: no proteins")
             return
 
         shell("amrfinder -u >> {log} 2>&1 || "
               "echo '[amrfinderplus] WARNING: database update failed (may already be current)' >> {log}")
-        shell(
-            "amrfinder -p {all_faa} --plus -o {output.results} --threads {threads} "
-            ">> {log} 2>&1 || echo '[amrfinderplus] WARNING: amrfinder failed' >> {log}"
-        )
+        amr_err = None
+        try:
+            shell(
+                "amrfinder -p {all_faa} --plus -o {output.results} --threads {threads} "
+                ">> {log} 2>&1"
+            )
+        except sp.CalledProcessError as exc:
+            amr_err = exc.returncode
 
         if not os.path.exists(str(output.results)) or os.path.getsize(str(output.results)) == 0:
             Path(str(output.results)).write_text("Protein identifier\tGene symbol\n")
-        Path(str(output.done)).touch()
+
+        if amr_err is not None:
+            with open(str(log[0]), "a") as lf:
+                lf.write(f"[amrfinderplus] WARNING: amrfinder failed (exit {amr_err})\n")
+            write_status(str(output.done), f"failed: amrfinder exit {amr_err}")
+        else:
+            write_status(str(output.done), "ok")
 
 
 rule rgi_card:
@@ -457,24 +469,26 @@ rule rgi_card:
         enabled = DEFENSE_AMR_ENABLED,
     run:
         import os
+        import subprocess as sp
         from pathlib import Path
 
         os.makedirs(params.outdir, exist_ok=True)
         all_faa = os.path.join(params.outdir, "all_genomes.faa")
 
-        def write_empty(msg):
+        def write_empty(msg, status):
             with open(str(log[0]), "a") as lf:
                 lf.write(msg + "\n")
             Path(str(output.results)).write_text("ORF_ID\tBest_Hit_ARO\n")
-            Path(str(output.done)).touch()
+            write_status(str(output.done), status)
 
         if (not params.enabled or not os.path.exists(str(input.manifest))
                 or os.path.getsize(str(input.manifest)) == 0):
-            write_empty("[rgi] Disabled or no genome units -- skipping")
+            write_empty("[rgi] Disabled or no genome units -- skipping",
+                        "skipped: disabled or no genome units")
             return
 
         if not _concat_proteins(str(input.manifest), all_faa):
-            write_empty("[rgi] No proteins -- skipping")
+            write_empty("[rgi] No proteins -- skipping", "skipped: no proteins")
             return
 
         card_dir = params.card_db or os.path.join(params.outdir, "card_db")
@@ -490,19 +504,32 @@ rule rgi_card:
             )
 
         if not os.path.exists(card_json) or os.path.getsize(card_json) == 0:
-            write_empty("[rgi] WARNING: CARD database unavailable -- skipping")
+            write_empty("[rgi] WARNING: CARD database unavailable -- skipping",
+                        "failed: CARD database unavailable")
             return
+
+        # RGI rejects the whole input with "invalid protein fasta due to: '*'"
+        # when Prodigal's stop codons are present, so it silently ran on a
+        # subset before this. Strip them into a separate file -- all_genomes.faa
+        # is shared with AMRFinderPlus and DeepARG and must stay untouched.
+        rgi_faa = os.path.join(params.outdir, "all_genomes_nostop.faa")
+        with open(all_faa) as fin, open(rgi_faa, "w") as fout:
+            for line in fin:
+                fout.write(line if line.startswith(">") else line.replace("*", ""))
 
         # --local makes RGI create/read ./localDB relative to the CURRENT
         # working directory, not the --card_json path -- 'load' and 'main'
         # must run from the exact same directory or 'main' can't find the
         # database 'load' just built.
         shell("cd {params.outdir} && rgi load --card_json {card_json} --local >> {log} 2>&1")
-        shell(
-            "cd {params.outdir} && rgi main -i {all_faa} -t protein --include_loose --local "
-            "-o rgi_results -n {threads} >> {log} 2>&1 || "
-            "echo '[rgi] WARNING: rgi main failed' >> {log}"
-        )
+        rgi_err = None
+        try:
+            shell(
+                "cd {params.outdir} && rgi main -i {rgi_faa} -t protein --include_loose "
+                "--local -o rgi_results -n {threads} >> {log} 2>&1"
+            )
+        except sp.CalledProcessError as exc:
+            rgi_err = exc.returncode
 
         # 'rgi main -o rgi_results' inside params.outdir already writes
         # directly to output.results (rgi_results.txt) -- same path, no
@@ -511,7 +538,13 @@ rule rgi_card:
         produced = os.path.join(params.outdir, "rgi_results.txt")
         if not os.path.exists(produced) or os.path.getsize(produced) == 0:
             Path(str(output.results)).write_text("ORF_ID\tBest_Hit_ARO\n")
-        Path(str(output.done)).touch()
+
+        if rgi_err is not None:
+            with open(str(log[0]), "a") as lf:
+                lf.write(f"[rgi] WARNING: rgi main failed (exit {rgi_err})\n")
+            write_status(str(output.done), f"failed: rgi main exit {rgi_err}")
+        else:
+            write_status(str(output.done), "ok")
 
 
 rule deeparg:

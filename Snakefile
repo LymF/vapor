@@ -13,8 +13,7 @@
 #                       │
 #                       └─► BWA-MEM2 / minimap2 (read mapping → contigs)
 #                                 └─► depth.txt (coverage per contig)
-#                                       └─► MetaBAT2, SemiBin2,
-#                                           COMEBin
+#                                       └─► MetaBAT2, SemiBin2
 #                                                 └─► Binette
 #                                                       └─► CheckM2
 #                                                             └─► GTDB-Tk
@@ -35,7 +34,7 @@
 #   mapping.smk         — BLOCK 6  : BWA-MEM2, minimap2, calc_depth
 #   cobra.smk           — BLOCK 5.5: COBRA contig extension (optional, SR PE only)
 #   viral_binning.smk   — BLOCK 7  : vRhyme, CheckV (×2)
-#   prok_binning.smk    — BLOCK 8  : MetaBAT2, SemiBin2, COMEBin, Binette, CheckM2, GTDB-Tk
+#   prok_binning.smk    — BLOCK 8  : MetaBAT2, SemiBin2, Binette, CheckM2, GTDB-Tk
 #   taxonomy.smk        — BLOCK 9  : Prodigal, Diamond, vConTACT3, viral_taxonomy
 #   host_prediction.smk — BLOCK 10 : PHIST
 #   defense_amr.smk     — BLOCK 10.5: DefenseFinder, AMRFinderPlus, RGI/CARD, DeepARG, ABRicate, argNorm
@@ -89,6 +88,19 @@ def _expand(p):
         return str(Path(p).expanduser())
     except RuntimeError:
         return str(Path(p))
+
+def write_status(done_path, status):
+    """
+    Write a rule's real outcome into its done.txt instead of touching it empty.
+
+    Status is one line: 'ok', 'skipped: <reason>' or 'failed: <reason>'. An
+    empty done.txt makes "the tool crashed" and "the tool found nothing"
+    indistinguishable downstream, which is how a disk-full AMRFinderPlus run
+    was read as a biological zero. The report's load_tool_status() consumes
+    this, so a failed rule shows as a gap rather than a count of 0.
+    """
+    Path(done_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(done_path).write_text(str(status).strip() + "\n")
 
 FASTQ_DIR            = _expand(config["fastq_dir"])
 OUTDIR               = _expand(config["outdir"])
@@ -168,7 +180,6 @@ def _clean_lr(wc):
         return f"{OUTDIR}/{wc.sample}/host_removed/{wc.sample}_lr_clean.fastq.gz"
     return f"{OUTDIR}/{wc.sample}/lr_filtered/{wc.sample}_filtered.fastq.gz"
 
-COMEBIN_ENABLED      = config.get("use_comebin", True)
 USE_GPU              = config.get("use_gpu", False)
 COVERM_METHOD        = config.get("coverm_method", "rpkm")
 
@@ -448,7 +459,6 @@ def _t_prok():
     t = []
     t += expand(f"{OUTDIR}/{{sample}}/bins/metabat2/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/bins/semibin2/done.txt", sample=SAMPLES)
-    t += expand(f"{OUTDIR}/{{sample}}/bins/comebin/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/bins/binette/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/bins/checkm2/quality_report.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/done.txt", sample=SAMPLES)

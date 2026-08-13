@@ -10,7 +10,7 @@
 # If the lock file is absent, all container: directives resolve to null
 # and Snakemake falls back to --use-conda automatically.
 #
-# GPU-capable tools (medaka, comebin) have optional GPU Dockerfiles
+# GPU-capable tools (medaka) have optional GPU Dockerfiles
 # in docker/. Build and push them to GHCR before using --use-gpu.
 
 # ── QC ─────────────────────────────────────────────────────────────────
@@ -131,11 +131,6 @@ vamb:
 semibin:
   image: semibin
   version: "2.2.1"
-
-comebin:
-  image: comebin
-  version: "1.0.4"
-  # GPU variant: docker/Dockerfile.comebin-gpu → ghcr.io/LymF/vapor-comebin-gpu:1.0.4
 
 binette:
   image: binette

@@ -121,9 +121,6 @@ mamba create -n env_cobra -c conda-forge -c bioconda \
 mamba create -n env_binning -c conda-forge -c bioconda \
     metabat2 vamb semibin2 -y
 
-# COMEBin (transformer-based, rank 1 in 2025 benchmark)
-mamba create -n env_comebin -c conda-forge -c bioconda -c pytorch \
-    comebin pytorch -y
 
 # Binette
 mamba create -n env_binette -c conda-forge -c bioconda \
@@ -1097,7 +1094,7 @@ rm fastqs/TEST_R1.fastq.gz fastqs/TEST_R2.fastq.gz
 ```bash
 for env in env_qc env_assembly env_flye env_medaka env_lr_utils \
            env_mapping env_viral env_genomad phage_vibrant env_vrhyme \
-           env_cobra env_binning env_comebin env_binette env_checkm2 \
+           env_cobra env_binning env_binette env_checkm2 \
            env_gtdbtk env_phist env_annotation env_vcontact3 env_coverm \
            env_gunc env_derep env_defense env_rgi env_deeparg \
            env_reads_classify; do

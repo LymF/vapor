@@ -7,7 +7,6 @@
 # Binners:
 #   metabat2          — tetranucleotide + coverage
 #   semibin2          — semi-supervised with environment priors
-#   comebin           — transformer + contrastive learning (optional)
 #
 # Integration:
 #   prepare_scaffold2bin — convert binner outputs to scaffold2bin.tsv
@@ -233,108 +232,16 @@ rule semibin2:
         """
 
 
-rule comebin:
-    """
-    COMEBin — transformer embedding + contrastive learning binner.
-    Rank 1 in 2025 metagenome binning benchmark (Nature Communications).
-    3rd per-sample binner alongside MetaBAT2 + SemiBin2 (VAMB moved to co-binning).
-    Binette uses the 3 scaffold2bin files for refined bin selection.
-    Set comebin_enabled: false in config.yaml to skip.
-    Input FASTA is viral-filtered when PROK_FILTER_VIRAL is enabled.
-    """
-    input:
-        contigs  = _prok_input_contigs,
-        bam      = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
-        bai      = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam.bai",
-        bwa_done = (f"{OUTDIR}/{{sample}}/mapping/bwa_mem_done.txt"
-                    if not LONG_READS else []),
-    output:
-        done = f"{OUTDIR}/{{sample}}/bins/comebin/done.txt",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/comebin.log"
-    benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/comebin.tsv"
-    conda: "../envs/env_comebin.yaml"
-    container:  CONTAINERS.get("comebin")
-    threads: THREADS
-    params:
-        outdir  = f"{OUTDIR}/{{sample}}/bins/comebin",
-        bam_dir = f"{OUTDIR}/{{sample}}/mapping",
-    shell:
-        """
-        mkdir -p {params.outdir}
-        if [ "{COMEBIN_ENABLED}" != "True" ]; then
-            echo "[COMEBin] Disabled via config (comebin_enabled: false)" | tee {log}
-            touch {output.done}; exit 0
-        fi
-        if [ "{LOW_DEPTH_MODE}" = "True" ]; then
-            echo "[COMEBin] Skipped -- low_depth_mode enabled" | tee {log}
-            touch {output.done}; exit 0
-        fi
-        # COMEBin internally runs 'samtools depth -aa' on the BAM.
-        # -aa outputs ALL reference sequences listed in the BAM @SQ header,
-        # even those with zero coverage. If the BAM was mapped to all contigs
-        # (viral + non-viral) the depth file will contain viral contig names
-        # that are absent from aug_seq_info_dict → KeyError in gen_cov.py.
-        # Fix: build a BAM that has (1) only reads on non-viral contigs and
-        # (2) @SQ header lines stripped of viral references.
-        FILT_DIR="{params.outdir}/bam_nonviral"
-        mkdir -p "$FILT_DIR"
-        # Non-viral contig name list + BED for read filtering
-        python3 -c "
-with open('{input.contigs}') as fh:
-    for line in fh:
-        if line.startswith('>'):
-            print(line[1:].split()[0])
-" > "$FILT_DIR/names.txt"
-        awk '{{print $1"\t0\t999999999"}}' "$FILT_DIR/names.txt" \
-            > "$FILT_DIR/nonviral.bed"
-        # Build filtered header (SAM text, non-viral @SQ only)
-        python3 -c "
-import subprocess
-names = set(open('$FILT_DIR/names.txt').read().split())
-hdr = subprocess.check_output(['samtools','view','-H','{input.bam}']).decode()
-for l in hdr.splitlines():
-    if l.startswith('@SQ') and not any(f.startswith('SN:') and f[3:] in names for f in l.split('\t')):
-        continue
-    print(l)
-" > "$FILT_DIR/new_header.sam" 2>> {log}
-        # Stream: new header (SAM text) + reads on non-viral contigs (SAM text)
-        # → samtools view -bS maps contig NAMES → correct new indices → valid BAM
-        # (samtools reheader only replaces text but not binary indices → corrupt BAM)
-        {{ cat "$FILT_DIR/new_header.sam"; \
-           samtools view -L "$FILT_DIR/nonviral.bed" {input.bam}; }} \
-        | samtools view -bS -o "$FILT_DIR/nonviral.bam" 2>> {log}
-        samtools index "$FILT_DIR/nonviral.bam" 2>> {log}
-        if [ "{USE_GPU}" = "True" ]; then
-            export CUDA_VISIBLE_DEVICES=0
-        else
-            export CUDA_VISIBLE_DEVICES=""
-        fi
-        run_comebin.sh \
-            -a {input.contigs} \
-            -o {params.outdir} \
-            -p "$FILT_DIR" \
-            -t {threads} \
-            >> {log} 2>&1 || true
-        touch {output.done}
-        N=$(find {params.outdir}/comebin_res/comebin_res_bins -name "*.fa" 2>/dev/null | wc -l) || true
-        echo "[COMEBin] $N bins produced" | tee -a {log}
-        """
-
-
 rule prepare_scaffold2bin:
     """
     Convert each binner output to scaffold2bin.tsv (contig <TAB> bin).
     Each binner has a different format:
       MetaBAT2 : bin.X.fa files
       SemiBin2 : contig_bins.tsv — contig TAB bin_number
-      COMEBin  : bins/*.fa files (if comebin_enabled)
     """
     input:
         mb2     = rules.metabat2.output.done,
         sb2     = rules.semibin2.output.done,
-        comebin = rules.comebin.output.done,
     output:
         done = f"{OUTDIR}/{{sample}}/bins/scaffold2bin/done.txt",
     log:
@@ -376,11 +283,6 @@ rule prepare_scaffold2bin:
                     if len(parts) == 2:
                         contig, bin_num = parts
                         fout.write(f"{contig}\tSemiBin_{bin_num}\n")
-
-        # COMEBin: comebin_res/comebin_res_bins/*.fa (run_comebin.sh output layout)
-        cb_bins = glob.glob(f"{params.s}/bins/comebin/comebin_res/comebin_res_bins/*.fa")
-        if cb_bins:
-            write_s2b(cb_bins, f"{outdir}/comebin_s2b.tsv", ".fa")
 
         with open(output.done, "w") as f:
             f.write("ok\n")
@@ -725,6 +627,9 @@ rule galah_derep:
         enabled  = MAG_DEREP_ENABLED,
     shell:
         """
+        # galah aborts if the representative dir exists and is non-empty, so a
+        # Snakemake resume over a previous run would always fail here.
+        rm -rf {params.repdir}
         mkdir -p {params.outdir} {params.repdir}
         if [ "{params.enabled}" != "True" ]; then
             echo "[galah] Disabled via config — symlinking original bins" | tee {log}
@@ -734,15 +639,16 @@ rule galah_derep:
                 ln -sf "$fa" {params.repdir}/
             done
             printf "representative\tmember\n" > {output.cluster}
-            touch {output.done}; exit 0
+            printf "skipped: disabled via config\n" > {output.done}; exit 0
         fi
         shopt -s nullglob
         BINS=({params.bins_dir}/*.fa)
         if [ ${{#BINS[@]}} -eq 0 ]; then
             echo "[galah] No bins to dereplicate" | tee {log}
             printf "representative\tmember\n" > {output.cluster}
-            touch {output.done}; exit 0
+            printf "skipped: no bins to dereplicate\n" > {output.done}; exit 0
         fi
+        GALAH_EXIT=0
         galah cluster \
             --genome-fasta-files "${{BINS[@]}}" \
             --ani {params.ani} \
@@ -750,7 +656,10 @@ rule galah_derep:
             --output-cluster-definition {output.cluster} \
             --output-representative-fasta-directory {params.repdir} \
             --threads {threads} \
-            > {log} 2>&1 || echo "[galah] WARNING: cluster failed — falling back to original bins" | tee -a {log}
+            > {log} 2>&1 || GALAH_EXIT=$?
+        if [ $GALAH_EXIT -ne 0 ]; then
+            echo "[galah] WARNING: cluster failed — falling back to original bins" | tee -a {log}
+        fi
         # Fallback: if galah produced nothing usable, mirror original bins
         if [ -z "$(ls {params.repdir}/*.fa 2>/dev/null)" ]; then
             for fa in {params.bins_dir}/*.fa; do
@@ -758,7 +667,13 @@ rule galah_derep:
             done
             [ -s {output.cluster} ] || printf "representative\tmember\n" > {output.cluster}
         fi
-        touch {output.done}
+        # A fallback to the original bins means dereplication did NOT happen —
+        # record that instead of reporting success.
+        if [ $GALAH_EXIT -ne 0 ]; then
+            printf "failed: galah cluster exit %s (using original bins)\n" "$GALAH_EXIT" > {output.done}
+        else
+            printf "ok\n" > {output.done}
+        fi
         """
 
 
@@ -801,20 +716,28 @@ rule gtdbtk:
             mkdir -p {params.outdir}/classify
             printf "user_genome\tclassification\n" > {output.bac_tsv}
             printf "user_genome\tclassification\n" > {output.ar_tsv}
-            touch {output.done}; exit 0
+            printf "skipped: no bins found\n" > {output.done}; exit 0
         fi
 
         export GTDBTK_DATA_PATH={GTDBTK_DB}
+        GTDBTK_EXIT=0
         gtdbtk classify_wf \
             --genome_dir {params.bins_dir} \
             --out_dir    {params.outdir} \
             --cpus       {threads} \
             --extension  fa \
-            >> {log} 2>&1 || echo "[gtdbtk] WARNING: classify_wf failed — creating empty outputs" | tee -a {log}
+            >> {log} 2>&1 || GTDBTK_EXIT=$?
+        if [ $GTDBTK_EXIT -ne 0 ]; then
+            echo "[gtdbtk] WARNING: classify_wf failed — creating empty outputs" | tee -a {log}
+        fi
 
         # Always ensure output files exist — gtdbtk may fail if bins are low quality
         mkdir -p {params.outdir}/classify
         [ -f {output.bac_tsv} ] || printf "user_genome\tclassification\n" > {output.bac_tsv}
         [ -f {output.ar_tsv}  ] || printf "user_genome\tclassification\n" > {output.ar_tsv}
-        touch {output.done}
+        if [ $GTDBTK_EXIT -ne 0 ]; then
+            printf "failed: classify_wf exit %s\n" "$GTDBTK_EXIT" > {output.done}
+        else
+            printf "ok\n" > {output.done}
+        fi
         """

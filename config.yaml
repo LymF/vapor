@@ -14,7 +14,6 @@
 
 use_spades:        false    # metaSPAdes + metaviralSPAdes (disable on low-RAM servers)
 use_cobra:         false   # viral contig extension via k-mer overlap (PE only)
-use_comebin:       true    # COMEBin as 4th prokaryotic binner (GPU recommended)
 use_gunc:          true    # chimera detection on MAGs
 use_mag_derep:     true    # MAG dereplication with galah before GTDB-Tk
 use_votu:          true    # vOTU clustering with skani (95% ANI + 85% AF)
@@ -30,7 +29,7 @@ use_argnorm:       true    # normalize AMRFinderPlus/DeepARG calls to ARO
 use_defense_viral: true    # DefenseFinder + dbAPIS on viral ORFs
 use_amr_consensus: true    # consolidate AMR calls across tools by CDS locus + ARO
 
-use_gpu:           false   # CUDA for VAMB, SemiBin2, COMEBin, GeNomad
+use_gpu:           false   # CUDA for VAMB, SemiBin2, GeNomad
 
 
 # ══ I/O ════════════════════════════════════════════════════════════════
@@ -111,7 +110,7 @@ viral_min_quality: not_determined
 
 # ══ PROKARYOTIC BINNING ════════════════════════════════════════════════
 
-# Low-depth mode: skips MetaBAT2/VAMB/SemiBin2/COMEBin/Binette and routes
+# Low-depth mode: skips MetaBAT2/VAMB/SemiBin2/Binette and routes
 # prokaryotic analyses through the whole contig set as a pseudo-genome.
 # Enable explicitly — there is no automatic fallback (see INSTALL.md).
 low_depth_mode: false

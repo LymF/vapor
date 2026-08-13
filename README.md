@@ -25,7 +25,7 @@ vapor/
 │   ├── viral_binning.smk        # BLOCK 7  — CheckV, vRhyme, CheckV(vRhyme),
 │   │                            #            skani vOTU clustering (95% ANI + 85% AF)
 │   ├── prok_binning.smk         # BLOCK 8  — viral→prok filter, MetaBAT2, VAMB,
-│   │                            #            SemiBin2, COMEBin, Binette, GUNC,
+│   │                            #            SemiBin2, Binette, GUNC,
 │   │                            #            CheckM2, galah derep, GTDB-Tk
 │   ├── taxonomy.smk             # BLOCK 9  — Prodigal, MMseqs2/INPHARED (LCA),
 │   │                            #            Diamond/Custom, vConTACT3
@@ -64,7 +64,6 @@ vapor/
 ├── docker/                      ← custom Dockerfiles for tools without official images
 │   ├── Dockerfile.genome-map    # pycirclize + matplotlib + biopython
 │   ├── Dockerfile.medaka-gpu    # medaka with CUDA (optional GPU mode)
-│   └── Dockerfile.comebin-gpu   # COMEBin with PyTorch CUDA (optional GPU mode)
 │
 └── envs/                        ← reproducible conda environment definitions
     ├── env_qc.yaml
@@ -79,7 +78,6 @@ vapor/
     ├── env_vrhyme.yaml
     ├── env_cobra.yaml           # COBRA contig extension (optional)
     ├── env_binning.yaml
-    ├── env_comebin.yaml
     ├── env_binette.yaml
     ├── env_checkm2.yaml
     ├── env_gtdbtk.yaml
@@ -119,7 +117,7 @@ vapor --executor apptainer --threads 32
 vapor --executor singularity --threads 32
 vapor --executor conda --threads 32
 
-# GPU pass-through for Apptainer (medaka, COMEBin, VAMB, SemiBin2)
+# GPU pass-through for Apptainer (medaka, VAMB, SemiBin2)
 vapor --executor apptainer --singularity-args '--nv' --threads 32
 
 # Extra bind mounts beyond config paths (e.g. scratch on NAS)
@@ -180,7 +178,7 @@ All parameters are defined in **`config.yaml`** — no `.smk` files need to be e
 | `lr_tech` | `"ont"` or `"hifi"` |
 | `viral_consensus_mode` | `"count"` / `"score"` / `"hybrid"` |
 | `min_viral_tools` | Minimum tools agreeing for viral consensus |
-| `use_gpu` | `true` to enable GPU in VAMB, SemiBin2, COMEBin, GeNomad |
+| `use_gpu` | `true` to enable GPU in VAMB, SemiBin2, GeNomad |
 | `single_end` | `true` for SE short reads (Illumina SE or Ion Torrent) |
 | `prok_filter_viral` | `true` to remove free-living viral contigs from prok binners |
 | `prok_filter_keep_provirus` | `true` to preserve provirus-containing contigs (default) |
@@ -246,7 +244,6 @@ snakemake --snakefile Snakefile --use-conda --cores 1 --create-envs-only
 | `env_vrhyme` | vrhyme |
 | `env_cobra` | cobra-meta, blast (optional) |
 | `env_binning` | metabat2, vamb, semibin2 |
-| `env_comebin` | comebin |
 | `env_binette` | binette |
 | `env_checkm2` | checkm2 |
 | `env_gtdbtk` | gtdb-tk |

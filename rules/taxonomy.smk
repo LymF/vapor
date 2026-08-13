@@ -365,7 +365,7 @@ rule vcontact3:
             echo "[vcontact3] No HQ+/>=10kb genomes — skipping" | tee -a {log}
             mkdir -p {params.outdir}/vConTACT3_results
             printf "genome\tVC\tVC_status\tgenus\tfamily\torder\n" > {output.network}
-            touch {output.done}; exit 0
+            printf "skipped: no HQ+/>=10kb genomes\n" > {output.done}; exit 0
         fi
 
         N=$(grep -c "^>" {input.viral} || echo 0)
@@ -402,7 +402,11 @@ rule vcontact3:
             find {params.outdir}/vConTACT3_results -type f | tee -a {log}
             printf "Genome,family_prediction,genus_prediction,realm_prediction,order_prediction\n" > {output.network}
         fi
-        touch {output.done}
+        if [ $VC3_EXIT -ne 0 ]; then
+            printf "failed: vcontact3 run exit %s\n" "$VC3_EXIT" > {output.done}
+        else
+            printf "ok\n" > {output.done}
+        fi
         """
 
 

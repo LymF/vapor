@@ -42,12 +42,11 @@ Module switches (override config.yaml without editing):
   vapor --set use_phold=false                 skip structure-based annotation
   vapor --set use_bakta=false                 skip prokaryotic MAG annotation
   vapor --set use_eggnog=false                skip COG/KEGG functional annotation
-  vapor --set use_comebin=false               skip COMEBin (no GPU available)
   vapor --set use_gunc=false                  skip chimera detection
   vapor --set use_mag_derep=false             skip MAG dereplication
   vapor --set use_amr_consensus=false         skip AMR consensus step
   vapor --set use_defense_viral=false         skip viral defense annotation
-  vapor --set use_gpu=true                    enable GPU (VAMB/SemiBin2/COMEBin)
+  vapor --set use_gpu=true                    enable GPU (VAMB/SemiBin2)
 
 Performance and thresholds:
   vapor --set threads=40                      override thread count
@@ -57,7 +56,7 @@ Performance and thresholds:
   vapor --set viral_consensus_mode=count      switch viral detection mode
 
 Combined:
-  vapor --threads 40 --set use_spades=false --set use_comebin=false
+  vapor --threads 40 --set use_spades=false --set use_gunc=false
   vapor --dry-run --set use_pharokka=false --set use_phold=false
 
 Config file (config.yaml) must be edited before running.

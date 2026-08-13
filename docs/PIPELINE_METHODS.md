@@ -134,7 +134,7 @@ re-run on the vMAGs (`checkv_vrhyme`).
 ## 7. Prokaryotic binning & MAG QC
 
 - **Per-sample binners** (on the viral-filtered contig set, `filter_viral_for_prok`):
-  MetaBAT2 + SemiBin2 + COMEBin → **Binette** (best-bin consolidation).
+  MetaBAT2 + SemiBin2 → **Binette** (best-bin consolidation).
   VAMB was **removed** from per-sample (it is used only for co-binning, where its
   differential-coverage design applies).
 - **Viral filter for prok** (`filter_viral_for_prok`): remove = viral_consensus **MINUS**
