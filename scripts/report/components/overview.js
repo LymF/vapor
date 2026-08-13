@@ -43,7 +43,8 @@
     const kpis = [
       { val: samples.length,    label: 'Samples' },
       { val: fmt(totalReads),   label: 'Total reads',       sub: 'raw' },
-      { val: fmt(totalViral),   label: 'Viral vOTUs',       sub: 'consensus' },
+      { val: fmt(typeof VOTU_CATALOG !== 'undefined' ? VOTU_CATALOG.n_votus : 0),
+        label: 'Viral vOTUs', sub: 'catálogo global' },
       { val: fmt(totalVmags),   label: 'vMAGs',             sub: 'vRhyme bins' },
       { val: fmt(totalMAGs),    label: 'MAGs',              sub: 'Binette final' },
       { val: fmt(hqViral),      label: 'HQ viral',          sub: 'CheckV Complete/HQ' },
@@ -82,11 +83,14 @@
       ],
     }));
 
+    // Raw per-sample contig counts (viral_consensus) -- not vOTU counts, since
+    // per-sample clustering does not share identity across samples. The
+    // comparable per-sample vOTU view lives in the vOTU presence chart below.
     mkChart('ov-votus-chart', samplesBar({
-      samples, title: 'Viral OTUs per Sample', valueName: 'vOTUs',
+      samples, title: 'Viral Contigs per Sample', valueName: 'Contigs',
       series: [
-        { name: 'Total vOTUs',  data: viralVals, color: '#0d9488' },
-        { name: 'High-quality', data: hqVirVals, color: '#16a34a' },
+        { name: 'Total contigs', data: viralVals, color: '#0d9488' },
+        { name: 'High-quality',  data: hqVirVals, color: '#16a34a' },
       ],
     }));
 
@@ -118,7 +122,7 @@
       { name: 'Raw reads',   value: Math.round(avgRaw) },
       { name: 'Trimmed',     value: Math.round(avgTrim) },
       { name: 'Contigs',     value: Math.round(avgContig) },
-      { name: 'Viral vOTUs', value: Math.round(avgViral) },
+      { name: 'Viral contigs', value: Math.round(avgViral) },
       { name: 'MAGs',        value: Math.round(avgMAG) },
     ];
     mkChart('ov-funnel-chart', {
@@ -157,7 +161,11 @@
       { val: fmt(ov.n_contigs),        label: 'Contigs' },
       { val: fmt(ov.n50),              label: 'N50 (bp)' },
       // ── Viral ─────────────────────────────────────────────────────────────
-      { val: fmt(ov.viral_consensus),  label: 'Viral vOTUs' },
+      { val: fmt((VOTU_PRESENCE.per_sample[sample] || {}).total || 0),
+        label: 'vOTUs presentes' },
+      { val: fmt((VOTU_PRESENCE.per_sample[sample] || {}).assembled || 0),
+        label: 'vOTUs montados' },
+      { val: fmt(ov.viral_consensus), label: 'Viral contigs' },
       { val: fmt(ov.complete_viral),   label: 'HQ/Complete viral' },
       { val: ov.pct_novel != null
               ? `${ov.pct_novel}%`

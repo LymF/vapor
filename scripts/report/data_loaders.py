@@ -1681,11 +1681,9 @@ def load_coassembly(outdir, groups):
 def load_votu_accumulation(outdir, groups, min_depth=1.0, n_perm=100, seed=0):
     """vOTU accumulation (collector) curve per co-assembly group.
 
-    Only computable on the co-assembly track: a group's vOTUs are clustered ONCE
-    over the co-assembled contigs, so vOTU identity is shared across the group's
-    samples. (Per-sample vOTUs are clustered independently, so "vOTU_1" in two
-    samples are unrelated labels and cannot be accumulated — see
-    docs/REPORT_VIZ_GUIDE.md.)
+    Computed per co-assembly group. Global accumulation over all samples is
+    available from the vOTU catalog (presence_matrix.tsv), where vOTU identity
+    is shared across every sample by construction.
 
     Presence: a vOTU counts as seen in a sample when any of its member contigs
     reaches `min_depth` mean coverage there, read from the group's VAMB

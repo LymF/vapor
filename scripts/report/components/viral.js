@@ -2,9 +2,68 @@
 (function () {
   'use strict';
 
+  // ── Global vOTU catalog ──────────────────────────────────────────────────
+  // Per-sample counts and the total come from the SAME catalog, so they are
+  // on one scale. Summing per-sample counts is not the total and never was.
+  function buildVotuCatalog() {
+    const cat = typeof VOTU_CATALOG !== 'undefined' ? VOTU_CATALOG : null;
+    const box = document.getElementById('votu-catalog-summary');
+    if (!box || !cat || !cat.n_votus) { if (box) box.innerHTML = ''; return; }
+    box.innerHTML =
+      `<div class="chart-card"><h3 style="margin-top:0">Catálogo global de vOTU</h3>` +
+      `<p><strong>${cat.n_votus.toLocaleString()}</strong> vOTUs a partir de ` +
+      `<strong>${cat.n_pool.toLocaleString()}</strong> contigs virais ` +
+      `(${cat.reduction_pct}% de redundância removida). Clusterização ICTV: ` +
+      `95% ANI + 85% AF, num único passo sobre o conjunto completo.</p></div>`;
+  }
+
+  function buildVotuPresence() {
+    const pres = typeof VOTU_PRESENCE !== 'undefined' ? VOTU_PRESENCE : null;
+    if (!pres) return;
+    const samples = typeof SAMPLES !== 'undefined' ? SAMPLES : [];
+    const assembled = samples.map(s => (pres.per_sample[s] || {}).assembled || 0);
+    const recruited = samples.map(s => (pres.per_sample[s] || {}).recruited || 0);
+
+    mkChart('votu-presence-chart', {
+      title: { text: 'vOTUs por amostra — montagem vs recrutamento' },
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['Montados', 'Recrutados'], top: 28 },
+      xAxis: { type: 'category', data: samples, axisLabel: { rotate: 45 } },
+      yAxis: { type: 'value', name: 'vOTUs' },
+      grid: { bottom: 110, top: 70 },
+      series: [
+        { name: 'Montados',  type: 'bar', data: assembled },
+        { name: 'Recrutados', type: 'bar', data: recruited },
+      ],
+    });
+
+    // "Em qual amostra está cada vírus" -- capped for page weight.
+    const box = document.getElementById('votu-presence-table');
+    if (!box) return;
+    const shown = pres.votus.slice(0, 500);
+    const head = '<th>vOTU</th>' + samples.map(s => `<th>${s}</th>`).join('');
+    const rows = shown.map(v => {
+      const cells = samples.map(s => {
+        const st = v.samples[s];
+        const mark = st === 'both' ? '●' : st === 'assembled' ? '◐'
+                   : st === 'recruited' ? '○' : '';
+        return `<td title="${st}">${mark}</td>`;
+      }).join('');
+      return `<tr><td>${v.votu_id}</td>${cells}</tr>`;
+    }).join('');
+    box.innerHTML =
+      `<div class="chart-card"><h3 style="margin-top:0">Presença por amostra</h3>` +
+      `<p>● montado e recrutado · ◐ só montado · ○ só recrutado. ` +
+      `Mostrando ${shown.length} de ${pres.votus.length} vOTUs.</p>` +
+      `<div class="table-wrap"><table class="vapor-table"><thead><tr>${head}</tr></thead>` +
+      `<tbody>${rows}</tbody></table></div></div>`;
+  }
+
   window.renderViral = function () {
     const samples = typeof SAMPLES !== 'undefined' ? SAMPLES : [];
 
+    buildVotuCatalog();
+    buildVotuPresence();
     _renderDetection(samples);
     _renderBinning(samples);
     _renderLifestyle(samples);
