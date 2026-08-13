@@ -2,6 +2,10 @@ import os
 import pytest
 from votu_catalog import build_pool, prefixed_id
 from votu_catalog import parse_skani_sparse
+from votu_catalog import (
+    cluster_votus, pick_representative, assign_votu_ids,
+    ClusteringCollapseError, write_clusters,
+)
 
 
 def _write_fasta(path, records):
@@ -141,3 +145,79 @@ def test_parse_skips_malformed_rows(tmp_path):
                  + _skani_row("NA", 95.0, 95.0, "a", "b")
                  + _skani_row(99.0, 95.0, 95.0, "a", "c"))
     assert parse_skani_sparse(str(p), 95.0, 85.0, {"a", "b", "c"}) == [("a", "c")]
+
+
+def test_cluster_merges_transitively():
+    ids = ["a", "b", "c", "d"]
+    edges = [("a", "b"), ("b", "c")]
+    clusters = cluster_votus(ids, edges, {})
+    assert sorted(len(c) for c in clusters) == [1, 3]
+    big = [c for c in clusters if len(c) == 3][0]
+    assert set(big) == {"a", "b", "c"}
+
+
+def test_cluster_keeps_singletons():
+    clusters = cluster_votus(["a", "b"], [], {})
+    assert sorted(clusters) == [["a"], ["b"]]
+
+
+def test_pick_representative_prefers_highest_completeness():
+    assert pick_representative(["a", "b", "c"], {"a": 40.0, "b": 95.0, "c": 70.0}) == "b"
+
+
+def test_pick_representative_breaks_ties_by_member_order():
+    assert pick_representative(["a", "b"], {"a": 50.0, "b": 50.0}) == "a"
+
+
+def test_pick_representative_handles_missing_completeness():
+    assert pick_representative(["a", "b"], {"b": 10.0}) == "b"
+
+
+def test_clusters_sorted_by_size_then_representative():
+    ids = ["z", "y", "m", "n", "o"]
+    edges = [("m", "n"), ("n", "o")]          # cluster de 3
+    clusters = cluster_votus(ids, edges, {})
+    assert len(clusters[0]) == 3               # maior primeiro
+    reps = [pick_representative(c, {}) for c in clusters[1:]]
+    assert reps == sorted(reps)                # empates em ordem estavel
+
+
+def test_assign_votu_ids_is_deterministic():
+    ids = ["a", "b", "c", "d"]
+    edges = [("a", "b")]
+    rows1 = assign_votu_ids(cluster_votus(ids, edges, {}))
+    rows2 = assign_votu_ids(cluster_votus(ids, edges, {}))
+    assert rows1 == rows2
+    votu_ids = sorted({r[0] for r in rows1})
+    assert votu_ids == ["vOTU_00001", "vOTU_00002", "vOTU_00003"]
+
+
+def test_assign_votu_ids_emits_one_row_per_member():
+    rows = assign_votu_ids([["a", "b"], ["c"]])
+    assert len(rows) == 3
+    assert all(len(r) == 3 for r in rows)
+
+
+def test_write_clusters_raises_when_nothing_collapsed(tmp_path):
+    """N sequences -> N clusters is the signature of the historical bug."""
+    clusters = [["a"], ["b"], ["c"]]
+    with pytest.raises(ClusteringCollapseError, match="no clusters formed"):
+        write_clusters(clusters, n_input=3, path=str(tmp_path / "c.tsv"))
+
+
+def test_write_clusters_allows_single_input_sequence(tmp_path):
+    """One genome cannot collapse -- that is not the bug."""
+    out = tmp_path / "c.tsv"
+    write_clusters([["a"]], n_input=1, path=str(out))
+    assert out.read_text().startswith("votu_id\trepresentative\tmember\n")
+
+
+def test_write_clusters_writes_header_and_rows(tmp_path):
+    out = tmp_path / "c.tsv"
+    write_clusters([["a", "b"], ["c"]], n_input=3, path=str(out),
+                   completeness={"a": 10.0, "b": 90.0})
+    rows = [l.rstrip("\n").split("\t") for l in open(out)]
+    assert rows[0] == ["votu_id", "representative", "member"]
+    assert rows[1] == ["vOTU_00001", "b", "a"]
+    assert rows[2] == ["vOTU_00001", "b", "b"]
+    assert rows[3] == ["vOTU_00002", "c", "c"]

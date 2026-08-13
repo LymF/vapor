@@ -110,3 +110,84 @@ def parse_skani_sparse(path, ani_min, af_min, valid_ids):
             if ani >= ani_min and max(af_ref, af_query) >= af_min:
                 edges.append((a, b))
     return edges
+
+
+class ClusteringCollapseError(RuntimeError):
+    """Raised when clustering produced exactly one cluster per input sequence.
+
+    That outcome is the signature of the defect this module replaces: the
+    old rule fed skani's dense matrix to an edge-list parser, so no edge was
+    ever built and every contig stayed a singleton for the pipeline's entire
+    history. Failing loudly here is the point -- a silent N-in-N-out catalog
+    reports assembly redundancy as viral richness.
+    """
+
+
+def pick_representative(members, completeness):
+    """Cluster representative: highest CheckV completeness, ties by member order."""
+    return max(
+        members,
+        key=lambda m: (completeness.get(m, 0.0), -members.index(m)),
+    )
+
+
+def cluster_votus(ids, edges, completeness):
+    """Single-linkage connected components over the kept edges.
+
+    Returns clusters sorted by size (descending) then by representative ID,
+    so that a re-run over the same pool yields the same vOTU labels.
+    """
+    neigh = {i: set() for i in ids}
+    for a, b in edges:
+        if a in neigh and b in neigh:
+            neigh[a].add(b)
+            neigh[b].add(a)
+
+    seen = set()
+    clusters = []
+    for start in ids:
+        if start in seen:
+            continue
+        comp = []
+        stack = [start]
+        while stack:
+            node = stack.pop()
+            if node in seen:
+                continue
+            seen.add(node)
+            comp.append(node)
+            stack.extend(n for n in neigh[node] if n not in seen)
+        clusters.append(comp)
+
+    clusters.sort(key=lambda c: (-len(c), pick_representative(c, completeness)))
+    return clusters
+
+
+def assign_votu_ids(clusters, completeness=None):
+    """Turn clusters into (votu_id, representative, member) rows."""
+    completeness = completeness or {}
+    rows = []
+    for idx, members in enumerate(clusters, start=1):
+        votu_id = f"vOTU_{idx:05d}"
+        rep = pick_representative(members, completeness)
+        for member in members:
+            rows.append((votu_id, rep, member))
+    return rows
+
+
+def write_clusters(clusters, n_input, path, completeness=None):
+    """Write vOTU_clusters.tsv, refusing to emit a catalog that collapsed nothing."""
+    if n_input > 1 and len(clusters) == n_input:
+        raise ClusteringCollapseError(
+            f"no clusters formed: {n_input} input sequences produced "
+            f"{len(clusters)} clusters. This is the signature of a skani "
+            f"output-format or parser mismatch -- check that "
+            f"`skani triangle --sparse` was used and that genome names are "
+            f"read from columns 5 and 6."
+        )
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as fh:
+        fh.write("votu_id\trepresentative\tmember\n")
+        for votu_id, rep, member in assign_votu_ids(clusters, completeness):
+            fh.write(f"{votu_id}\t{rep}\t{member}\n")
+    return len(clusters)
