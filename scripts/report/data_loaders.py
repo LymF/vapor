@@ -1758,6 +1758,72 @@ def load_votu_accumulation(outdir, groups, min_depth=1.0, n_perm=100, seed=0):
     return out
 
 
+# ── Global vOTU catalog ───────────────────────────────────────────────────────
+#
+# Richness is defined ONCE over the pooled viral sets of every sample and
+# co-assembly group, so a per-sample count and a total are on the same scale.
+# Summing per-sample counts is what inflated richness before this stage
+# existed, and is never the right total.
+
+def load_votu_catalog(outdir):
+    """Global richness and how much the pool collapsed.
+
+    Returns {'n_votus', 'n_pool', 'reduction_pct'}; zeros when absent.
+    """
+    d = os.path.join(outdir, "votu_catalog")
+    clusters = os.path.join(d, "vOTU_clusters.tsv")
+    provenance = os.path.join(d, "provenance.tsv")
+    n_votus = n_pool = 0
+
+    if os.path.exists(clusters):
+        seen = set()
+        with open(clusters) as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                seen.add(row["votu_id"])
+        n_votus = len(seen)
+
+    if os.path.exists(provenance):
+        with open(provenance) as fh:
+            n_pool = max(sum(1 for _ in fh) - 1, 0)
+
+    reduction = (100.0 * (1 - n_votus / n_pool)) if n_pool else 0.0
+    return {"n_votus": n_votus, "n_pool": n_pool,
+            "reduction_pct": round(reduction, 1)}
+
+
+def load_votu_presence(outdir, samples):
+    """Per-sample vOTU presence, keeping the two signals separate.
+
+    'assembled' — a member contig came from that sample
+    'recruited' — the sample's reads covered the representative past the cutoff
+    'total'     — present by either signal; this is the sample's vOTU count
+    """
+    path = os.path.join(outdir, "votu_catalog", "presence_matrix.tsv")
+    per_sample = {s: {"assembled": 0, "recruited": 0, "total": 0} for s in samples}
+    votus = []
+
+    if not os.path.exists(path):
+        return {"votus": votus, "per_sample": per_sample}
+
+    with open(path) as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            entry = {"votu_id": row["votu_id"],
+                     "representative": row.get("representative", ""),
+                     "samples": {}}
+            for s in samples:
+                state = (row.get(s) or "absent").strip()
+                entry["samples"][s] = state
+                if state in ("assembled", "both"):
+                    per_sample[s]["assembled"] += 1
+                if state in ("recruited", "both"):
+                    per_sample[s]["recruited"] += 1
+                if state != "absent":
+                    per_sample[s]["total"] += 1
+            votus.append(entry)
+
+    return {"votus": votus, "per_sample": per_sample}
+
+
 def load_coassembly_rich(outdir, groups):
     """Per-group rich data mirroring the per-sample viral + prokaryotic tabs,
     for the Co-assembly report tab. Reuses the same file-path-based loaders as

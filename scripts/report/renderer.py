@@ -25,6 +25,7 @@ from .data_loaders import (
     load_alpha_diversity, load_pcoord, load_eggnog, load_phrogs,
     load_genome_maps, load_reads_classify, load_coassembly, load_coassembly_rich,
     load_votu_accumulation,
+    load_votu_catalog, load_votu_presence,
     load_tool_status, summarize_tool_status,
     path_dict, collect_tool_versions,
 )
@@ -164,6 +165,8 @@ def _build(snakemake):
     # Real per-rule outcome, so a crashed tool renders as a gap, not a zero.
     tool_status     = load_tool_status(outdir, samples)
     tool_status_issues = summarize_tool_status(tool_status)
+    votu_catalog  = load_votu_catalog(outdir)
+    votu_presence = load_votu_presence(outdir, samples)
 
     # ── Merge vConTACT3 into tax_data ─────────────────────────────────────────
     tax_genome_keys = {(r.get('sample', ''), r.get('Genome', '')) for r in tax_data}
@@ -454,6 +457,8 @@ def _build(snakemake):
         "VOTU_ACCUM":      votu_accum,
         "TOOL_STATUS":        tool_status,
         "TOOL_STATUS_ISSUES": tool_status_issues,
+        "VOTU_CATALOG":  votu_catalog,
+        "VOTU_PRESENCE": votu_presence,
     })
 
     # ── Assemble HTML ─────────────────────────────────────────────────────────
