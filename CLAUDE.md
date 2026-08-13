@@ -21,7 +21,7 @@ The repository is organized as follows:
   - `viral_detection.smk`: Viral sequence detection using multiple tools (VirSorter2, GeNomad, DeepVirFinder, CenoteTaker3, VIBRANT) and consensus generation.
   - `mapping.smk`: Read mapping to contigs (BWA-MEM2 for short reads; minimap2 for long reads) and coverage calculation.
   - `viral_binning.smk`: Viral binning with CheckV quality assessment and vRhyme clustering.
-  - `votu_catalog.smk`: Catálogo global de vOTU — pool de todos os conjuntos virais com IDs prefixados por origem, `skani triangle --sparse` num passo único, clustering ICTV (95% ANI + 85% AF), representantes em três camadas, e matrizes de presença/abundância vOTU×amostra por recrutamento de leituras. Substitui o clustering por amostra.
+  - `votu_catalog.smk`: Global vOTU catalog — pools all viral sets with source-prefixed IDs, a single-pass `skani triangle --sparse`, ICTV-standard clustering (95% ANI + 85% AF), three representative tiers, and vOTU x sample presence/abundance matrices from read recruitment. Replaces the former per-sample clustering.
   - `prok_binning.smk`: Prokaryotic binning using MetaBAT2, MaxBin2, VAMB, SemiBin2, followed by Binette consolidation, CheckM2 quality check, and GTDB-Tk taxonomy.
   - `taxonomy.smk`: Taxonomy assignment via Prodigal gene prediction and Diamond BLAST against databases, including viral taxonomy.
   - `host_prediction.smk`: Phage-host prediction using PHIST.
