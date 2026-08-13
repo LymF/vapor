@@ -362,12 +362,10 @@ def parse_skani_sparse(path, ani_min, af_min, valid_ids):
         return edges
 
     with open(path) as fh:
-        first = fh.readline()
-        # A real sparse file starts with the tab-separated header; anything
-        # else (e.g. the dense PHYLIP matrix, which opens with a bare count)
-        # simply produces no parseable rows below.
-        if first.startswith("Ref_file"):
-            pass
+        # Skip the header row. A dense PHYLIP matrix opens with a bare
+        # genome count instead, and yields no parseable rows below -- its
+        # lines never reach the 7 columns the sparse format guarantees.
+        fh.readline()
         for line in fh:
             parts = line.rstrip("\n").split("\t")
             if len(parts) < _N_SPARSE_COLS:
@@ -842,12 +840,47 @@ def _catalog_input_fastas(wildcards):
     return [path for _, _, path in _catalog_sources()]
 
 
-def _catalog_checkv_summaries(wildcards):
-    paths = [f"{OUTDIR}/{s}/viral/checkv/quality_summary.tsv" for s in SAMPLES]
+def _catalog_checkv_pairs():
+    """(source_id, checkv_summary_path) in the SAME order as _catalog_sources().
+
+    Returned as pairs, not a bare path list, on purpose: re-keying CheckV
+    completeness onto the pool's namespaced IDs requires knowing which source
+    each summary belongs to. Zipping two independently built lists by position
+    would produce a silently mis-keyed catalog -- the same class of quiet
+    wrong answer this whole stage exists to eliminate.
+    """
+    pairs = [(s, f"{OUTDIR}/{s}/viral/checkv/quality_summary.tsv")
+             for s in SAMPLES]
     if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
-        paths += [f"{OUTDIR}/coassembly/{g}/viral/checkv/quality_summary.tsv"
+        pairs += [(g, f"{OUTDIR}/coassembly/{g}/viral/checkv/quality_summary.tsv")
                   for g in COASSEMBLY_GROUPS]
-    return paths
+    return pairs
+
+
+def _catalog_checkv_summaries(wildcards):
+    return [path for _, path in _catalog_checkv_pairs()]
+
+
+def _load_catalog_completeness():
+    """CheckV completeness and quality tier, keyed by the pool's namespaced IDs."""
+    import csv
+    completeness = {}
+    quality = {}
+    for source_id, path in _catalog_checkv_pairs():
+        if not os.path.exists(path):
+            continue
+        with open(path) as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                contig = (row.get("contig_id") or "").strip()
+                if not contig:
+                    continue
+                key = f"{source_id}|{contig}"
+                quality[key] = (row.get("checkv_quality") or "").strip()
+                try:
+                    completeness[key] = float(row.get("completeness") or 0)
+                except ValueError:
+                    completeness[key] = 0.0
+    return completeness, quality
 
 
 rule votu_catalog_pool:
@@ -941,22 +974,7 @@ rule votu_catalog_cluster:
                 if line.startswith(">"):
                     ids.append(line[1:].strip().split()[0])
 
-        # CheckV completeness, re-keyed with the pool's namespaced IDs.
-        completeness = {}
-        for src, path in zip(_catalog_sources(), list(input.checkv)):
-            source_id = src[1]
-            if not os.path.exists(path):
-                continue
-            with open(path) as fh:
-                for row in csv.DictReader(fh, delimiter="\t"):
-                    contig = (row.get("contig_id") or "").strip()
-                    if not contig:
-                        continue
-                    try:
-                        completeness[f"{source_id}|{contig}"] = float(
-                            row.get("completeness") or 0)
-                    except ValueError:
-                        continue
+        completeness, _quality = _load_catalog_completeness()
 
         edges = parse_skani_sparse(str(input.ani), params.ani_min,
                                    params.af_min, set(ids))
@@ -1007,23 +1025,7 @@ rule votu_catalog_reps:
             for row in rdr:
                 reps.add(row["representative"])
 
-        quality = {}
-        completeness = {}
-        for src, path in zip(_catalog_sources(), list(input.checkv)):
-            source_id = src[1]
-            if not os.path.exists(path):
-                continue
-            with open(path) as fh:
-                for row in csv.DictReader(fh, delimiter="\t"):
-                    contig = (row.get("contig_id") or "").strip()
-                    if not contig:
-                        continue
-                    key = f"{source_id}|{contig}"
-                    quality[key] = (row.get("checkv_quality") or "").strip()
-                    try:
-                        completeness[key] = float(row.get("completeness") or 0)
-                    except ValueError:
-                        completeness[key] = 0.0
+        completeness, quality = _load_catalog_completeness()
 
         def is_mq(rid):
             return (quality.get(rid, "") in params.keep_tiers
@@ -1131,11 +1133,19 @@ git commit -m "feat(votu): estagio global do catalogo (pool, skani, cluster, rep
 Ao final de `rules/votu_catalog.smk`:
 
 ```python
-> **Padrão de dois ramos.** As duas variantes abaixo produzem exatamente o mesmo
-> caminho de saída (`{CATALOG_DIR}/mapping/{sample}.catalog.sorted.bam`), então
-> `votu_catalog_coverm` e `votu_catalog_matrices` funcionam sem saber qual
-> tecnologia foi usada — mesma estratégia de `rules/mapping.smk` com
-> `bwa_mem` / `minimap2_lr`.
+> **Padrão de dois ramos.** As variantes abaixo produzem exatamente o mesmo
+> caminho de SAM temporário (`{CATALOG_DIR}/mapping/{sample}.catalog.sam`), então
+> a regra de ordenação, `votu_catalog_coverm` e `votu_catalog_matrices` funcionam
+> sem saber qual tecnologia foi usada — mesma estratégia de `rules/mapping.smk`
+> com `bwa_mem` / `minimap2_lr`.
+>
+> **Alinhamento e ordenação são regras separadas, obrigatoriamente.** Os
+> containers são imagens distintas (`bwa-mem2`, `minimap2`, `samtools` em
+> `containers.yaml:74-85`): um `| samtools sort` dentro do container do
+> alinhador falha, porque `samtools` não existe naquela imagem. Funcionaria em
+> modo conda — `envs/env_mapping.yaml` traz os três — e é justamente por isso
+> que o defeito passaria despercebido até a primeira execução com containers.
+> `rules/mapping.smk` já separa por esse motivo; o catálogo faz igual.
 
 ```python
 if LONG_READS:
@@ -1150,8 +1160,7 @@ if LONG_READS:
             reads = _clean_lr,
             fasta = rules.votu_catalog_reps.output.all_fasta,
         output:
-            bam = f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sorted.bam",
-            bai = f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sorted.bam.bai",
+            sam = temp(f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sam"),
         log:
             f"{OUTDIR}/{{sample}}/logs/votu_catalog_map.log"
         benchmark:
@@ -1161,12 +1170,10 @@ if LONG_READS:
         threads: THREADS
         shell:
             """
-            mkdir -p $(dirname {output.bam})
+            mkdir -p $(dirname {output.sam})
             if [ ! -s {input.fasta} ]; then
-                echo "[votu_catalog_map] Empty catalog -- writing empty BAM" | tee {log}
-                printf "@HD\tVN:1.6\tSO:coordinate\n" \
-                    | samtools view -bS -o {output.bam} - 2>> {log}
-                samtools index {output.bam} 2>> {log}
+                echo "[votu_catalog_map] Empty catalog -- header-only SAM" | tee {log}
+                printf "@HD\tVN:1.6\tSO:unsorted\n" > {output.sam}
                 exit 0
             fi
             if [ "{LR_TECH}" = "hifi" ]; then
@@ -1176,9 +1183,8 @@ if LONG_READS:
             fi
             minimap2 -ax $PRESET \
                 -t {threads} \
-                {input.fasta} {input.reads} 2> {log} \
-                | samtools sort -@ {threads} -o {output.bam} - 2>> {log}
-            samtools index {output.bam} 2>> {log}
+                {input.fasta} {input.reads} \
+                > {output.sam} 2> {log}
             """
 
 else:
@@ -1214,8 +1220,7 @@ else:
             idx   = rules.votu_catalog_index.output.idx,
             fasta = rules.votu_catalog_reps.output.all_fasta,
         output:
-            bam = f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sorted.bam",
-            bai = f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sorted.bam.bai",
+            sam = temp(f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sam"),
         log:
             f"{OUTDIR}/{{sample}}/logs/votu_catalog_map.log"
         benchmark:
@@ -1228,32 +1233,54 @@ else:
             single_end = SINGLE_END,
         shell:
             """
-            mkdir -p $(dirname {output.bam})
+            mkdir -p $(dirname {output.sam})
             if [ ! -s {input.fasta} ]; then
-                echo "[votu_catalog_map] Empty catalog -- writing empty BAM" | tee {log}
-                printf "@HD\tVN:1.6\tSO:coordinate\n" \
-                    | samtools view -bS -o {output.bam} - 2>> {log}
-                samtools index {output.bam} 2>> {log}
+                echo "[votu_catalog_map] Empty catalog -- header-only SAM" | tee {log}
+                printf "@HD\tVN:1.6\tSO:unsorted\n" > {output.sam}
                 exit 0
             fi
             if [ "{params.single_end}" = "True" ]; then
-                bwa-mem2 mem -t {threads} {params.prefix} {input.tr1} 2> {log} \
-                    | samtools sort -@ {threads} -o {output.bam} - 2>> {log}
+                bwa-mem2 mem -t {threads} {params.prefix} {input.tr1} \
+                    > {output.sam} 2> {log}
             else
-                bwa-mem2 mem -t {threads} {params.prefix} {input.tr1} {input.tr2} 2> {log} \
-                    | samtools sort -@ {threads} -o {output.bam} - 2>> {log}
+                bwa-mem2 mem -t {threads} {params.prefix} {input.tr1} {input.tr2} \
+                    > {output.sam} 2> {log}
             fi
-            samtools index {output.bam} 2>> {log}
             """
 ```
 
-As demais regras desta tarefa ficam **fora** do `if/else`, no nível do módulo:
+As demais regras desta tarefa ficam **fora** do `if/else`, no nível do módulo. A
+primeira é a ordenação, que roda no container do samtools — separada do
+alinhamento pelo motivo explicado acima:
+
+```python
+rule votu_catalog_sort:
+    """Sort and index the catalog alignment. Separate rule because samtools
+    lives in its own container image, not in the aligners'."""
+    input:
+        sam = rules.votu_catalog_map.output.sam,
+    output:
+        bam = f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sorted.bam",
+        bai = f"{CATALOG_DIR}/mapping/{{sample}}.catalog.sorted.bam.bai",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/votu_catalog_sort.log"
+    benchmark:
+        f"{OUTDIR}/{{sample}}/benchmarks/votu_catalog_sort.tsv"
+    conda: "../envs/env_mapping.yaml"
+    container: CONTAINERS.get("samtools")
+    threads: THREADS
+    shell:
+        """
+        samtools sort -@ {threads} -o {output.bam} {input.sam} 2> {log}
+        samtools index {output.bam} 2>> {log}
+        """
+```
 
 
 rule votu_catalog_coverm:
     """CoverM over the catalog BAM, with the same filters as coverm_viral."""
     input:
-        bam   = rules.votu_catalog_map.output.bam,
+        bam   = rules.votu_catalog_sort.output.bam,
         fasta = rules.votu_catalog_reps.output.all_fasta,
     output:
         tsv = f"{CATALOG_DIR}/coverm/{{sample}}.tsv",

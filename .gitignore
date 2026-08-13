@@ -57,3 +57,6 @@ check_containers.sh
 # Baseline de regressão do catálogo de vOTU (regenerável — ver README no diretório)
 tests/data/votu_regression/*.fasta
 tests/data/votu_regression/*.tsv
+
+# Workspace do subagent-driven-development (scratch, por plano)
+.superpowers/
