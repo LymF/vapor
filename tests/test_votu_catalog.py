@@ -1,6 +1,7 @@
 import os
 import pytest
 from votu_catalog import build_pool, prefixed_id
+from votu_catalog import parse_skani_sparse
 
 
 def _write_fasta(path, records):
@@ -73,3 +74,70 @@ def test_build_pool_uses_first_whitespace_token_as_id(tmp_path):
     build_pool([("sample", "S1", str(a))], str(pool), str(tmp_path / "p.tsv"))
     names = [l[1:].strip() for l in open(pool) if l.startswith(">")]
     assert names == ["S1|c1"]
+
+
+SKANI_HEADER = ("Ref_file\tQuery_file\tANI\tAlign_fraction_ref\t"
+                "Align_fraction_query\tRef_name\tQuery_name\n")
+
+
+def _skani_row(ani, af_ref, af_query, ref_name, query_name):
+    return (f"/path/pool.fasta\t/path/pool.fasta\t{ani}\t{af_ref}\t{af_query}\t"
+            f"{ref_name}\t{query_name}\n")
+
+
+def test_parse_uses_columns_five_and_six_for_names(tmp_path):
+    """Names live in Ref_name/Query_name, NOT in the first two file-path columns."""
+    p = tmp_path / "ani.tsv"
+    p.write_text(SKANI_HEADER + _skani_row(99.0, 95.0, 95.0, "S1|a", "S1|b"))
+    edges = parse_skani_sparse(str(p), 95.0, 85.0, {"S1|a", "S1|b"})
+    assert edges == [("S1|a", "S1|b")]
+
+
+def test_parse_applies_ani_and_af_thresholds(tmp_path):
+    p = tmp_path / "ani.tsv"
+    p.write_text(
+        SKANI_HEADER
+        + _skani_row(99.0, 95.0, 95.0, "a", "b")   # passa
+        + _skani_row(94.9, 95.0, 95.0, "a", "c")   # ANI baixo
+        + _skani_row(99.0, 80.0, 84.9, "a", "d")   # AF baixo nos dois lados
+        + _skani_row(99.0, 84.0, 90.0, "a", "e")   # max(AF) passa
+    )
+    ids = {"a", "b", "c", "d", "e"}
+    edges = parse_skani_sparse(str(p), 95.0, 85.0, ids)
+    assert sorted(edges) == [("a", "b"), ("a", "e")]
+
+
+def test_parse_drops_self_comparisons(tmp_path):
+    p = tmp_path / "ani.tsv"
+    p.write_text(SKANI_HEADER + _skani_row(100.0, 100.0, 100.0, "a", "a"))
+    assert parse_skani_sparse(str(p), 95.0, 85.0, {"a"}) == []
+
+
+def test_parse_drops_unknown_names(tmp_path):
+    p = tmp_path / "ani.tsv"
+    p.write_text(SKANI_HEADER + _skani_row(99.0, 95.0, 95.0, "a", "ghost"))
+    assert parse_skani_sparse(str(p), 95.0, 85.0, {"a"}) == []
+
+
+def test_parse_rejects_dense_matrix_format(tmp_path):
+    """The dense PHYLIP matrix must yield zero edges, not garbage ones.
+
+    This is the exact format the old parser was silently fed.
+    """
+    p = tmp_path / "dense.tsv"
+    p.write_text("3\nS1|a\nS1|b\t0.00\nS1|c\t0.00\t0.00\n")
+    edges = parse_skani_sparse(str(p), 95.0, 85.0, {"S1|a", "S1|b", "S1|c"})
+    assert edges == []
+
+
+def test_parse_tolerates_missing_file(tmp_path):
+    assert parse_skani_sparse(str(tmp_path / "nope.tsv"), 95.0, 85.0, {"a"}) == []
+
+
+def test_parse_skips_malformed_rows(tmp_path):
+    p = tmp_path / "ani.tsv"
+    p.write_text(SKANI_HEADER
+                 + "só\tdois\n"
+                 + _skani_row("NA", 95.0, 95.0, "a", "b")
+                 + _skani_row(99.0, 95.0, 95.0, "a", "c"))
+    assert parse_skani_sparse(str(p), 95.0, 85.0, {"a", "b", "c"}) == [("a", "c")]

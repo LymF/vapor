@@ -57,3 +57,56 @@ def build_pool(sources, pool_path, provenance_path):
 
     return {"n_sequences": n_sequences, "n_sources": n_sources,
             "n_skipped": n_skipped}
+
+
+# skani triangle --sparse column layout (verified against skani 0.3.2):
+#   0 Ref_file  1 Query_file  2 ANI  3 Align_fraction_ref
+#   4 Align_fraction_query  5 Ref_name  6 Query_name
+# The genome names are columns 5 and 6 -- columns 0 and 1 are FILE PATHS.
+# Reading names from 0/1 (as the removed per-sample rule did) produces a
+# parser that silently never matches anything.
+_COL_ANI = 2
+_COL_AF_REF = 3
+_COL_AF_QUERY = 4
+_COL_REF_NAME = 5
+_COL_QUERY_NAME = 6
+_N_SPARSE_COLS = 7
+
+
+def parse_skani_sparse(path, ani_min, af_min, valid_ids):
+    """Read `skani triangle --sparse` output into vOTU edges.
+
+    An edge is kept when ANI >= ani_min AND max(af_ref, af_query) >= af_min
+    (ICTV / Roux et al. 2019). Self-comparisons and names absent from
+    valid_ids are dropped.
+
+    Returns a list of (name_a, name_b) tuples.
+    """
+    edges = []
+    if not path or not os.path.exists(path):
+        return edges
+
+    with open(path) as fh:
+        # Skip the header row. A dense PHYLIP matrix opens with a bare
+        # genome count instead, and yields no parseable rows below -- its
+        # lines never reach the 7 columns the sparse format guarantees.
+        fh.readline()
+        for line in fh:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < _N_SPARSE_COLS:
+                continue
+            try:
+                ani = float(parts[_COL_ANI])
+                af_ref = float(parts[_COL_AF_REF])
+                af_query = float(parts[_COL_AF_QUERY])
+            except ValueError:
+                continue
+            a = parts[_COL_REF_NAME]
+            b = parts[_COL_QUERY_NAME]
+            if a == b:
+                continue
+            if a not in valid_ids or b not in valid_ids:
+                continue
+            if ani >= ani_min and max(af_ref, af_query) >= af_min:
+                edges.append((a, b))
+    return edges
