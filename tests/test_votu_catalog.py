@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 import pytest
 from votu_catalog import build_pool, prefixed_id
 from votu_catalog import parse_skani_sparse
@@ -180,6 +182,49 @@ def test_clusters_sorted_by_size_then_representative():
     assert len(clusters[0]) == 3               # maior primeiro
     reps = [pick_representative(c, {}) for c in clusters[1:]]
     assert reps == sorted(reps)                # empates em ordem estavel
+
+
+def test_cluster_traversal_is_deterministic_across_process_hash_seeds():
+    """Cluster member order (and thus representative on a completeness tie)
+    must not depend on PYTHONHASHSEED.
+
+    `neigh[node]` is a set of strings, and Python randomizes string hashing
+    per process unless PYTHONHASHSEED is fixed. An in-process re-call of
+    cluster_votus (as in test_assign_votu_ids_is_deterministic above) cannot
+    catch this, because PYTHONHASHSEED is already fixed for the whole pytest
+    process -- both calls see the same hash order. This test crosses an
+    actual process boundary with two different seeds to catch it.
+
+    Uses the exact tie-inducing input that was shown to diverge under the
+    pre-fix DFS (unsorted `stack.extend(... for y in neigh[node] ...)`):
+    ids=[c,d,e], edges=[(c,d),(c,e)], completeness d=e=90.0, c=10.0.
+    """
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script = (
+        "import sys; sys.path.insert(0, 'scripts');"
+        "from votu_catalog import cluster_votus, pick_representative;"
+        "ids=['c','d','e'];"
+        "edges=[('c','d'),('c','e')];"
+        "completeness={'c':10.0,'d':90.0,'e':90.0};"
+        "clusters=cluster_votus(ids, edges, completeness);"
+        "comp=clusters[0];"
+        "rep=pick_representative(comp, completeness);"
+        "print(comp, rep)"
+    )
+
+    outputs = {}
+    for seed in ("1", "2", "3", "4"):
+        env = dict(os.environ, PYTHONHASHSEED=seed)
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=repo_root, env=env,
+            capture_output=True, text=True, check=True,
+        )
+        outputs[seed] = result.stdout.strip()
+
+    assert len(set(outputs.values())) == 1, (
+        f"cluster order / representative differs across PYTHONHASHSEED: {outputs}"
+    )
 
 
 def test_assign_votu_ids_is_deterministic():

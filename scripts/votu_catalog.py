@@ -156,7 +156,14 @@ def cluster_votus(ids, edges, completeness):
                 continue
             seen.add(node)
             comp.append(node)
-            stack.extend(n for n in neigh[node] if n not in seen)
+            # Sort neighbors before pushing: `neigh[node]` is a set, and
+            # Python randomizes string hashing per process (PYTHONHASHSEED),
+            # so an unsorted traversal visits neighbors in a different order
+            # on every run. That changes cluster member order and, on a
+            # completeness tie, the representative pick_representative()
+            # returns -- silently reassigning vOTU_* labels across reruns
+            # of the same pool.
+            stack.extend(sorted(n for n in neigh[node] if n not in seen))
         clusters.append(comp)
 
     clusters.sort(key=lambda c: (-len(c), pick_representative(c, completeness)))
