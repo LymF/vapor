@@ -24,36 +24,70 @@ STATUS_TRACKED_TOOLS = {
     "vcontact3":     "viral/vcontact3/done.txt",
 }
 
+# Global (non-per-sample) rules tracked the same way, except their done.txt
+# lives directly under {outdir}/ with no sample component -- e.g. the global
+# vOTU catalog, built once over every sample and co-assembly group pooled
+# together. Reported under GLOBAL_STATUS_LABEL, a pseudo-sample key that
+# cannot collide with a real sample name (sample discovery never produces a
+# name wrapped in parentheses).
+STATUS_TRACKED_GLOBAL_TOOLS = {
+    "votu_catalog_reps":     "votu_catalog/done.txt",
+    "votu_catalog_matrices": "votu_catalog/matrices_done.txt",
+}
+
+GLOBAL_STATUS_LABEL = "(global)"
+
+
+def _read_status_file(path):
+    """Read a single done.txt into {'state', 'reason', 'raw'}. Shared by the
+    per-sample and global branches of load_tool_status so both parse the
+    'ok' / 'skipped: <reason>' / 'failed: <reason>' convention identically."""
+    raw = ""
+    if os.path.exists(path):
+        try:
+            with open(path) as fh:
+                raw = fh.read().strip()
+        except OSError:
+            raw = ""
+    if not raw:
+        return {"state": "unknown", "reason": "no status recorded", "raw": raw}
+    head, _, tail = raw.partition(":")
+    head = head.strip().lower()
+    state = head if head in ("ok", "skipped", "failed") else "unknown"
+    reason = tail.strip() or ("" if state == "ok" else raw)
+    return {"state": state, "reason": reason, "raw": raw}
+
 
 def load_tool_status(outdir, samples):
     """
-    Read done.txt for every status-tracked tool, per sample.
+    Read done.txt for every status-tracked tool, per sample, plus every
+    status-tracked global (non-per-sample) rule under GLOBAL_STATUS_LABEL.
 
-    Returns {sample: {tool: {'state': ..., 'reason': ..., 'raw': ...}}}.
+    Returns {sample: {tool: {'state': ..., 'reason': ..., 'raw': ...}}}, with
+    an extra "(global)" pseudo-sample key holding the global rules' status.
     State is one of 'ok', 'skipped', 'failed', or 'unknown' — 'unknown' covers
     both a missing done.txt and a legacy empty one written before rules
     recorded status, and must not be presented as success.
     """
+    if GLOBAL_STATUS_LABEL in samples:
+        raise ValueError(
+            f"sample name {GLOBAL_STATUS_LABEL!r} collides with the reserved "
+            "pseudo-sample label used for global rule status"
+        )
+
     status = {}
     for sample in samples:
         status[sample] = {}
         for tool, rel in STATUS_TRACKED_TOOLS.items():
             path = os.path.join(outdir, sample, rel)
-            raw = ""
-            if os.path.exists(path):
-                try:
-                    with open(path) as fh:
-                        raw = fh.read().strip()
-                except OSError:
-                    raw = ""
-            if not raw:
-                state, reason = "unknown", "no status recorded"
-            else:
-                head, _, tail = raw.partition(":")
-                head = head.strip().lower()
-                state = head if head in ("ok", "skipped", "failed") else "unknown"
-                reason = tail.strip() or ("" if state == "ok" else raw)
-            status[sample][tool] = {"state": state, "reason": reason, "raw": raw}
+            status[sample][tool] = _read_status_file(path)
+
+    if STATUS_TRACKED_GLOBAL_TOOLS:
+        status[GLOBAL_STATUS_LABEL] = {}
+        for tool, rel in STATUS_TRACKED_GLOBAL_TOOLS.items():
+            path = os.path.join(outdir, rel)
+            status[GLOBAL_STATUS_LABEL][tool] = _read_status_file(path)
+
     return status
 
 

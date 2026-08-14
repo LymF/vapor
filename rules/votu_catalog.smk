@@ -269,7 +269,10 @@ rule votu_catalog_reps:
             lf.write(f"[votu_catalog_reps] all: {n_all}\n")
             lf.write(f"[votu_catalog_reps] MQ+ (taxonomy/PHIST/annotation): {n_mq}\n")
             lf.write(f"[votu_catalog_reps] HQ+/>=10kb (vConTACT3): {n_hq}\n")
-        write_status(str(output.done), "ok")
+        if n_all == 0:
+            write_status(str(output.done), "skipped: empty catalog")
+        else:
+            write_status(str(output.done), "ok")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -346,6 +349,11 @@ else:
         shell:
             """
             mkdir -p $(dirname {output.idx})
+            if [ ! -s {input.fasta} ]; then
+                echo "[votu_catalog_index] Empty catalog -- skipping index" | tee {log}
+                touch {output.idx}
+                exit 0
+            fi
             bwa-mem2 index -p {params.prefix} {input.fasta} > {log} 2>&1
             """
 
