@@ -1150,18 +1150,309 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/filter_viral_for_prok.tsv"
 
+# ── Group vRhyme (viral vMAGs) — short reads only (needs coverage) ──────────────
+# Mirrors rule vrhyme / checkv_vrhyme (rules/viral_binning.smk) but bins the group's
+# CheckV-trimmed viral genomes using MULTI-SAMPLE differential coverage (all the
+# group's per-sample BAMs mapped to the co-assembly by the Plan 2 map-back).
+if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
+
+    rule coassembly_vrhyme:
+        """
+        vRhyme — group viral contigs into vMAGs using coverage + protein homology.
+        Uses ALL of the group's per-sample BAMs (differential coverage), analogous
+        to VAMB co-binning on the prokaryotic side.
+        NOTE: vRhyme creates its output dir itself — rm -rf before run.
+        NOTE: vRhyme refuses -l below 2000 ("minimum scaffold length cannot be
+              set below 2000 for binning"), so MIN_CONTIG is clamped to that
+              floor — same pattern as rule vrhyme (viral_binning.smk) and
+              MetaBAT2's 1500 bp clamp (prok_binning.smk). Below 2026-08-18
+              this rule passed MIN_CONTIG unclamped and swallowed the failure
+              with `|| true` + an unconditional `touch done.txt`, so once
+              min_contig dropped to 1000 the group viral track would have
+              produced zero bins in silence.
+        """
+        input:
+            viral = rules.coassembly_viral_trimmed.output.fasta,
+            bams  = lambda wc: expand(
+                f"{OUTDIR}/coassembly/{wc.group}/mapping/{{sample}}.sorted.bam",
+                sample=GROUPS[wc.group]),
+        output:
+            done = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme/done.txt",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/vrhyme.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/vrhyme.tsv"
+        conda: "../envs/env_vrhyme.yaml"
+        container:  CONTAINERS.get("vrhyme")
+        threads: THREADS
+        params:
+            outdir = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme",
+        shell:
+            """
+            rm -rf {params.outdir}
+            VRHYME_MIN=$(( {MIN_CONTIG} > 2000 ? {MIN_CONTIG} : 2000 ))
+            vRhyme \
+                -i {input.viral} \
+                -b {input.bams} \
+                -o {params.outdir} \
+                -t {threads} \
+                -l $VRHYME_MIN \
+                > {log} 2>&1 && RC=0 || RC=$?
+            mkdir -p {params.outdir}
+            if [ "$RC" -ne 0 ]; then
+                echo "failed: vRhyme exit $RC" > {output.done}
+            else
+                echo "ok" > {output.done}
+            fi
+            """
+
+
+    # CheckV nos vMAGs do vRhyme do grupo. Herda `rule checkv_vrhyme`
+    # (rules/viral_binning.smk): corpos identicos.
+    use rule checkv_vrhyme as coassembly_checkv_vrhyme with:
+        input:
+            done = rules.coassembly_vrhyme.output.done,
+        output:
+            summary = f"{OUTDIR}/coassembly/{{group}}/viral/checkv_vrhyme/quality_summary.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/checkv_vrhyme.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/checkv_vrhyme.tsv"
+
+
+    rule coassembly_viral_nonredundant:
+        """
+        Group equivalent of `rule viral_nonredundant` (rules/viral_binning.smk):
+        bins-first vRhyme + the composite length/quality/bin gate (item (e),
+        docs/ROADMAP_SIMPLIFICACAO.md, 2026-08-18) applied to unbinned
+        sequences — restoring sample/group parity (docs/AUDITORIA_COASSEMBLY_PARES.md).
+        Before this rule, `_catalog_sources()` (rules/votu_catalog.smk) pointed
+        the group source at `coassembly_viral_trimmed`'s PRE-binning output, so
+        `coassembly_vrhyme`'s group vMAGs were computed but never reached the
+        global vOTU catalog. This rule is now that source instead.
+
+        NOT inherited from `rule viral_nonredundant` via `use rule ... as ...`:
+        the per-sample rule does its OWN CheckV-trim inline (its `viral` input
+        is the untrimmed consensus, trimmed via checkv_viruses/checkv_proviruses
+        read fresh here). The group track already CheckV-trims upstream in
+        `rule coassembly_viral_trimmed`, and that trimmed output is what feeds
+        `rule coassembly_vrhyme` — so vRhyme's group bin headers already live in
+        the TRIMMED namespace, not the untrimmed one `rule viral_nonredundant`
+        expects. Re-running the per-sample rule's trim logic here would trim
+        twice, and worse, look up vRhyme bin membership against the wrong
+        (untrimmed) id namespace. A `use rule` here would need to suppress half
+        the parent rule's logic; a small sibling run: block is clearer than
+        forcing one rule body to serve two different upstream shapes.
+
+        Quality lookup: `coassembly_checkv`'s quality_summary.tsv is keyed by
+        the PRE-trim (consensus) contig_id. A trimmed provirus header in the
+        already-trimmed input fasta carries the "{orig_id}|{start}_{end}"
+        suffix `rule coassembly_viral_trimmed` writes (same convention as
+        `rule viral_nonredundant`'s proviruses.fna handling) — stripped here
+        the same way (rsplit on the last "|") to recover the lookup key.
+
+        Discard audit sidecar (same schema as `rule viral_nonredundant`,
+        rules/viral_binning.smk — kept identical on purpose, so the two
+        tracks' TSVs concatenate without reconciling columns): every dropped
+        sequence goes to `discarded_fasta` (bare contig_id header, no reason
+        encoded in it -- so nothing downstream keying off the header breaks)
+        and one row of `discarded_tsv`, columns
+        `viral_length_gate.DISCARD_TSV_COLUMNS` = contig_id, length,
+        checkv_quality, checkv_completeness, in_vrhyme_bin (always False
+        here), source_id (this group's name).
+        """
+        input:
+            trimmed        = rules.coassembly_viral_trimmed.output.fasta,
+            done           = rules.coassembly_vrhyme.output.done,
+            checkv_summary = rules.coassembly_checkv.output.summary,
+        output:
+            fasta           = f"{OUTDIR}/coassembly/{{group}}/viral/consensus/{{group}}_viral_nonredundant.fasta",
+            discarded_fasta = f"{OUTDIR}/coassembly/{{group}}/viral/consensus/{{group}}_viral_discarded.fasta",
+            discarded_tsv   = f"{OUTDIR}/coassembly/{{group}}/viral/consensus/{{group}}_viral_discarded.tsv",
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/viral_nonredundant.log"
+        benchmark:
+            f"{OUTDIR}/coassembly/{{group}}/benchmarks/viral_nonredundant.tsv"
+        params:
+            vrhyme_dir = lambda wc, input: os.path.dirname(str(input.done)),
+            min_length = VIRAL_MIN_CONTIG,
+        run:
+            import csv, glob, os
+            import sys as _sys
+            _sys.path.insert(0, SCRIPTS_DIR)
+            from viral_length_gate import (
+                passes_gate, summarize, format_discard_row, DISCARD_TSV_COLUMNS,
+            )
+
+            # vRhyme falhou? Entao o braco "esta num bin" e INDISPONIVEL, nao
+            # falso -- e o portao degradaria para comprimento-puro, descartando
+            # em silencio contigs curtos que teriam sido resgatados por um bin.
+            # Perda silenciosa e exatamente a classe de falha que este repo ja
+            # pagou caro (docs/AUDITORIA_COASSEMBLY_PARES.md §0), entao aborta.
+            # "ok" com zero bins e legitimo (comunidade diversa demais para
+            # binar) e segue adiante -- so o crash aborta.
+            _vr_status = ""
+            if os.path.exists(str(input.done)):
+                with open(str(input.done)) as _fh:
+                    _vr_status = _fh.read().strip()
+            if _vr_status.startswith("failed:"):
+                raise RuntimeError(
+                    "vRhyme falhou (%s) -- o braco de bin do portao viral ficaria "
+                    "indisponivel e contigs curtos binnaveis seriam descartados em "
+                    "silencio. Corrija o vRhyme antes de seguir." % _vr_status)
+
+
+            # CheckV quality/completeness, keyed by the PRE-trim contig_id.
+            quality = {}
+            completeness = {}
+            with open(str(input.checkv_summary)) as fh:
+                for row in csv.DictReader(fh, delimiter="\t"):
+                    cid = (row.get("contig_id") or "").strip()
+                    if not cid:
+                        continue
+                    quality[cid] = (row.get("checkv_quality") or "").strip()
+                    try:
+                        completeness[cid] = float(row.get("completeness") or 0)
+                    except ValueError:
+                        completeness[cid] = 0.0
+
+            def lookup_key(name):
+                """Recover the pre-trim quality_summary key for a (possibly
+                provirus-suffixed) trimmed-fasta header."""
+                if name in quality:
+                    return name
+                stripped = name.rsplit('|', 1)[0]
+                return stripped if stripped in quality else name
+
+            # Read the already-trimmed fasta: name -> (header, seq_lines, length)
+            seqs = {}
+            curr_hdr, curr_seq = None, []
+            def _flush():
+                if curr_hdr:
+                    nm = curr_hdr[1:].split()[0]
+                    ln = sum(len(l.strip()) for l in curr_seq)
+                    seqs[nm] = (curr_hdr, curr_seq, ln)
+            with open(str(input.trimmed)) as fh:
+                for line in fh:
+                    if line.startswith('>'):
+                        _flush()
+                        curr_hdr, curr_seq = line, []
+                    else:
+                        curr_seq.append(line)
+                _flush()
+
+            # vRhyme bin membership — headers are in the trimmed namespace
+            # (coassembly_vrhyme's -i is the already-trimmed fasta).
+            vbins_dir = params.vrhyme_dir
+            binned = set()
+            for vbin in sorted(glob.glob(os.path.join(vbins_dir, 'vRhyme_best_bins.*.fasta'))):
+                with open(vbin) as fh:
+                    for line in fh:
+                        if line.startswith('>'):
+                            binned.add(line[1:].split()[0])
+
+            out_lines = []
+            discard_out_lines = []
+            discard_rows = []
+            gate_results = []
+            for name, (hdr, seq, length) in seqs.items():
+                is_binned = name in binned
+                key = lookup_key(name)
+                res = passes_gate(
+                    binned=is_binned,
+                    quality_tier=quality.get(key, ""),
+                    completeness=completeness.get(key, 0.0),
+                    length=length,
+                    min_length=params.min_length)
+                gate_results.append(res)
+                if res.kept:
+                    out_lines.append(hdr)
+                    out_lines.extend(seq)
+                else:
+                    frag_id = hdr[1:].split()[0]
+                    discard_out_lines.append(f'>{frag_id}\n')
+                    discard_out_lines.extend(seq)
+                    discard_rows.append(format_discard_row(
+                        contig_id=frag_id,
+                        length=length,
+                        quality_tier=quality.get(key) if key in quality else None,
+                        completeness=completeness.get(key) if key in quality else None,
+                        source_id=wildcards.group,
+                    ))
+
+            with open(str(output.fasta), 'w') as fh:
+                fh.writelines(out_lines)
+
+            with open(str(output.discarded_fasta), 'w') as fh:
+                fh.writelines(discard_out_lines)
+
+            with open(str(output.discarded_tsv), 'w', newline='') as fh:
+                w = csv.writer(fh, delimiter='\t')
+                w.writerow(DISCARD_TSV_COLUMNS)
+                w.writerows(discard_rows)
+
+            n_bins = len(glob.glob(os.path.join(vbins_dir, 'vRhyme_best_bins.*.fasta')))
+            counts = summarize(gate_results)
+            with open(str(log[0]), 'w') as lf:
+                lf.write(f'group={wildcards.group}\n')
+                lf.write(f'vRhyme bins: {n_bins} ({len(binned)} binned sequences)\n')
+                lf.write(f'composite gate: input={counts["total"]} '
+                         f'kept_via_bin={counts["binned"]} '
+                         f'kept_via_quality={counts["quality"]} '
+                         f'kept_via_length>={params.min_length}={counts["length"]} '
+                         f'dropped={counts["dropped"]}\n')
+                lf.write(f'Discarded set: {len(discard_rows)} sequences -> '
+                         f'{output.discarded_fasta} ({output.discarded_tsv})\n')
+                if counts["total"] > 0 and counts["dropped"] == counts["total"]:
+                    lf.write(f'WARNING: 0 of {counts["total"]} sequences kept by '
+                             f'the composite gate — check upstream.\n')
+
+# ── Group vOTU clustering + taxonomy view — both LR and SR ──────────────────
+# Reopens the COASSEMBLY_VIRAL block (not the `not LONG_READS`-gated vRhyme
+# block above) because skani_votu/skani_cluster/viral_votu_reps/viral_taxonomy
+# run for BOTH tracks: LR groups have no group-level vRhyme (see the `if`
+# just above), so their skani input below falls back to the pre-binning
+# `coassembly_viral_trimmed` set — same LR behavior as before item (e)'s
+# unification, preserved on purpose (see docs/ROADMAP_SIMPLIFICACAO.md (e)).
+#
+if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
+
+    # _coas_skani_source: single source of truth for the group's internal
+    # skani chain, mirroring _catalog_sources()'s (rules/votu_catalog.smk)
+    # LR/SR branch:
+    #   - short reads: past vRhyme's bins-first + composite length/quality
+    #     gate (rule coassembly_viral_nonredundant) — item (e) unification,
+    #     so the group's own vOTU clustering sees the SAME set the global
+    #     catalog does.
+    #   - long reads: no group-level vRhyme exists (see `not LONG_READS`
+    #     above), so this falls back to the pre-binning CheckV-trimmed set,
+    #     unchanged.
+    # Evaluated only inside this guard (both rules.coassembly_viral_trimmed
+    # and, when not LONG_READS, rules.coassembly_viral_nonredundant require
+    # COASSEMBLY_ENABLED and COASSEMBLY_VIRAL to exist at all) and only the
+    # branch matching LONG_READS is ever touched, so the unbuilt rule object
+    # for the other track never raises AttributeError.
+    _coas_skani_source = (
+        rules.coassembly_viral_nonredundant.output.fasta if not LONG_READS
+        else rules.coassembly_viral_trimmed.output.fasta
+    )
+
     rule coassembly_skani_votu:
         """
         skani triangle — pairwise ANI matrix for group co-assembly viral genomes.
-        Mirrors `rule skani_votu` (rules/viral_binning.smk), operating on the
-        group consensus fasta (rules.coassembly_viral_consensus) instead of the
-        per-sample viral_nonredundant dedup — vOTU clustering itself dereplicates
-        by ANI, so the consensus + checkv set is a consistent contig set.
+        Mirrors `rule skani_votu` (rules/viral_binning.smk), operating on
+        `_coas_skani_source` (defined above): the post-vRhyme, post-length-gate
+        `coassembly_viral_nonredundant` set for short-read groups (item (e)
+        unification, docs/ROADMAP_SIMPLIFICACAO.md), or the pre-binning
+        `coassembly_viral_trimmed` set for long-read groups (no group-level
+        vRhyme there). This is the SAME fasta `_catalog_sources()`
+        (rules/votu_catalog.smk) feeds to the global vOTU catalog for this
+        group — one source of truth for every group-level consumer.
         Clustering is done by the downstream coassembly_skani_cluster rule (pure
         Python, runs in Snakemake's own interpreter — no container needed).
         """
         input:
-            fasta = rules.coassembly_viral_trimmed.output.fasta,
+            fasta = _coas_skani_source,
         output:
             ani = f"{OUTDIR}/coassembly/{{group}}/viral/votu/skani_ani.tsv",
         log:
@@ -1213,7 +1504,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
         """
         input:
             ani    = rules.coassembly_skani_votu.output.ani,
-            fasta  = rules.coassembly_viral_trimmed.output.fasta,
+            fasta  = _coas_skani_source,
             checkv = rules.coassembly_checkv.output.summary,
         output:
             clusters = f"{OUTDIR}/coassembly/{{group}}/viral/votu/vOTU_clusters.tsv",
@@ -1284,7 +1575,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
           sequences, with no scientific gain.
         """
         input:
-            fasta    = rules.coassembly_viral_trimmed.output.fasta,
+            fasta    = _coas_skani_source,
             clusters = rules.coassembly_skani_cluster.output.clusters,
             checkv   = rules.coassembly_checkv.output.summary,
         output:
@@ -1398,62 +1689,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
     # finalize step (rule coassembly_organize_outputs, below) used to copy
     # that catalog-wide file into final/viral/defense_amr/ as if it were
     # the group's own defense systems.
-
-# ── Group vRhyme (viral vMAGs) — short reads only (needs coverage) ──────────────
-# Mirrors rule vrhyme / checkv_vrhyme (rules/viral_binning.smk) but bins the group's
-# CheckV-trimmed viral genomes using MULTI-SAMPLE differential coverage (all the
-# group's per-sample BAMs mapped to the co-assembly by the Plan 2 map-back).
-if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
-
-    rule coassembly_vrhyme:
-        """
-        vRhyme — group viral contigs into vMAGs using coverage + protein homology.
-        Uses ALL of the group's per-sample BAMs (differential coverage), analogous
-        to VAMB co-binning on the prokaryotic side.
-        NOTE: vRhyme creates its output dir itself — rm -rf before run.
-        """
-        input:
-            viral = rules.coassembly_viral_trimmed.output.fasta,
-            bams  = lambda wc: expand(
-                f"{OUTDIR}/coassembly/{wc.group}/mapping/{{sample}}.sorted.bam",
-                sample=GROUPS[wc.group]),
-        output:
-            done = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme/done.txt",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/vrhyme.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/vrhyme.tsv"
-        conda: "../envs/env_vrhyme.yaml"
-        container:  CONTAINERS.get("vrhyme")
-        threads: THREADS
-        params:
-            outdir = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme",
-        shell:
-            """
-            rm -rf {params.outdir}
-            vRhyme \
-                -i {input.viral} \
-                -b {input.bams} \
-                -o {params.outdir} \
-                -t {threads} \
-                -l {MIN_CONTIG} \
-                > {log} 2>&1 || true
-            mkdir -p {params.outdir}
-            touch {output.done}
-            """
-
-
-    # CheckV nos vMAGs do vRhyme do grupo. Herda `rule checkv_vrhyme`
-    # (rules/viral_binning.smk): corpos identicos.
-    use rule checkv_vrhyme as coassembly_checkv_vrhyme with:
-        input:
-            done = rules.coassembly_vrhyme.output.done,
-        output:
-            summary = f"{OUTDIR}/coassembly/{{group}}/viral/checkv_vrhyme/quality_summary.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/checkv_vrhyme.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/checkv_vrhyme.tsv"
 
 # ── Group prok functional foundation: protein prediction (Plan 5) ──────────────
 # Prodigal per group MAG — feeds group AMR/defense/annotation. VAMB bins are *.fna
@@ -1724,6 +1959,15 @@ if COASSEMBLY_ENABLED and GROUPS:
             # coassembly_organize_outputs).
             if not LONG_READS:
                 d["vrhyme"] = f"{b}/bins/vrhyme/done.txt"
+                # Item (e) unification: the group's "nonredundant" set in
+                # final/ must be the POST-gate file (bins-first + composite
+                # length/quality gate), the same one _catalog_sources()
+                # (rules/votu_catalog.smk) feeds to the global catalog --
+                # not the pre-binning coassembly_viral_trimmed set this
+                # rule used to copy under that name.
+                d["nonredundant"]   = f"{b}/viral/consensus/{group}_viral_nonredundant.fasta"
+                d["discarded"]      = f"{b}/viral/consensus/{group}_viral_discarded.fasta"
+                d["discarded_tsv"]  = f"{b}/viral/consensus/{group}_viral_discarded.tsv"
                 if COASSEMBLY_BINNING:
                     d["phist"] = f"{b}/viral/phist/done.txt"
         return d
@@ -1735,6 +1979,13 @@ if COASSEMBLY_ENABLED and GROUPS:
         (vOTU reps, CheckV, taxonomy, host, defense) and prokaryotic (MAGs by
         domain, CheckM2, GTDB-Tk, AMR/defense, annotation) outputs, each with
         an existence guard. Group MAGs are VAMB `.fna` bins (not `.fa`).
+
+        `viral_nonredundant.fasta` in final/ is short-read groups' POST-gate
+        set (rule coassembly_viral_nonredundant) and their
+        `viral_discarded.fasta`/`.tsv` sidecar (same schema as the per-sample
+        `rule viral_nonredundant`, rules/viral_binning.smk); long-read groups
+        have no group-level gate (no group vRhyme), so only the pre-binning
+        `viral_nonredundant.fasta` is copied and there is no discard sidecar.
         """
         input:
             unpack(lambda wc: _coas_final_inputs(wc.group)),
@@ -1774,8 +2025,23 @@ if COASSEMBLY_ENABLED and GROUPS:
                 if COASSEMBLY_VIRAL:
                     cp(f"{b}/viral/consensus/{wildcards.group}_viral_consensus.fasta",
                        f"{final}/viral/viral_consensus.fasta")
-                    cp(f"{b}/viral/checkv/{wildcards.group}_viral_trimmed.fasta",
-                       f"{final}/viral/viral_nonredundant.fasta")
+                    # "nonredundant" = the POST-gate set (item (e)
+                    # unification): coassembly_viral_nonredundant for short
+                    # reads (bins-first + composite length/quality gate,
+                    # same source _catalog_sources() uses), or the
+                    # pre-binning coassembly_viral_trimmed set for long
+                    # reads (no group-level vRhyme there, so no gate to run
+                    # -- see docs/ROADMAP_SIMPLIFICACAO.md item (e)).
+                    if not LONG_READS:
+                        cp(f"{b}/viral/consensus/{wildcards.group}_viral_nonredundant.fasta",
+                           f"{final}/viral/viral_nonredundant.fasta")
+                        cp(f"{b}/viral/consensus/{wildcards.group}_viral_discarded.fasta",
+                           f"{final}/viral/viral_discarded.fasta")
+                        cp(f"{b}/viral/consensus/{wildcards.group}_viral_discarded.tsv",
+                           f"{final}/viral/viral_discarded.tsv")
+                    else:
+                        cp(f"{b}/viral/checkv/{wildcards.group}_viral_trimmed.fasta",
+                           f"{final}/viral/viral_nonredundant.fasta")
                     cp(f"{b}/viral/checkv/quality_summary.tsv",
                        f"{final}/viral/checkv_quality.tsv")
                     cp(f"{b}/viral/votu/votu_all_reps.fasta",

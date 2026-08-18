@@ -24,7 +24,8 @@ descartadas com motivo.
 | (c) um montador só para long reads | **feito** — Flye+Medaka (ONT) / metaMDBG (HiFi) |
 | (h) computar no representante | **feito** — commit `94a9bf9`, mais 4 bugs de namespace |
 | (d) remover merge_contigs / mmseqs2 | **feito** — o hub agora é a montagem |
-| Restante | **próximo passo: (e)** — mover o limiar de comprimento |
+| (e) mover o limiar de comprimento | **feito** — portão composto + unificação da cadeia skani de grupo + FASTA/TSV de descarte |
+| Restante | nenhum item aberto nesta lista |
 
 Branch de trabalho: `master` (o `refactor/unit-wildcard` já foi mergeado por
 fast-forward e pode ser apagado).
@@ -50,7 +51,7 @@ abaixo. Não execute em ordem alfabética.
 (h) migrar regras para o representante ... FEITO
         ↓
 (d) remover merge_contigs / merge_lr / mmseqs2 ... FEITO
-(e) mover o limiar de comprimento
+(e) mover o limiar de comprimento .......... FEITO
 ```
 
 **Por que (h) vem antes de (d).** As duas mexem em *quem consome o quê*, e
@@ -246,27 +247,111 @@ viral). O padrão de destino já existe e está testado; é reapontar, não inve
 Ganho colateral: sem dedup, o COBRA passa a receber a mesma montagem contra a
 qual o BAM foi mapeado, que é o que ele exige.
 
-### (e) Mover o limiar de comprimento em vez de apagá-lo
+### (e) Mover o limiar de comprimento em vez de apagá-lo — FEITO
 
-| onde | hoje | destino |
-|---|---|---|
-| MEGAHIT | `--min-contig-len 3000` | **1000** |
-| `merge_contigs` | filtra 3000 de novo | removido em (d) |
-| detecção viral | **sem piso** | **`viral_min_contig`, 3000** (parâmetro novo) |
-| binners | clampam sozinhos | inalterado |
-| COBRA | recebe filtrado | recebe as curtas |
+**A tabela original desta seção (abaixo, riscada) propunha um `viral_min_contig`
+de 3000 aplicado ANTES da detecção viral. Substituída em 2026-08-18 por um
+desenho melhor, decidido com base em literatura — não reabrir sem novo motivo.**
 
-Racional: o filtro do `merge_contigs` é **peso morto** — o MEGAHIT já filtra na
-montagem (`assembly.smk:50,59`), então ele roda sobre contigs que já passaram
-pelo mesmo corte. E os binners se protegem: MetaBAT2 tem piso rígido de 1500
-(já clampado), vRhyme recusa abaixo de 2000 (já clampado), SemiBin2 tem o dele.
+> ~~| onde | hoje | destino |~~
+> ~~|---|---|---|~~
+> ~~| MEGAHIT | `--min-contig-len 3000` | **1000** |~~
+> ~~| `merge_contigs` | filtra 3000 de novo | removido em (d) |~~
+> ~~| detecção viral | **sem piso** | **`viral_min_contig`, 3000** (parâmetro novo) |~~
+> ~~| binners | clampam sozinhos | inalterado |~~
+> ~~| COBRA | recebe filtrado | recebe as curtas |~~
 
-**Mas o limiar não pode ir a zero:** a detecção viral não tem piso nenhum, e
-geNomad/VirSorter2 em contig curta é a maior fonte isolada de FP viral. Soltar
-o limiar trabalharia contra o motivo de ter tirado o VIBRANT.
+**O desenho final:** o piso de comprimento só vale onde não há evidência
+independente de que a sequência é um genoma real. O filtro roda **DEPOIS do
+vRhyme**, não antes, e é **composto** — uma sequência é mantida se qualquer
+condição valer:
 
-Custo a antecipar: baixar para 1000 bp multiplica a contagem de contigs — o
+1. está num bin do vRhyme (o bin sustenta o contig curto), **ou**
+2. o CheckV a classifica como **Complete / High-quality / Medium-quality**
+   (ou completeness ≥ 50%). **Atenção:** os tiers aqui são o conjunto FIXO
+   `MQ_TIERS` do `scripts/viral_length_gate.py`, e deliberadamente **não** o
+   `VIRAL_KEEP_TIERS` configurável que o `is_mq()` do `votu_catalog.smk` usa.
+   Os dois só coincidem com `viral_min_quality: medium`; com o `not_determined`
+   que a config traz, o `VIRAL_KEEP_TIERS` expande para os cinco tiers do CheckV
+   e este braço ficaria sempre verdadeiro — o portão inteiro viraria no-op.
+3. tem **≥ 5000 bp** (`viral_min_contig`).
+
+Racional, com literatura: é a mesma regra do **MVP** (Coclet, Camargo & Roux,
+2024, *mSystems* 9:e00888-24, https://doi.org/10.1128/msystems.00888-24),
+pipeline do grupo que escreveu o geNomad, o CheckV e o IMG/VR —
+*"selects low-quality genomes larger than 5 kb or complete, high-, or
+medium-quality and larger than 1 kb"*. O 5 kb é o corte do IMG/VR e do Earth's
+Virome Protocol (Roux et al., 2021, *NAR* 49:D764,
+https://doi.org/10.1093/nar/gkaa946). O 3000 da tabela antiga não tinha
+respaldo na literatura — era número interno.
+
+**VirSorter2 e geNomad continuam vendo tudo desde `min_contig` (agora 1000
+bp)** — o filtro NÃO roda antes da detecção viral. Custo em compute conhecido
+e aceito: baixar `min_contig` para 1000 multiplica a contagem de contigs, o
 mapeamento fica bem mais pesado.
+
+O que mudou, por peça:
+
+| onde | hoje | antes |
+|---|---|---|
+| MEGAHIT / COBRA / QUAST | `--min-contig-len {MIN_CONTIG}`, **1000** | 3000 |
+| `merge_contigs` | removido em (d) — peso morto, MEGAHIT já filtrava | filtrava 3000 de novo |
+| detecção viral (VS2/geNomad) | sem piso, vê tudo desde 1000 bp | sem piso, via 3000 bp |
+| `viral_nonredundant` (per-sample, pós-vRhyme) | **portão composto** (bin OU qualidade CheckV OU `viral_min_contig=5000`) | nada — todo não-binado passava |
+| `coassembly_viral_nonredundant` (grupo short-read, pós-vRhyme) | **mesmo portão composto de 3 braços** — paridade com o per-sample | regra não existia; grupo nunca chegava ao catálogo via bins |
+| grupo long-read (sem vRhyme de grupo) | segue vindo do `coassembly_viral_trimmed` pré-binning, sem portão | idem |
+| binners | clampam sozinhos (vRhyme 2000, MetaBAT2 1500) | inalterado |
+
+Implementação: `scripts/viral_length_gate.py` (função pura, testada por
+unittest fora do Snakemake) é compartilhada por `rule viral_nonredundant`
+(`rules/viral_binning.smk`) e `rule coassembly_viral_nonredundant`
+(`rules/coassembly.smk`). A armadilha corrigida junto: `coassembly_vrhyme`
+passava `-l {MIN_CONTIG}` **sem** o clamp de 2000 que a regra por amostra já
+tinha, e engolia falha com `|| true` + `touch done.txt` incondicional — com
+`MIN_CONTIG=1000` isso faria a trilha viral de grupo produzir zero bins em
+silêncio. Corrigido: mesmo clamp `max(MIN_CONTIG, 2000)` e status real
+(`ok`/`failed: vRhyme exit $RC`) em vez do `touch` cego.
+
+**Follow-up 2026-08-18 (mesma sessão): duas pendências fechadas.**
+
+1. **Cadeia de clustering interna do grupo unificada.** `coassembly_skani_votu`
+   / `coassembly_skani_cluster` / `coassembly_viral_votu_reps` ainda liam
+   `coassembly_viral_trimmed` (pré-vRhyme, pré-portão) mesmo depois de
+   `_catalog_sources()` (`rules/votu_catalog.smk`) já ter sido movido para o
+   fasta pós-portão. Reapontadas para `_coas_skani_source`, uma variável
+   módulo definida uma vez em `rules/coassembly.smk`: para grupos short-read
+   é `coassembly_viral_nonredundant.output.fasta` (o mesmo que o catálogo
+   global usa); para long-read (sem vRhyme de grupo) continua
+   `coassembly_viral_trimmed.output.fasta`, comportamento preservado. Exigiu
+   mover o bloco `coassembly_vrhyme` / `coassembly_checkv_vrhyme` /
+   `coassembly_viral_nonredundant` para ANTES do bloco skani no arquivo —
+   `rules.coassembly_viral_nonredundant` só existe depois de definido, e os
+   dois blocos tinham condições de guarda (`if`) diferentes (`not LONG_READS`
+   vs sempre), então reabrir o `if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:`
+   depois do bloco `not LONG_READS` foi necessário para não prender
+   skani_votu/cluster/viral_votu_reps/viral_taxonomy dentro do guard errado.
+   `coassembly_organize_outputs` também copiava, sob o nome
+   `viral_nonredundant.fasta` em `final/`, o arquivo ERRADO
+   (`{group}_viral_trimmed.fasta`, pré-portão) para grupos short-read —
+   corrigido para copiar `{group}_viral_nonredundant.fasta` (pós-portão)
+   nesse caso, mantendo o trimmed só para long-read.
+
+2. **FASTA + TSV de descarte.** O que o portão composto derruba deixou de
+   simplesmente desaparecer. `rule viral_nonredundant` e
+   `rule coassembly_viral_nonredundant` agora também escrevem
+   `{sample|group}_viral_discarded.fasta` (header = `contig_id` puro, SEM
+   motivo codificado nele — decisão explícita do usuário: um header anotado
+   quebra qualquer join de ferramenta downstream que rode sobre o conjunto
+   descartado) e `{sample|group}_viral_discarded.tsv` (uma linha por
+   sequência: `contig_id, length, checkv_quality, checkv_completeness,
+   in_vrhyme_bin, source_id` — schema em
+   `scripts/viral_length_gate.py::DISCARD_TSV_COLUMNS`, idêntico nas duas
+   trilhas). `checkv_quality`/`checkv_completeness` ficam vazios (não `0`)
+   quando o CheckV nunca pontuou o contig — distinguir "nunca avaliado" de
+   "avaliado como zero" é o próprio motivo de existir do TSV: um
+   "Not-determined" curto é exatamente a cara de um vírus genuinamente novo.
+   Entregue em `final/viral/viral_discarded.{fasta,tsv}` (per-sample e por
+   grupo), ao lado de `viral_nonredundant.fasta`.
 
 ### (f) `bacphlip_votu` — repor lifestyle — FEITO
 

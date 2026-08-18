@@ -8,7 +8,9 @@
 #
 #   final/viral/
 #     viral_consensus.fasta         — contigs virais confirmados (multi-tool)
-#     viral_nonredundant.fasta      — deduplicados (95% ANI)
+#     viral_nonredundant.fasta      — pós bins-first + portão composto (item (e))
+#     viral_discarded.fasta         — descartados pelo portão (item (e)), header = contig_id puro
+#     viral_discarded.tsv           — motivo do descarte por contig_id (ver viral_length_gate.py)
 #     checkv_quality.tsv            — qualidade/completude CheckV
 #     viral_bins/                   — vMAGs do vRhyme
 #     taxonomy/
@@ -130,6 +132,8 @@ rule organize_outputs:
             "checkv":     rules.checkv.output.summary,
             "viral":      rules.viral_consensus.output.fasta,
             "viral_nr":   rules.viral_nonredundant.output.fasta,
+            "viral_disc":     rules.viral_nonredundant.output.discarded_fasta,
+            "viral_disc_tsv": rules.viral_nonredundant.output.discarded_tsv,
             "vrhyme":     rules.vrhyme.output.done,
             "taxonomy":   rules.viral_taxonomy.output.tsv,
         } if TRACK_VIRAL else {}),
@@ -196,6 +200,12 @@ rule organize_outputs:
             cp(g('viral'),    f"{final}/viral/viral_consensus.fasta")
             cp(g('viral_nr'), f"{final}/viral/viral_nonredundant.fasta")
             cp(g('checkv'),   f"{final}/viral/checkv_quality.tsv")
+            # Sequences the composite length/quality/bin gate dropped (item
+            # (e) follow-up, docs/ROADMAP_SIMPLIFICACAO.md) — kept
+            # inspectable instead of vanishing; see `rule viral_nonredundant`
+            # (rules/viral_binning.smk) for the discard TSV schema.
+            cp(g('viral_disc'),     f"{final}/viral/viral_discarded.fasta")
+            cp(g('viral_disc_tsv'), f"{final}/viral/viral_discarded.tsv")
 
             if TRACK_VIRAL:
                 vrhyme_bins = glob.glob(f"{s}/bins/vrhyme/vRhyme_best_bins.*.fasta")

@@ -172,7 +172,8 @@ All parameters are defined in **`config.yaml`** — no `.smk` files need to be e
 | `fastq_dir` | Input directory containing FASTQ files |
 | `outdir` | Output root directory |
 | `threads` | Default CPU threads per rule |
-| `min_contig` | Minimum contig length after assembly (bp) |
+| `min_contig` | Minimum contig length after assembly (bp). Default 1000 — binners clamp their own floor (vRhyme 2000, MetaBAT2 1500) when this is set below it. |
+| `viral_min_contig` | Length-only arm of the post-vRhyme composite viral gate (bp). Default 5000, the IMG/VR / Earth's Virome Protocol / MVP cutoff — see item (e) of `docs/ROADMAP_SIMPLIFICACAO.md`. |
 | `long_reads` | `true` for Nanopore / PacBio data |
 | `lr_tech` | `"ont"` or `"hifi"` |
 | `viral_consensus_mode` | `"count"` / `"score"` / `"hybrid"` |

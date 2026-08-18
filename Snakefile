@@ -111,6 +111,7 @@ MEGAHIT_PRESET       = config["megahit_preset"]
 MEGAHIT_CUSTOM_PARAMS = config["megahit_custom_params"]
 
 MIN_CONTIG           = config["min_contig"]
+VIRAL_MIN_CONTIG     = config["viral_min_contig"]
 
 CHECKV_DB            = config["checkv_db"]
 VS2_DB               = config["vs2_db"]

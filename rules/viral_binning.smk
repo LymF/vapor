@@ -147,32 +147,95 @@ rule checkv_vrhyme:
 rule viral_nonredundant:
     """
     Non-redundant viral genome set for all downstream analyses.
-    Strategy (bins-first, CheckV-trimmed):
-      1. vRhyme bins  — each bin = one assembled viral genome (may span multiple contigs)
-      2. Unbinned     — contigs from the viral QC input NOT in any vRhyme bin
+    Strategy (bins-first, CheckV-trimmed, length-gated):
+      1. vRhyme bins  — each bin = one assembled viral genome (may span multiple
+         contigs). Binned sequences are ALWAYS kept — the bin itself is the
+         evidence that the (possibly short) contig is a real genome fragment.
+      2. Unbinned     — contigs from the viral QC input NOT in any vRhyme bin.
+         Each unbinned sequence must pass the composite gate below to be kept.
     For every contig (binned or unbinned): if CheckV trimmed it (provirus), the
     trimmed sequence from viruses.fna / proviruses.fna replaces the original so
     that host DNA flanking proviruses is always removed. Sequences not processed
     by CheckV (rare, e.g. below CheckV internal length threshold) fall back to
     the original. One contig may yield >1 trimmed entry when CheckV found
-    multiple provirus regions within it.
+    multiple provirus regions within it — the gate below is evaluated per
+    EMITTED fragment (using that fragment's own post-trim length), not per
+    original contig, so a short low-quality provirus trimmed out of a long
+    host contig cannot ride through the length arm on the host's length.
+
+    Composite length/quality/bin gate (item (e), docs/ROADMAP_SIMPLIFICACAO.md,
+    2026-08-18): a sequence not in a vRhyme bin is kept only if CheckV calls it
+    Complete/High-quality/Medium-quality (or completeness >= 50%, the same "mq"
+    tiers are the FIXED MQ_TIERS set in
+    scripts/viral_length_gate.py, deliberately NOT the configurable
+    VIRAL_KEEP_TIERS that votu_catalog.smk's `is_mq()` uses -- the two only
+    coincide at viral_min_quality: medium; under the shipped
+    `not_determined` VIRAL_KEEP_TIERS expands to all five CheckV tiers and
+    would make this arm always true) OR it is >= VIRAL_MIN_CONTIG
+    bp (default 5000 — the IMG/VR / Earth's Virome Protocol / MVP cutoff; Roux
+    et al. 2021 NAR 49:D764, Coclet/Camargo/Roux 2024 mSystems 9:e00888-24).
+    Quality/completeness come from `rules.checkv.output.summary`, keyed by the
+    ORIGINAL (pre-trim) contig_id — the same namespace as `_viral_qc_input`,
+    since `rule checkv` and `rule vrhyme` both consume that same untrimmed file.
+
+    Discard audit sidecar: every dropped fragment is also written to
+    `discarded_fasta` / `discarded_tsv` instead of just vanishing — a
+    "Not-determined" CheckV call is exactly what a genuinely novel virus
+    looks like (no close reference to score against), so the discard is a
+    precision bet, not a verdict, and has to stay inspectable. The FASTA
+    header is the BARE contig_id, unmodified — no reason encoded in it, so
+    nothing downstream that keys off the header breaks. All per-sequence
+    evidence lives in the TSV, one row per discarded contig_id, columns
+    `viral_length_gate.DISCARD_TSV_COLUMNS` = contig_id, length,
+    checkv_quality, checkv_completeness, in_vrhyme_bin (always False here),
+    source_id (this sample's name).
     """
     input:
         viral             = _viral_qc_input,
         done              = rules.vrhyme.output.done,
         checkv_viruses    = rules.checkv.output.viruses,
         checkv_proviruses = rules.checkv.output.proviruses,
+        checkv_summary    = rules.checkv.output.summary,
     output:
-        fasta = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_nonredundant.fasta",
+        fasta          = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_nonredundant.fasta",
+        discarded_fasta = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_discarded.fasta",
+        discarded_tsv   = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_discarded.tsv",
     log:
         f"{OUTDIR}/{{sample}}/logs/viral_nonredundant.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/viral_nonredundant.tsv"
     params:
-        vrhyme_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/vrhyme",
+        # Derived from input, not wildcards.sample — keeps this rule cleanly
+        # inheritable ("derivado do output/input, nao de {sample}" house
+        # pattern used elsewhere for cross-track reuse).
+        vrhyme_dir = lambda wc, input: os.path.dirname(str(input.done)),
+        min_length = VIRAL_MIN_CONTIG,
     run:
-        import glob, os
+        import csv, glob, os
         from collections import defaultdict
+        import sys as _sys
+        _sys.path.insert(0, SCRIPTS_DIR)
+        from viral_length_gate import (
+            passes_gate, summarize, format_discard_row, DISCARD_TSV_COLUMNS,
+        )
+
+        # vRhyme falhou? Entao o braco "esta num bin" e INDISPONIVEL, nao
+        # falso -- e o portao degradaria para comprimento-puro, descartando
+        # em silencio contigs curtos que teriam sido resgatados por um bin.
+        # Perda silenciosa e exatamente a classe de falha que este repo ja
+        # pagou caro (docs/AUDITORIA_COASSEMBLY_PARES.md §0), entao aborta.
+        # "ok" com zero bins e legitimo (comunidade diversa demais para
+        # binar) e segue adiante -- so o crash aborta.
+        _vr_status = ""
+        if os.path.exists(str(input.done)):
+            with open(str(input.done)) as _fh:
+                _vr_status = _fh.read().strip()
+        if _vr_status.startswith("failed:"):
+            raise RuntimeError(
+                "vRhyme falhou (%s) -- o braco de bin do portao viral ficaria "
+                "indisponivel e contigs curtos binnaveis seriam descartados em "
+                "silencio. Corrija o vRhyme antes de seguir." % _vr_status)
+
 
         # Build CheckV trimmed dict: orig_contig_id -> list of (header_line, seq_lines)
         # viruses.fna: header = original ID (no trimming needed, but use this file to
@@ -215,20 +278,35 @@ rule viral_nonredundant:
             if curr_hdr:
                 orig_seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
 
-        def emit(name, out_lines):
+        def entries_for(name):
+            """(header, seq_lines) pairs that represent this original contig id
+            — trimmed provirus fragment(s) if CheckV split it, else the
+            original sequence. Empty if the id is unknown (shouldn't happen)."""
             if name in trimmed:
-                for hdr, seq in trimmed[name]:
-                    out_lines.append(hdr)
-                    out_lines.extend(seq)
-            elif name in orig_seqs:
-                hdr, seq = orig_seqs[name]
-                out_lines.append(hdr)
-                out_lines.extend(seq)
+                return trimmed[name]
+            if name in orig_seqs:
+                return [orig_seqs[name]]
+            return []
 
-        # Process vRhyme bins first (bins-first strategy)
+        # CheckV quality/completeness, keyed by ORIGINAL (pre-trim) contig_id.
+        quality = {}
+        completeness = {}
+        with open(str(input.checkv_summary)) as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                cid = (row.get("contig_id") or "").strip()
+                if not cid:
+                    continue
+                quality[cid] = (row.get("checkv_quality") or "").strip()
+                try:
+                    completeness[cid] = float(row.get("completeness") or 0)
+                except ValueError:
+                    completeness[cid] = 0.0
+
+        # Process vRhyme bins first (bins-first strategy) — always kept.
         vbins_dir = params.vrhyme_dir
         binned    = set()
         out_lines = []
+        gate_results = []
 
         for vbin in sorted(glob.glob(os.path.join(vbins_dir, 'vRhyme_best_bins.*.fasta'))):
             with open(vbin) as fh:
@@ -237,23 +315,73 @@ rule viral_nonredundant:
                         name = line[1:].split()[0]
                         if name not in binned:
                             binned.add(name)
-                            emit(name, out_lines)
+                            for hdr, seq in entries_for(name):
+                                out_lines.append(hdr)
+                                out_lines.extend(seq)
+                                gate_results.append(passes_gate(
+                                    binned=True, quality_tier="", completeness=0.0,
+                                    length=0,
+                                    min_length=params.min_length))
 
-        # Unbinned: emit CheckV-trimmed version or original
+        # Unbinned: composite gate per emitted (post-trim) fragment.
+        discard_out_lines = []
+        discard_rows = []
         for name in orig_seqs:
-            if name not in binned:
-                emit(name, out_lines)
+            if name in binned:
+                continue
+            q = quality.get(name, "")
+            c = completeness.get(name, 0.0)
+            for hdr, seq in entries_for(name):
+                length = sum(len(l.strip()) for l in seq)
+                res = passes_gate(
+                    binned=False, quality_tier=q, completeness=c, length=length,
+                    min_length=params.min_length)
+                gate_results.append(res)
+                if res.kept:
+                    out_lines.append(hdr)
+                    out_lines.extend(seq)
+                else:
+                    frag_id = hdr[1:].split()[0]
+                    discard_out_lines.append(f'>{frag_id}\n')
+                    discard_out_lines.extend(seq)
+                    discard_rows.append(format_discard_row(
+                        contig_id=frag_id,
+                        length=length,
+                        quality_tier=quality.get(name) if name in quality else None,
+                        completeness=completeness.get(name) if name in quality else None,
+                        source_id=wildcards.sample,
+                    ))
 
         with open(str(output.fasta), 'w') as fh:
             fh.writelines(out_lines)
 
+        with open(str(output.discarded_fasta), 'w') as fh:
+            fh.writelines(discard_out_lines)
+
+        with open(str(output.discarded_tsv), 'w', newline='') as fh:
+            w = csv.writer(fh, delimiter='\t')
+            w.writerow(DISCARD_TSV_COLUMNS)
+            w.writerows(discard_rows)
+
         n_bins  = len(glob.glob(os.path.join(vbins_dir, 'vRhyme_best_bins.*.fasta')))
         n_total = sum(1 for l in out_lines if l.startswith('>'))
         n_trimmed = sum(1 for n in binned | set(orig_seqs) if n in trimmed)
+        counts = summarize(gate_results)
         with open(str(log[0]), 'w') as lf:
             lf.write(f'vRhyme bins: {n_bins} ({len(binned)} binned contigs)\n')
             lf.write(f'CheckV-trimmed sequences: {n_trimmed}\n')
+            lf.write(f'composite gate: input={counts["total"]} '
+                     f'kept_via_bin={counts["binned"]} '
+                     f'kept_via_quality={counts["quality"]} '
+                     f'kept_via_length>={params.min_length}={counts["length"]} '
+                     f'dropped={counts["dropped"]}\n')
             lf.write(f'Total non-redundant set: {n_total}\n')
+            lf.write(f'Discarded set: {len(discard_rows)} sequences -> '
+                     f'{output.discarded_fasta} ({output.discarded_tsv})\n')
+            if counts["total"] > 0 and counts["dropped"] == counts["total"]:
+                lf.write(f'WARNING: 0 of {counts["total"]} sequences kept by '
+                         f'the composite gate — check upstream (empty CheckV '
+                         f'summary? every sequence unbinned and short?).\n')
 
 
 rule make_votu_table:

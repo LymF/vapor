@@ -30,9 +30,18 @@ def _catalog_sources():
         for s in SAMPLES
     ]
     if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
+        # coassembly_vrhyme/coassembly_viral_nonredundant only exist for
+        # short-read groups (rules/coassembly.smk gates that whole block on
+        # `not LONG_READS` — no group-level vRhyme for long reads). Long-read
+        # groups keep pointing at the pre-binning trimmed set, same as before
+        # item (e); short-read groups now point past vRhyme's bins-first +
+        # composite gate (rule coassembly_viral_nonredundant), so group vMAGs
+        # actually reach the catalog instead of being computed and discarded.
         sources += [
             ("group", g,
-             f"{OUTDIR}/coassembly/{g}/viral/checkv/{g}_viral_trimmed.fasta")
+             (f"{OUTDIR}/coassembly/{g}/viral/consensus/{g}_viral_nonredundant.fasta"
+              if not LONG_READS else
+              f"{OUTDIR}/coassembly/{g}/viral/checkv/{g}_viral_trimmed.fasta"))
             for g in GROUPS
         ]
     return sources

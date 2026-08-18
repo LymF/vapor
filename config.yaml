@@ -63,7 +63,24 @@ host_index:  ""    # path to pre-built bwa-mem2 index prefix (built once if empt
 
 # ══ ASSEMBLY ═══════════════════════════════════════════════════════════
 
-min_contig:  3000    # bp — minimum contig length post-assembly
+min_contig:  1000    # bp — minimum contig length post-assembly. Binners clamp
+                     # this themselves (vRhyme to 2000, MetaBAT2 to 1500) when
+                     # it is set below their own floor. The viral length floor
+                     # lives separately in viral_min_contig below — see item
+                     # (e), docs/ROADMAP_SIMPLIFICACAO.md, 2026-08-18: this
+                     # value stopped being viral detection's length gate.
+
+# Length-only arm of the composite viral length/quality/bin gate applied
+# AFTER vRhyme binning (rule viral_nonredundant / coassembly_viral_nonredundant).
+# A short contig is still kept if it sits in a vRhyme bin or CheckV calls it
+# Complete/High-quality/Medium-quality; this value only gates sequences with
+# NEITHER kind of independent evidence. 5000 bp is the IMG/VR / Earth's
+# Virome Protocol cutoff (Roux et al. 2021, NAR 49:D764) and the MVP pipeline
+# default (Coclet, Camargo & Roux 2024, mSystems 9:e00888-24) — NOT the
+# min_contig used for assembly/binning above. VirSorter2 and geNomad still
+# see every contig from min_contig upward; only this post-vRhyme gate applies
+# the 5 kb floor. See item (e), docs/ROADMAP_SIMPLIFICACAO.md.
+viral_min_contig: 5000
 
 # MEGAHIT
 megahit_mem_gb:        120              # RAM limit (GB)

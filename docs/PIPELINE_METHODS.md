@@ -101,6 +101,37 @@ intersection so the same contig from different tools is matched.
   trimmed sequence (`viruses.fna`/`proviruses.fna`), else keep the original — so host DNA
   flanking proviruses is removed before vOTU clustering. One contig can yield >1 trimmed
   entry (multiple provirus regions).
+- **Composite length/quality/bin gate** (item (e), `docs/ROADMAP_SIMPLIFICACAO.md`,
+  2026-08-18), applied AFTER vRhyme (`viral_binning.smk::viral_nonredundant`; group
+  equivalent `coassembly.smk::coassembly_viral_nonredundant`, short-read groups only): a
+  sequence in a vRhyme bin is always kept (the bin is the evidence). An unbinned sequence
+  is kept only if CheckV calls it Complete/High-quality/Medium-quality (or completeness
+  >= 50%; the tier set is the FIXED `MQ_TIERS` in `scripts/viral_length_gate.py`,
+  deliberately NOT the configurable `VIRAL_KEEP_TIERS`, which ships expanded to all five
+  CheckV tiers and would make this arm a no-op) **or** it is `>= VIRAL_MIN_CONTIG` bp (default 5000 — the
+  IMG/VR / Earth's Virome Protocol cutoff, Roux et al. 2021 NAR 49:D764, and the MVP
+  pipeline default, Coclet/Camargo/Roux 2024 mSystems 9:e00888-24). `MIN_CONTIG` (default
+  1000) is the assembly/binning floor, not this gate — VirSorter2/geNomad see every
+  contig from `MIN_CONTIG` up; only this post-vRhyme step applies the 5 kb floor, and
+  only to sequences with no independent evidence (bin or CheckV quality). Long-read
+  co-assembly groups have no group-level vRhyme and are not routed through this gate —
+  `_catalog_sources()` sources them from the pre-binning trimmed set instead. This same
+  post-gate fasta (short-read groups) / pre-binning trimmed fasta (long-read groups) is
+  what the group's own internal skani vOTU clustering
+  (`coassembly_skani_votu`/`coassembly_skani_cluster`/`coassembly_viral_votu_reps`,
+  `rules/coassembly.smk`) consumes too — one source of truth per group, unified
+  2026-08-18 (item (e) follow-up).
+- **Discard audit sidecar** (item (e) follow-up, 2026-08-18): sequences the composite
+  gate drops are no longer silently dropped — `viral_nonredundant`/
+  `coassembly_viral_nonredundant` also write `{sample|group}_viral_discarded.fasta`
+  (bare `contig_id` headers, unmodified, so joins with any other tool never break on a
+  decorated header) plus a `{sample|group}_viral_discarded.tsv` sidecar with one row per
+  discarded sequence: `contig_id, length, checkv_quality, checkv_completeness,
+  in_vrhyme_bin, source_id` (schema: `scripts/viral_length_gate.py::DISCARD_TSV_COLUMNS`;
+  `checkv_quality`/`checkv_completeness` are blank, not `0`, when CheckV never scored the
+  contig at all — a discarded "Not-determined" contig is exactly what a genuinely novel
+  virus looks like to CheckV, so the discard is a precision bet, not a verdict, and stays
+  inspectable). Both files are copied to `final/viral/`.
 
 ---
 
@@ -123,12 +154,15 @@ rather than once per vOTU.
 
 ### 5.1 Pooling and clustering
 - **`votu_catalog_pool`** concatenates every sample's `{sample}_viral_nonredundant.fasta`
-  and every co-assembly group's trimmed viral set into one FASTA. Contig IDs are only
-  unique within their own assembly, so every sequence is renamed
-  `{source_id}|{contig_id}` (`source_id` = sample name or group name) before pooling —
-  otherwise contigs from different assemblies that happen to share an ID would silently
-  merge. A `provenance.tsv` records `source_type`/`source_id`/`member_id` for every
-  pooled sequence.
+  and every co-assembly group's viral set into one FASTA. Since 2026-08-18, short-read
+  groups contribute `{group}_viral_nonredundant.fasta` (post-vRhyme, gated — see §4);
+  long-read groups, which have no group-level vRhyme, still contribute the pre-binning
+  `{group}_viral_trimmed.fasta` (`_catalog_sources()` in `rules/votu_catalog.smk` picks
+  the path per `LONG_READS`). Contig IDs are only unique within their own assembly, so
+  every sequence is renamed `{source_id}|{contig_id}` (`source_id` = sample name or group
+  name) before pooling — otherwise contigs from different assemblies that happen to share
+  an ID would silently merge. A `provenance.tsv` records `source_type`/`source_id`/
+  `member_id` for every pooled sequence.
 - **`votu_catalog_skani`** runs `skani triangle --sparse` once over the whole pool.
   `--sparse` is required, not an optimization: skani's default dense matrix reports ANI
   only, with no aligned fraction, so the AF criterion below cannot be evaluated from it.
@@ -423,7 +457,8 @@ viral + prok tracks + short reads).
 ## 15. Config → formula parameters (quick index)
 | Param | Meaning | Default |
 |---|---|---|
-| `min_contig` | min contig length (bp) | 1000+ |
+| `min_contig` | min contig length (bp), assembly/binning floor | 1000+ |
+| `viral_min_contig` | length-only arm of the post-vRhyme composite viral gate (bp), item (e) | 5000 |
 | `viral_consensus_mode` / `min_viral_tools` | consensus rule / N tools | hybrid / 2 |
 | `score_vs2_min` / `score_genomad_min` | detector score thresholds | 0.5 / 0.5 |
 | `votu_ani` / `votu_af` | vOTU ANI / aligned fraction (%), Roux et al. 2019 | 95 / 85 |

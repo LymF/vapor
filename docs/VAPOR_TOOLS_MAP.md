@@ -122,6 +122,18 @@ Combinação em `viral_consensus` com três modos (`VIRAL_CONSENSUS_MODE`): `cou
 ### 7 · Binning viral — `rules/viral_binning.smk`
 **CheckV** (`end_to_end`, tiers de qualidade) → **vRhyme** (binning) → **CheckV** de novo nos bins → `viral_nonredundant` → `make_votu_table`.
 
+`viral_nonredundant` (bins-first) aplica, desde 2026-08-18, o **portão composto de
+comprimento/qualidade/bin** do item (e) do roadmap às sequências não-binadas: mantém se
+está num bin do vRhyme, OU CheckV classifica como Complete/High-quality/Medium-quality
+(conjunto FIXO `MQ_TIERS` em `scripts/viral_length_gate.py` — deliberadamente **não**
+o `VIRAL_KEEP_TIERS` configurável, que na config de produção expande para os cinco tiers
+e tornaria este braço um no-op) ou completeness ≥ 50%, OU tem ≥ `VIRAL_MIN_CONTIG` bp (5000 padrão —
+corte do IMG/VR / Earth's Virome Protocol / MVP). O equivalente de grupo em
+co-assembly de short reads é `coassembly_viral_nonredundant` (`rules/coassembly.smk`),
+que agora é a fonte que `_catalog_sources()` (`rules/votu_catalog.smk`) usa para grupos
+short-read no catálogo global — grupos long-read (sem vRhyme em grupo) continuam vindo do
+`coassembly_viral_trimmed` pré-binning.
+
 ### 8 · Binning procarioto — `rules/prok_binning.smk`
 **MetaBAT2** + **SemiBin2** → **Binette** (consolidação) → **CheckM2** (qualidade) → **GUNC** (quimerismo) → **galah** (dereplicação) → **GTDB-Tk** (taxonomia). Contigs virais são removidos antes (`filter_viral_for_prok`).
 
