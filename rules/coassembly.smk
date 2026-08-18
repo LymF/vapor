@@ -1368,11 +1368,9 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 lf.write(f'[viral_votu_reps] annotation subset (taxonomy/PHIST/Pharokka): {n_mq}\n')
 
 
-    rule coassembly_prodigal_viral:
-        """
-        Predict ORFs from the group vOTU MQ+ representatives for taxonomy
-        searches. Mirrors `rule prodigal_viral` (rules/taxonomy.smk).
-        """
+    # ORFs dos representantes MQ+ do grupo. Herda `rule prodigal_viral`
+    # (rules/taxonomy.smk): corpos identicos.
+    use rule prodigal_viral as coassembly_prodigal_viral with:
         input:
             viral = rules.coassembly_viral_votu_reps.output.mq_fasta,
         output:
@@ -1380,19 +1378,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/prodigal_done.txt",
         log:   f"{OUTDIR}/coassembly/{{group}}/logs/prodigal_viral.log"
         benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/prodigal_viral.tsv"
-        conda: "../envs/env_viral.yaml"
-        container:  CONTAINERS.get("prodigal")
-        threads: 1
-        shell:
-            """
-            mkdir -p $(dirname {output.faa})
-            if [ ! -s {input.viral} ]; then
-                touch {output.faa} {output.done}; exit 0
-            fi
-            prodigal -i {input.viral} -a {output.faa} -p meta -f gff > {log} 2>&1
-            touch {output.done}
-            """
-
 
     use rule mmseqs_taxonomy_viral as coassembly_mmseqs_taxonomy_viral with:
         input:
@@ -1668,8 +1653,9 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
             """
 
 
-    rule coassembly_checkv_vrhyme:
-        """CheckV on the group vRhyme vMAGs (empty summary if no bins)."""
+    # CheckV nos vMAGs do vRhyme do grupo. Herda `rule checkv_vrhyme`
+    # (rules/viral_binning.smk): corpos identicos.
+    use rule checkv_vrhyme as coassembly_checkv_vrhyme with:
         input:
             done = rules.coassembly_vrhyme.output.done,
         output:
@@ -1678,30 +1664,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/checkv_vrhyme.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/checkv_vrhyme.tsv"
-        conda: "../envs/env_viral.yaml"
-        container:  CONTAINERS.get("checkv")
-        threads: THREADS
-        params:
-            bin_dir  = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme/vRhyme_best_bins_fasta",
-            out_dir  = f"{OUTDIR}/coassembly/{{group}}/viral/checkv_vrhyme",
-            combined = f"{OUTDIR}/coassembly/{{group}}/viral/checkv_vrhyme/vrhyme_combined.fasta",
-        shell:
-            """
-            rm -rf {params.out_dir}
-            mkdir -p {params.out_dir}
-            shopt -s nullglob
-            fastas=({params.bin_dir}/*.fasta)
-            if [ ${{#fastas[@]}} -gt 0 ]; then
-                cat "${{fastas[@]}}" > {params.combined}
-                checkv end_to_end \
-                    {params.combined} {params.out_dir} \
-                    -d {CHECKV_DB} -t {threads} >> {log} 2>&1
-            else
-                echo "No vRhyme bins — skipping CheckV" > {log}
-                echo -e "contig_id\tcheckv_quality\tcompleteness\tcontig_length" > {output.summary}
-            fi
-            """
-
 
 # ── Group prok functional foundation: protein prediction (Plan 5) ──────────────
 # Prodigal per group MAG — feeds group AMR/defense/annotation. VAMB bins are *.fna
@@ -1909,19 +1871,10 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
 # this file).
 if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and COASSEMBLY_BINNING and not LONG_READS:
 
-    rule coassembly_phist:
-        """
-        PHIST: fast phage-host prediction using k-mer similarity, group
-        vOTU representatives against the group's VAMB co-binning MAGs.
-        Mirrors `rule phist` (rules/host_prediction.smk): same
-        env/container/flags, same per-genome (bins-first) splitting via
-        scripts/split_viral_fastas.py. KEY DIFFERENCES vs. the per-sample
-        rule: candidate hosts are the group VAMB MAGs (`.fna`, not Binette's
-        `.fa`), and the vRhyme bins directory is the group vRhyme output
-        (`coassembly_vrhyme`, `vRhyme_best_bins.*.fasta` directly under its
-        outdir — same layout the per-sample rule's vrhyme_dir already
-        assumes).
-        """
+    # PHIST: hospedeiro dos vOTUs do grupo contra os MAGs do grupo. Herda
+    # `rule phist` (rules/host_prediction.smk); bins do VAMB sao *.fna, logo
+    # bin_ext e sobrescrito -- unica diferenca de corpo entre as duas.
+    use rule phist as coassembly_phist with:
         input:
             viral  = rules.coassembly_viral_votu_reps.output.mq_fasta,
             gtdbtk = rules.gtdbtk_group.output.done,
@@ -1932,68 +1885,12 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and COASSEMBLY_BINNING and not LONG_R
             f"{OUTDIR}/coassembly/{{group}}/logs/phist.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/phist.tsv"
-        conda: "../envs/env_phist.yaml"
-        container:  CONTAINERS.get("phist")
-        threads: THREADS
         params:
             bins_dir    = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
+            bin_ext     = ".fna",
             vrhyme_dir  = f"{OUTDIR}/coassembly/{{group}}/bins/vrhyme",
-            outdir      = f"{OUTDIR}/coassembly/{{group}}/viral/phist",
+            outdir      = lambda wc, output: os.path.dirname(output.done),
             scripts_dir = SCRIPTS_DIR,
-        shell:
-            """
-            set -euo pipefail
-            mkdir -p {params.outdir}
-
-            N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fna" 2>/dev/null | wc -l)
-            if [ "$N_BINS" -eq 0 ] || [ ! -s {input.viral} ]; then
-                echo "[coassembly_phist] No MAGs or no viral sequences — skipping" | tee {log}
-                printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
-                touch {output.done}; exit 0
-            fi
-
-            # Split viral sequences into individual FASTA files (per-genome kmer-db mode)
-            VFASTA_DIR={params.outdir}/viral_fastas
-            mkdir -p "$VFASTA_DIR"
-            rm -f "$VFASTA_DIR"/*.fasta
-            python3 {params.scripts_dir}/split_viral_fastas.py \
-                {input.viral} {params.vrhyme_dir} "$VFASTA_DIR" \
-                >> {log} 2>&1
-            echo "[coassembly_phist] Total viral genomes: $(find $VFASTA_DIR -maxdepth 1 -name "*.fasta" 2>/dev/null | wc -l)" \
-                | tee -a {log}
-
-            # Build k-mer DB — file list mode (one file per genome = one row in output)
-            ls "$VFASTA_DIR"/*.fasta > {params.outdir}/phage.list 2>/dev/null
-            if [ ! -s {params.outdir}/phage.list ]; then
-                echo "[coassembly_phist] No viral fastas found" | tee -a {log}
-                printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
-                touch {output.done}; exit 0
-            fi
-
-            kmer-db build -k 25 -t {threads} \
-                {params.outdir}/phage.list \
-                {params.outdir}/phages.db \
-                >> {log} 2>&1
-
-            ls {params.bins_dir}/*.fna > {params.outdir}/bacteria.list 2>/dev/null
-
-            kmer-db new2all -sparse -t {threads} \
-                {params.outdir}/phages.db \
-                {params.outdir}/bacteria.list \
-                {params.outdir}/kmers.csv \
-                >> {log} 2>&1
-
-            if [ ! -s {params.outdir}/kmers.csv ] || \
-               [ "$(wc -l < {params.outdir}/kmers.csv)" -lt 2 ]; then
-                echo "[coassembly_phist] No shared k-mers found" | tee -a {log}
-                printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
-            else
-                phist {params.outdir}/kmers.csv {output.results} >> {log} 2>&1 || \
-                    printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
-            fi
-            touch {output.done}
-            """
-
 
 # ══════════════════════════════════════════════════════════════════════
 #  Organize final outputs per co-assembly group — mirrors the per-sample

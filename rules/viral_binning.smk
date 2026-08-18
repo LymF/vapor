@@ -118,9 +118,10 @@ rule checkv_vrhyme:
     container:  CONTAINERS.get("checkv")
     threads: THREADS
     params:
-        bin_dir  = f"{OUTDIR}/{{sample}}/bins/vrhyme/vRhyme_best_bins_fasta",
-        out_dir  = f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme",
-        combined = f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme/vrhyme_combined.fasta",
+        bin_dir  = lambda wc, input: os.path.join(os.path.dirname(str(input.done)), "vRhyme_best_bins_fasta"),
+        # derivados do output (requisito da heranca por coassembly.smk).
+        out_dir  = lambda wc, output: os.path.dirname(output.summary),
+        combined = lambda wc, output: os.path.join(os.path.dirname(output.summary), "vrhyme_combined.fasta"),
     shell:
         """
         rm -rf {params.out_dir}

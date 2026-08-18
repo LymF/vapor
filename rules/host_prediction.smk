@@ -33,16 +33,20 @@ rule phist:
     container:  CONTAINERS.get("phist")
     threads: THREADS
     params:
+        # bin_ext: Binette produz .fa, VAMB (co-assembly) produz .fna.
+        # Parametrizado para coassembly.smk poder herdar esta regra.
         bins_dir    = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
+        bin_ext     = ".fa",
         vrhyme_dir  = lambda wc: f"{OUTDIR}/{wc.sample}/bins/vrhyme",
-        outdir      = f"{OUTDIR}/{{sample}}/viral/phist",
+        # derivados do output (requisito da heranca por coassembly.smk).
+        outdir      = lambda wc, output: os.path.dirname(output.done),
         scripts_dir = SCRIPTS_DIR,
     shell:
         """
         set -euo pipefail
         mkdir -p {params.outdir}
 
-        N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fa" 2>/dev/null | wc -l)
+        N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*{params.bin_ext}" 2>/dev/null | wc -l)
         if [ "$N_BINS" -eq 0 ] || [ ! -s {input.viral} ]; then
             echo "[phist] No MAGs or no viral sequences — skipping" | tee {log}
             printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
@@ -72,7 +76,7 @@ rule phist:
             {params.outdir}/phages.db \
             >> {log} 2>&1
 
-        ls {params.bins_dir}/*.fa > {params.outdir}/bacteria.list 2>/dev/null
+        ls {params.bins_dir}/*{params.bin_ext} > {params.outdir}/bacteria.list 2>/dev/null
 
         kmer-db new2all -sparse -t {threads} \
             {params.outdir}/phages.db \
