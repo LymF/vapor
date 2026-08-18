@@ -18,7 +18,6 @@ The repository is organized as follows:
   - `host_removal.smk`: Optional host decontamination (bwa-mem2 for short reads, minimap2 for long reads, then samtools filtering). Active only when `host_genome` is set.
   - `assembly.smk`: Genome assembly. One assembler per track, both chosen on 2026-08-18: MEGAHIT for short reads (metaSPAdes/metaviralSPAdes removed), and for long reads a single assembler picked by `lr_tech` — Flye + Medaka polishing for ONT, metaMDBG for HiFi (hifiasm and the `merge_lr` step were removed).
   - `cobra.smk`: Optional COBRA contig extension — a single run with the MEGAHIT k-mer params (the per-assembler `cobra_spades` twin went out with metaSPAdes).
-  - `merge_dedup.smk`: Prefixing/length-filtering the MEGAHIT contigs (`merge_contigs`, kept as a stage even with one assembler) and deduplication using MMseqs2 `easy-linclust` to create a central reference FASTA.
   - `quast.smk`: Assembly quality assessment with QUAST.
   - `viral_detection.smk`: Viral sequence detection with VirSorter2 and geNomad, plus consensus generation. DeepVirFinder and CenoteTaker3 are NOT wired in; VIBRANT was removed on 2026-08-18.
   - `mapping.smk`: Read mapping to contigs (BWA-MEM2 for short reads; minimap2 for long reads) and coverage via `jgi_summarize_bam_contig_depths`.
@@ -97,15 +96,30 @@ snakemake --use-conda --cores 32 --forcerun <rule_name>
 snakemake --use-conda --cores 32 results/<sample>/viral/taxonomy/taxonomy_done.txt
 ```
 
-## Central Hub: `rep_seq.fasta`
+## Central Hub: the assembly
 
-The deduplicated representative sequences (`{sample}_rep_seq.fasta`, generated via MMseqs2 at 95% identity) serve as the central reference for all downstream analyses. This ensures consistency across viral detection, mapping, binning, taxonomy, and host prediction.
+Each sample's assembly IS the central reference for every downstream analysis
+— viral detection, mapping, binning, taxonomy, host prediction. Resolved by the
+`_sample_contigs()` helper in the `Snakefile`: MEGAHIT's `final.contigs.fa` for
+short reads, the Flye+Medaka or metaMDBG output for long reads.
+
+There is no deduplication step. `merge_contigs` + MMseqs2 `easy-linclust`
+(`rep_seq.fasta`) were removed on 2026-08-18 (item "(d)" in
+`docs/ROADMAP_SIMPLIFICACAO.md`): `easy-linclust` existed to collapse redundancy
+**between assemblers**, and items (b)/(c) left one assembler per track, so that
+source of redundancy no longer exists. The co-assembly track had always run this
+way (`coassembly/{group}/contigs.fa` straight into everything), so this aligned
+the two tracks rather than inventing a new pattern.
+
+Contig IDs are now the assembler's own (`k141_10`, no `MEGAHIT_` prefix).
+Uniqueness across samples is guaranteed where it matters — the global vOTU
+catalog namespaces every contig by its source (`votu_catalog_pool`).
 
 ## Dependencies and Environments
 
 The pipeline uses 25 isolated conda environment files in `envs/`, all named `env_*.yaml`. Rules also carry a per-rule `container:` resolved from `containers.yaml`; there is no global `containerized:` directive. Key environments include:
 - `env_qc`: Quality control tools.
-- `env_assembly`: Assemblers + MMseqs2 (dedup, plus the MMseqs2 taxonomy rules).
+- `env_assembly`: Assemblers + MMseqs2 (used only by the MMseqs2 taxonomy rules — the dedup step is gone).
 - `env_mapping`: Mapping tools.
 - `env_viral`: Viral detection and taxonomy.
 - And more for binning, reporting, etc.

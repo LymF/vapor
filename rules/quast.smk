@@ -1,22 +1,20 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/quast.smk — BLOCK 4: Assembly Quality Assessment
 #
-# Short reads: avalia 3 conjuntos (MEGAHIT, merged+filtrado, dedup)
-# Long reads : avalia apenas o conjunto final deduplicated
+# Since (d): a single contig set per track (no merge, no dedup), so QUAST
+# evaluates just the assembly itself -- short reads (MEGAHIT) and long
+# reads (Flye+Medaka for ONT, metaMDBG for HiFi) alike.
 # ══════════════════════════════════════════════════════════════════════
 
 
 rule quast:
     """
-    QUAST assembly quality assessment.
-    Short reads: 3 contig sets (MEGAHIT, merged+filtered, deduplicated).
-    Long reads : only the deduplicated final contigs (no MEGAHIT to compare).
+    QUAST assembly quality assessment on the sample's assembly (the hub
+    since item (d) of docs/ROADMAP_SIMPLIFICACAO.md).
     Key metrics: N50, L50, total length, # contigs, GC content.
     """
     input:
-        megahit   = (rules.megahit.output.contigs           if not LONG_READS else []),
-        merged    = (rules.merge_contigs.output.merged       if not LONG_READS else []),
-        rep       = rules.mmseqs2.output.rep,
+        assembly  = _sample_contigs,
     output:
         report = f"{OUTDIR}/{{sample}}/quast/report.tsv",
     log:
@@ -30,23 +28,11 @@ rule quast:
         outdir = f"{OUTDIR}/{{sample}}/quast"
     shell:
         """
-        if [ "{LONG_READS}" = "True" ]; then
-            quast.py \
-                {input.rep} \
-                --labels "lr_deduplicated" \
-                --min-contig {MIN_CONTIG} \
-                --threads {threads} \
-                -o {params.outdir} \
-                > {log} 2>&1
-        else
-            quast.py \
-                {input.megahit} \
-                {input.merged} \
-                {input.rep} \
-                --labels "MEGAHIT,merged_filtered,deduplicated" \
-                --min-contig {MIN_CONTIG} \
-                --threads {threads} \
-                -o {params.outdir} \
-                > {log} 2>&1
-        fi
+        quast.py \
+            {input.assembly} \
+            --labels "assembly" \
+            --min-contig {MIN_CONTIG} \
+            --threads {threads} \
+            -o {params.outdir} \
+            > {log} 2>&1
         """

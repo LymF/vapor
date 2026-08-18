@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/viral_detection.smk — BLOCK 5: Viral Detection
 #
-# Tools (all receive rules.mmseqs2.output.rep as input):
+# Tools (all receive the sample assembly -- _sample_contigs -- as input):
 #   virsorter2 — HMM/ML, dsDNA + ssDNA + NCLDV + RNA + lavidaviridae
 #   genomad    — marker genes + NN (NN disabled: kernel execstack issue)
 #
@@ -19,7 +19,7 @@ rule virsorter2:
     --hallmark-required-on-short: reduces FP on short contigs.
     """
     input:
-        contigs = rules.mmseqs2.output.rep,
+        contigs = _sample_contigs,
     output:
         viral = f"{OUTDIR}/{{sample}}/viral/virsorter2/final-viral-combined.fa",
     log:
@@ -55,7 +55,7 @@ rule genomad:
     Output: *_summary/*_virus_summary.tsv — original contig names, no renaming.
     """
     input:
-        contigs = rules.mmseqs2.output.rep,
+        contigs = _sample_contigs,
     output:
         done = f"{OUTDIR}/{{sample}}/viral/genomad/done.txt",
     log:
@@ -111,7 +111,7 @@ rule viral_consensus:
       *_tool_support.tsv      — all contigs × tools matrix
     """
     input:
-        contigs      = rules.mmseqs2.output.rep,
+        contigs      = _sample_contigs,
         vs2_done     = rules.virsorter2.output.viral,
         genomad_done = rules.genomad.output.done,
     output:

@@ -29,8 +29,10 @@ aggregators are **track-aware** (conditional inputs) so selecting a subset of tr
 actually prunes the DAG.
 
 ### 1.2 Central hub
-Per sample, the deduplicated representative set `{sample}_rep_seq.fasta` (MMseqs2, 95% id)
-is the single reference for viral detection, mapping, binning, taxonomy, host.
+Per sample, the assembly itself is the single reference for viral detection, mapping,
+binning, taxonomy and host (`_sample_contigs()` in the `Snakefile`). There is no
+dedup step: MMseqs2 `easy-linclust` existed to collapse redundancy between
+assemblers, and since 2026-08-18 there is one assembler per track.
 
 ### 1.3 Read modes
 - **SR/PE** (paired), **SR/SE** (single-end) — MEGAHIT.
@@ -62,8 +64,8 @@ VAMB group bins are written as **`*.fna`** (per-sample Binette bins are `*.fa`).
   (`lr_min_len`, `lr_min_mean_q`).
 - **Optional host removal**: bwa-mem2/minimap2 vs `host_genome`, before assembly.
 - **Assembly (SR)**: MEGAHIT (`-m` bytes, `--min-contig-len MIN_CONTIG`, preset), the
-  single short-read assembler. Headers prefixed `MEGAHIT_`, filtered `< MIN_CONTIG`,
-  deduplicated by **MMseqs2 at `MIN_SEQ_ID` (95%)** → `rep_seq`.
+  single short-read assembler. Its contigs are used directly — no `MEGAHIT_` prefix,
+  no extra length filter (MEGAHIT already applies `--min-contig-len`), no dedup step.
 - **Assembly (LR)**: a single assembler chosen by `lr_tech`. **ONT** — metaFlye `--meta`
   (`--nano-raw`/`--nano-hq` by `lr_ont_chem`, `--min-overlap LR_FLYE_OVERLAP`), polished
   with Medaka. **HiFi** — metaMDBG `--in-hifi`, no polishing. There is no merge step:
@@ -73,7 +75,7 @@ VAMB group bins are written as **`*.fna`** (per-sample Binette bins are `*.fa`).
 
 ## 3. Viral detection & consensus
 
-Three detectors run on `rep_seq` (or, for co-assembly, `coassembly/{group}/contigs.fa`):
+Detectors run on the sample's assembly (or, for co-assembly, `coassembly/{group}/contigs.fa`):
 - **VirSorter2** (`--min-score SCORE_VS2_MIN` = 0.5), **GeNomad** (`--min-score
   SCORE_GENOMAD_MIN` = 0.5, score calibration), **VIBRANT** (binary call, no numeric score).
 
@@ -422,7 +424,6 @@ viral + prok tracks + short reads).
 | Param | Meaning | Default |
 |---|---|---|
 | `min_contig` | min contig length (bp) | 1000+ |
-| `min_seq_id` | MMseqs2 dedup identity | 0.95 |
 | `viral_consensus_mode` / `min_viral_tools` | consensus rule / N tools | hybrid / 2 |
 | `score_vs2_min` / `score_genomad_min` | detector score thresholds | 0.5 / 0.5 |
 | `votu_ani` / `votu_af` | vOTU ANI / aligned fraction (%), Roux et al. 2019 | 95 / 85 |

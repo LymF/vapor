@@ -237,7 +237,10 @@ def _build(snakemake):
     # ── Build overview dict ───────────────────────────────────────────────────
     overview = {}
     for s in samples:
-        qd  = quast_data[s].get("deduplicated", {})
+        # QUAST label is "assembly" since item (d) (single contig set per
+        # sample). Falls back to whatever label the report carries so an
+        # older report.tsv ("deduplicated") does not render as blanks.
+        qd  = quast_data[s].get("assembly") or next(iter(quast_data[s].values()), {})
         cm  = checkm2_data[s]
         cv  = checkv_data[s]
         sp  = support_data[s]
@@ -331,7 +334,6 @@ def _build(snakemake):
         "Threads":                     str(getattr(_p, "threads",         "?")),
         "Min contig length":           f"{getattr(_p, 'min_contig',       '?')} bp",
         "MEGAHIT memory":              f"{getattr(_p, 'megahit_mem',      '?')} GB",
-        "MMseqs2 min identity":        str(getattr(_p, "min_seq_id",      "?")),
         "SemiBin2 environment":        str(getattr(_p, "semibin_env",     "?")),
         "Viral consensus (min tools)": f"{getattr(_p, 'min_viral_tools', '?')} / 3",
     }

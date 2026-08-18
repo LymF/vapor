@@ -106,13 +106,14 @@
     }));
 
     // ── Assembly tab ──────────────────────────────────────────────────────────
-    const asmStages = ['MEGAHIT', 'merged_filtered', 'deduplicated'];
+    // Since item (d) of docs/ROADMAP_SIMPLIFICACAO.md there is a single
+    // contig set per sample (the assembly itself -- no merge, no dedup),
+    // so QUAST evaluates only one stage. `asmStages` stays an array (rather
+    // than a bare string) so the chart-building code below keeps working
+    // unchanged if a future stage is ever reintroduced.
+    const asmStages = ['assembly'];
     const metrics   = ['N50', 'Total length', '# contigs'];
 
-    // Assembly progression per sample, grouped by stage. Stages are ORDINAL
-    // (each is a later step of the same pipeline, not an unrelated
-    // category) -- a single-hue light->dark ramp reads as progression;
-    // 5 arbitrary categorical hues would not.
     const asmRamp = ordinalRamp(asmStages.length);
     const progSeries = asmStages.map((stage, i) => ({
       name: stage,
@@ -122,7 +123,7 @@
     }));
 
     mkChart('seq-asm-prog-chart', samplesBar({
-      samples, title: 'Assembly Progression — N50 (bp)', valueName: 'N50 (bp)',
+      samples, title: 'Assembly Quality — N50 (bp)', valueName: 'N50 (bp)',
       series: progSeries.map(s => ({ name: s.name, data: s.data, color: s.color })),
     }));
 
@@ -136,7 +137,7 @@
       m === '# contigs' ? Math.round(v).toLocaleString()
                         : (v >= 1e6 ? (v / 1e6).toFixed(2) + ' Mb'
                         : v >= 1e3 ? (v / 1e3).toFixed(1) + ' kb' : Math.round(v));
-    const rawVals = metrics.map(m => samples.map(s => +(quast[s]?.deduplicated?.[m] || 0)));
+    const rawVals = metrics.map(m => samples.map(s => +(quast[s]?.assembly?.[m] || 0)));
     const maxVals = rawVals.map(row => Math.max(...row, 1));
     const heatData = [];
     metrics.forEach((m, mi) => samples.forEach((s, si) => {
@@ -145,7 +146,7 @@
     }));
     mkChart('seq-asm-final-chart', {
       __height: Math.max(240, 120 + metrics.length * 34),
-      title: { text: 'Final Assembly Quality (deduplicated) — % of best sample per metric' },
+      title: { text: 'Final Assembly Quality — % of best sample per metric' },
       tooltip: {
         trigger: 'item',
         formatter: p => `${samples[p.value[0]]}<br>${metrics[p.value[1]]}: `
@@ -165,15 +166,13 @@
       grid: { top: 44, bottom: 78, left: 12, right: 20, containLabel: true },
     });
 
-    // Total assembly length per stage, distribution across samples. Stages are
-    // ORDINAL (assembler -> merged -> deduplicated), so they wear the ordinal
-    // ramp rather than categorical identity hues.
+    // Total assembly length, distribution across samples.
     mkChart('seq-asm-len-chart', distPlot({
       groups: asmStages.map(st => ({
         name: st,
         values: samples.map(s => +(quast[s]?.[st]?.['Total length'] || 0)).filter(v => v > 0),
       })),
-      title: 'Total Assembly Length per Stage (bp)',
+      title: 'Total Assembly Length (bp)',
       xName: 'Total length (bp)',
       colors: window.ordinalRamp(asmStages.length),
     }));

@@ -23,10 +23,11 @@
 def _prok_input_contigs(wc):
     """FASTA used as input to all prok binners.
     Returns filtered (viral-free, provirus-aware) FASTA when PROK_FILTER_VIRAL
-    is enabled; otherwise falls back to the raw MMseqs2 representative set."""
+    is enabled; otherwise falls back to the sample assembly directly (hub
+    since item (d) -- no merge, no dedup)."""
     if PROK_FILTER_VIRAL:
         return f"{OUTDIR}/{wc.sample}/prok_input/{wc.sample}_rep_seq_nonviral.fasta"
-    return f"{OUTDIR}/{wc.sample}/mmseqs/{wc.sample}_rep_seq.fasta"
+    return _sample_contigs(wc)
 
 
 def _gtdbtk_bins_dir(wc):
@@ -44,19 +45,19 @@ rule filter_viral_for_prok:
       1. viral_consensus.fasta              → set of viral contigs
       2. CheckV `provirus=Yes` + GeNomad `|provirus_` suffix → set of provirus contigs
       3. remove = viral_consensus MINUS provirus
-      4. {sample}_rep_seq.fasta MINUS remove → {sample}_rep_seq_nonviral.fasta
+      4. sample assembly (_sample_contigs) MINUS remove → {sample}_rep_seq_nonviral.fasta
 
     Provirus-bearing contigs always stay in the prok input because the provirus
     region is integrated within a bacterial host contig — removing it would
     drop the host genome with the prophage. Free-living viruses (no host
     chromosome context) are removed to clean up MAGs.
 
-    NOTE: mapping/calc_depth STILL uses the unfiltered rep_seq.fasta for
+    NOTE: mapping/calc_depth STILL uses the unfiltered sample assembly for
     statistically correct coverage estimation; only contig→bin assignment
     uses the filtered FASTA.
     """
     input:
-        contigs   = rules.mmseqs2.output.rep,
+        contigs   = _sample_contigs,
         viral     = rules.viral_consensus.output.fasta,
         checkv    = rules.checkv.output.summary,
         genomad   = rules.genomad.output.done,

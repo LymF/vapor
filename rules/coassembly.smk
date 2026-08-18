@@ -577,9 +577,10 @@ if LONG_READS:
 # ══════════════════════════════════════════════════════════════════════
 #  VAMB multi-split co-binning (Task 5b, Plan 2)
 #
-#  Independent of co-assembly: concatenates every sample's per-sample
-#  dereplicated assembly (rep_seq.fasta) into ONE global catalog (contigs
-#  renamed with a sample prefix so bins stay traceable per-sample), maps
+#  Independent of co-assembly: concatenates every sample's assembly
+#  (MEGAHIT -- the hub since item (d), no merge, no dedup) into ONE global
+#  catalog (contigs renamed with a sample prefix so bins stay traceable
+#  per-sample), maps
 #  every sample's reads to that catalog, and runs VAMB on the resulting
 #  multi-sample abundance matrix. Short reads only.
 #
@@ -593,18 +594,20 @@ if COBINNING_MULTISPLIT and not LONG_READS:
 
     rule multisplit_catalog:
         """
-        Concatenate every sample's dereplicated assembly (mmseqs rep_seq)
-        into one global catalog for pooled VAMB co-binning. Headers are
-        renamed `>X` -> `>S{sample}C{X}` so bins stay traceable back to the
-        originating sample/contig. Pooled VAMB co-binning over the
-        concatenated per-sample assembly catalog. (True per-sample
-        bin-splitting via VAMB's --binsplit_separator is a possible
-        refinement — verify VAMB v5 binsplit behavior on a real run before
-        enabling.)
+        Concatenate every sample's assembly (MEGAHIT -- the hub since item
+        (d), no merge, no dedup) into one global catalog for pooled VAMB
+        co-binning. Headers are renamed `>X` -> `>S{sample}C{X}` so bins
+        stay traceable back to the originating sample/contig. Pooled VAMB
+        co-binning over the concatenated per-sample assembly catalog. (True
+        per-sample bin-splitting via VAMB's --binsplit_separator is a
+        possible refinement — verify VAMB v5 binsplit behavior on a real
+        run before enabling.)
         """
         input:
-            rep_seqs = expand(f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta",
-                               sample=list(SAMPLES.keys())),
+            # _contigs_path (Snakefile): a arvore de decisao SR/ONT/HiFi mora
+            # num lugar so. Este bloco e SR-only, mas chamar o helper evita a
+            # quarta copia do caminho literal.
+            rep_seqs = [_contigs_path(s) for s in SAMPLES],
         output:
             catalog = f"{OUTDIR}/coassembly/multisplit/catalog.fasta",
         log:
@@ -964,7 +967,7 @@ if COBINNING_MULTISPLIT and not LONG_READS:
 #
 #  Mode-agnostic (contig-based): mirrors rules/viral_detection.smk exactly,
 #  but runs on the group co-assembly contigs (megahit for SR, flye for LR)
-#  instead of the per-sample mmseqs2 rep_seq.fasta. NOT gated by
+#  instead of the per-sample assembly (_sample_contigs). NOT gated by
 #  `if not LONG_READS:` — the viral consumer runs for either mode, since
 #  `{OUTDIR}/coassembly/{group}/contigs.fa` is produced by whichever
 #  assembler is active.

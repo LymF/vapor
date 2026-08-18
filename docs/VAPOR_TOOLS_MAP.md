@@ -26,10 +26,9 @@ flowchart TD
     end
 
     ASM --> COBRA["3b · COBRA<br/><i>extensão de contigs, opcional</i>"]
-    COBRA --> DEDUP["4 · MMseqs2 easy-linclust 95%<br/>→ rep_seq.fasta"]
-    DEDUP --> QUAST[QUAST]
+    COBRA --> QUAST[QUAST]
 
-    DEDUP --> VD & MAP & PB
+    COBRA --> VD & MAP & PB
     RAW -.-> RC["sylph + sylph-tax<br/><i>trilha independente por reads</i>"]
 
     subgraph VD["5 · Detecção viral"]
@@ -106,8 +105,8 @@ Opcional, ativa com `host_genome` no config. SR: `bwa-mem2 mem` → `samtools -f
 | **COBRA** | extensão de contigs pós-montagem, por assembler |
 | **QUAST** | métricas de montagem |
 
-### 4 · Deduplicação — `rules/merge_dedup.smk`
-**MMseqs2** (`easy-linclust`, `MIN_SEQ_ID` = 95%) produz `{sample}_rep_seq.fasta`, o hub central de todo o downstream.
+### 4 · Deduplicação — removida (item "(d)", 2026-08-18)
+Não há etapa de deduplicação desde 2026-08-18 (item "(d)"): a montagem é o hub central de todo o downstream, resolvida pelo helper `_sample_contigs()` do `Snakefile`. O MMseqs2 permanece no pipeline, mas só nas regras de taxonomia.
 
 ### 5 · Detecção viral — `rules/viral_detection.smk`
 | Ferramenta | Score mínimo |

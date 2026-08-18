@@ -16,7 +16,7 @@
 rule bwa_index:
     """Index deduplicated contigs for BWA-MEM2."""
     input:
-        contigs = rules.mmseqs2.output.rep,
+        contigs = _sample_contigs,
     output:
         idx = f"{OUTDIR}/{{sample}}/mapping/contigs_index.bwt.2bit.64",
     log:
@@ -112,7 +112,7 @@ if LONG_READS:
         ONT: -ax map-ont; HiFi: -ax map-hifi.
         """
         input:
-            contigs = rules.mmseqs2.output.rep,
+            contigs = _sample_contigs,
             reads   = _clean_lr,
         output:
             sam = temp(f"{OUTDIR}/{{sample}}/mapping/{{sample}}_lr.sam"),

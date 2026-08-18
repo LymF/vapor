@@ -28,7 +28,7 @@
 #   qc.smk              — BLOCK 1  : fastp, NanoPlot, Porechop, Filtlong
 #   host_removal.smk    — BLOCK 1.5: bwa-mem2/minimap2 host decontamination (optional)
 #   assembly.smk        — BLOCK 2  : MEGAHIT, Flye + Medaka (ONT), metaMDBG (HiFi)
-#   merge_dedup.smk     — BLOCK 3  : merge_contigs, MMseqs2
+#                          -- the assembly is the hub (item (d)): no merge, no dedup
 #   quast.smk           — BLOCK 4  : QUAST
 #   viral_detection.smk — BLOCK 5  : VS2, GeNomad, viral_consensus
 #   mapping.smk         — BLOCK 6  : BWA-MEM2, minimap2, calc_depth
@@ -111,7 +111,6 @@ MEGAHIT_PRESET       = config["megahit_preset"]
 MEGAHIT_CUSTOM_PARAMS = config["megahit_custom_params"]
 
 MIN_CONTIG           = config["min_contig"]
-MIN_SEQ_ID           = config["min_seq_id"]
 
 CHECKV_DB            = config["checkv_db"]
 VS2_DB               = config["vs2_db"]
@@ -163,6 +162,28 @@ def _clean_lr(wc):
     if USE_HOST_REMOVAL:
         return f"{OUTDIR}/{wc.sample}/host_removed/{wc.sample}_lr_clean.fastq.gz"
     return f"{OUTDIR}/{wc.sample}/lr_filtered/{wc.sample}_filtered.fastq.gz"
+
+def _contigs_path(sample):
+    """Assembly of one sample -- the central hub since item (d) of
+    docs/ROADMAP_SIMPLIFICACAO.md: one assembler per track, no merge, no
+    dedup. Mirrors the co-assembly track, which already points straight at
+    the assembler output (`{OUTDIR}/coassembly/{group}/contigs.fa`).
+
+    Takes a sample NAME, not a wildcards object, so `rule all` and
+    coassembly.smk can call it too -- this decision tree must exist in
+    exactly one place. Three copies of it were what the (d) review flagged
+    as the thing most likely to drift apart later.
+    """
+    if LONG_READS:
+        return (f"{OUTDIR}/{sample}/assembly/lr/flye_polished/assembly.fasta"
+                if LR_TECH == "ont"
+                else f"{OUTDIR}/{sample}/assembly/lr/metaMDBG/assembly.fasta")
+    return f"{OUTDIR}/{sample}/assembly/megahit/final.contigs.fa"
+
+
+def _sample_contigs(wc):
+    """`_contigs_path` as a Snakemake input function."""
+    return _contigs_path(wc.sample)
 
 USE_GPU              = config.get("use_gpu", False)
 COVERM_METHOD        = config.get("coverm_method", "rpkm")
@@ -359,7 +380,6 @@ if COASSEMBLY_ENABLED:
 include: "rules/qc.smk"
 include: "rules/host_removal.smk"
 include: "rules/assembly.smk"
-include: "rules/merge_dedup.smk"
 include: "rules/quast.smk"
 include: "rules/viral_detection.smk"
 include: "rules/mapping.smk"
@@ -400,7 +420,8 @@ def _t_foundation():
     else:
         t += expand(f"{OUTDIR}/{{sample}}/qc_lr/nanoplot_done.txt", sample=SAMPLES)
     if TRACK_VIRAL or TRACK_PROK:
-        t += expand(f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta", sample=SAMPLES)
+        # The hub is the assembly itself since (d) -- no merge, no dedup.
+        t += [_contigs_path(s) for s in SAMPLES]
         t += expand(f"{OUTDIR}/{{sample}}/quast/report.tsv", sample=SAMPLES)
         if LONG_READS:
             # done sentinel of the single LR assembler (merge_lr is gone)

@@ -64,7 +64,6 @@ host_index:  ""    # path to pre-built bwa-mem2 index prefix (built once if empt
 # ══ ASSEMBLY ═══════════════════════════════════════════════════════════
 
 min_contig:  3000    # bp — minimum contig length post-assembly
-min_seq_id:  0.95   # MMseqs2 dedup clustering identity (0–1)
 
 # MEGAHIT
 megahit_mem_gb:        120              # RAM limit (GB)

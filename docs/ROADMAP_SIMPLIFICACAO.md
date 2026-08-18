@@ -22,7 +22,9 @@ descartadas com motivo.
 | Relatório religado (Lifestyle + Putative AMGs) | **feito** — commit `1c66c6c` |
 | (b) metaSPAdes + metaviralSPAdes | **feito** — só o MEGAHIT nas short reads |
 | (c) um montador só para long reads | **feito** — Flye+Medaka (ONT) / metaMDBG (HiFi) |
-| Restante | **próximo passo: (h)** — ver "Ordem de execução" |
+| (h) computar no representante | **feito** — commit `94a9bf9`, mais 4 bugs de namespace |
+| (d) remover merge_contigs / mmseqs2 | **feito** — o hub agora é a montagem |
+| Restante | **próximo passo: (e)** — mover o limiar de comprimento |
 
 Branch de trabalho: `master` (o `refactor/unit-wildcard` já foi mergeado por
 fast-forward e pode ser apagado).
@@ -45,9 +47,9 @@ abaixo. Não execute em ordem alfabética.
 (b) remover metaSPAdes + metaviralSPAdes ... FEITO
 (c) um montador só para long reads ....... FEITO
         ↓
-(h) migrar regras para o representante   ← ANTES de (d)
+(h) migrar regras para o representante ... FEITO
         ↓
-(d) remover merge_contigs / merge_lr / mmseqs2
+(d) remover merge_contigs / merge_lr / mmseqs2 ... FEITO
 (e) mover o limiar de comprimento
 ```
 
@@ -171,7 +173,57 @@ Depois do conserto o HiFi monta o DAG: **159 jobs**, com
 `porechop_lr` (pass-through) → `filtlong_lr` → `metaMDBG_lr`, sem Flye nem
 Medaka. ONT e short reads não mudaram nada.
 
-### (d) Remover `merge_contigs`, `merge_lr` e `mmseqs2` (dedup)
+### (d) Remover `merge_contigs`, `merge_lr` e `mmseqs2` (dedup) — FEITO
+
+**Fechamento (2026-08-18).** O hub passou a ser a montagem, resolvida pelo
+helper `_sample_contigs()` do `Snakefile` (mesmo estilo dos `_clean_r1`/
+`_clean_lr` que já existiam) — e **não** por uma regra que copiasse o FASTA
+para um caminho canônico, que duplicaria um arquivo enorme em disco por
+amostra.
+
+Eram **13** pontos, não 22: o (c) já havia eliminado parte quando o `merge_lr`
+morreu. O `{sample}_cluster.tsv` do MMseqs2 **não tinha nenhum consumidor** —
+morreu sem substituto.
+
+O prefixo `MEGAHIT_` caiu junto com o `merge_contigs`; os contigs passam a ter
+o nome cru do montador (`k141_10`), como a trilha de co-assembly sempre teve.
+Auditado ponto a ponto: o único lugar que re-deriva chave a partir do header da
+montagem é o `multisplit_catalog`, que já re-namespaceia tudo por conta própria
+(`>S{sample}C{header}`). O resto ou lê o catálogo global (namespaceado por
+origem, indiferente ao nome cru) ou trabalha dentro do espaço de nomes de uma
+amostra só.
+
+`min_seq_id`/`MIN_SEQ_ID` ficaram órfãos e saíram. O MMseqs2 **permanece** no
+`env_assembly` e no `containers.yaml` — as regras de taxonomia usam.
+
+**O "ganho colateral" do COBRA não existia.** O roadmap supunha que o COBRA
+pudesse estar recebendo montagem diferente daquela contra a qual o BAM foi
+mapeado. Verificado: antes do (d) o `bwa_index` e o `cobra_megahit` já
+apontavam para o mesmo `rep_seq`; depois, ambos apontam para a mesma montagem.
+O pareamento já estava correto — o (d) preserva, não conserta.
+
+**Ressalva sobre comparabilidade (achado da auditoria).** A justificativa do
+roadmap — *"o `easy-linclust` existia para colapsar redundância entre
+montadores"* — é **parcial**. Com `--min-seq-id 0.95 -c 0.9 --cov-mode 2` ele
+também removia contigs *contidas* dentro de outras da **mesma** montagem
+(variantes de cepa, bolhas não resolvidas). Efeito: mais contigs redundantes na
+detecção viral e no mapeamento, com multi-mapping um pouco maior e abundância
+levemente diluída. No viral o catálogo global de vOTU (skani 95/85, mais
+estrito) absorve; no binning, MetaBAT2/SemiBin2 absorvem. Impacto prático
+pequeno, **mas resultados pós-(d) não são diretamente comparáveis aos
+pré-(d)** — considerar ao reprocessar dataset já analisado.
+
+**Bug que só a auditoria pegaria.** O `scripts/report/renderer.py` lia
+`quast_data[s].get("deduplicated")`, e o rótulo do QUAST virou `"assembly"`.
+O `parse_quast_all` chaveia pelo header do `report.tsv`, então `# contigs` e
+`N50` de todas as amostras sairiam como "N/A" no card de Overview — sem erro,
+sem log. **Nenhum dry-run pegaria isso: o relatório não roda em `-n`.** Vale
+como lembrete de que o invariante do DAG não cobre o conteúdo do relatório.
+
+**Verificação:** dry-run limpo nos 4 modos. PE 177 → 173, SE 177 → 173,
+LR-ONT 149 → 147, LR-HiFi 147 → 145. Delta = `merge_contigs` (só SR) +
+`mmseqs2` (todos), 2 amostras cada. Um grep por `mmseqs/` no dry-run inteiro
+devolve só caminhos de taxonomia — nenhum `_rep_seq.fasta` em nenhum modo.
 
 > **Pré-requisitos: (b), (c) e (h).** (b)/(c) porque o dedup só pode sair
 > depois de sobrar um montador por trilha. (h) porque as regras que rodam

@@ -103,7 +103,6 @@ rule generate_report:
         threads          = THREADS,
         megahit_mem      = int(MEGAHIT_MEM // 1_000_000_000),
         min_contig       = MIN_CONTIG,
-        min_seq_id       = MIN_SEQ_ID,
         semibin_env      = SEMIBIN_ENV,
         min_viral_tools  = MIN_VIRAL_TOOLS,
         checkv_db        = CHECKV_DB,

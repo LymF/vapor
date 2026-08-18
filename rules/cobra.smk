@@ -54,7 +54,7 @@ rule cobra_megahit:
           which is normal for highly diverse communities.
     """
     input:
-        all_contigs = f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta",
+        all_contigs = _sample_contigs,
         query       = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_consensus.fasta",
         coverage    = f"{OUTDIR}/{{sample}}/cobra/coverage.tsv",
         bam         = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
