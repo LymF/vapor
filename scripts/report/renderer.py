@@ -327,7 +327,6 @@ def _build(snakemake):
     cfg_params = {
         "Threads":                     str(getattr(_p, "threads",         "?")),
         "Min contig length":           f"{getattr(_p, 'min_contig',       '?')} bp",
-        "SPAdes memory":               f"{getattr(_p, 'spades_mem',       '?')} GB",
         "MEGAHIT memory":              f"{getattr(_p, 'megahit_mem',      '?')} GB",
         "MMseqs2 min identity":        str(getattr(_p, "min_seq_id",      "?")),
         "SemiBin2 environment":        str(getattr(_p, "semibin_env",     "?")),

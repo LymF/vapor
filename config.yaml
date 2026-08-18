@@ -12,7 +12,6 @@
 # Set false to disable entire modules.
 # All disabled modules write empty outputs so downstream rules never break.
 
-use_spades:        false    # metaSPAdes + metaviralSPAdes (disable on low-RAM servers)
 use_cobra:         false   # viral contig extension via k-mer overlap (PE only)
 use_gunc:          true    # chimera detection on MAGs
 use_mag_derep:     true    # MAG dereplication with galah before GTDB-Tk
@@ -45,14 +44,14 @@ single_end:  true    # SE Illumina or Ion Torrent (false = paired-end)
 long_reads:  false   # true for ONT / PacBio HiFi
 
 # Long-read parameters (ignored when long_reads: false)
-lr_tech:         "ont"    # "ont" | "hifi"
+# One assembler per lr_tech: ONT -> metaFlye (+ Medaka polishing),
+# HiFi -> metaMDBG (no polishing).
+lr_tech:         "ont"    # "ont" | "hifi" — picks the assembler
 lr_min_len:      3000     # Filtlong minimum read length (bp)
 lr_min_mean_q:   10       # minimum mean quality (ONT only)
-lr_flye_overlap: 3000     # metaFlye --min-overlap (bp)
-lr_hifiasm_hom:  0.01     # hifiasm-meta --hom-cov (0 = auto)
-lr_medaka_model: "auto"   # "auto" = --bacteria | or explicit model string
+lr_flye_overlap: 3000     # metaFlye --min-overlap (bp), ONT only
+lr_medaka_model: "auto"   # "auto" = --bacteria | or explicit model string, ONT only
 lr_ont_chem:     "hq"     # "hq" = R10/Q20+ | "raw" = R9 legacy
-lr_metaMDBG:     true     # 3rd LR assembler; skipped automatically for ONT R9
 
 
 # ══ HOST REMOVAL ═══════════════════════════════════════════════════════
@@ -67,11 +66,6 @@ host_index:  ""    # path to pre-built bwa-mem2 index prefix (built once if empt
 min_contig:  3000    # bp — minimum contig length post-assembly
 min_seq_id:  0.95   # MMseqs2 dedup clustering identity (0–1)
 
-# SPAdes (ignored when use_spades: false)
-spades_mem:       120          # RAM limit (GB)
-spades_kmers:     "default"   # "default" | "custom"
-spades_kmer_list: "21,33,55,77,99,127"   # used only when spades_kmers: "custom"
-
 # MEGAHIT
 megahit_mem_gb:        120              # RAM limit (GB)
 megahit_preset:        "meta-sensitive" # "default" | "meta-sensitive" | "meta-large" | "custom"
@@ -80,8 +74,6 @@ megahit_custom_params: ""               # used only when megahit_preset: "custom
 # COBRA — viral contig extension (ignored when use_cobra: false)
 cobra_megahit_mink: 21
 cobra_megahit_maxk: 141
-cobra_spades_mink:  21
-cobra_spades_maxk:  127
 
 
 # ══ VIRAL DETECTION ════════════════════════════════════════════════════

@@ -5,7 +5,7 @@
 #   FASTQs
 #     └─► fastp / NanoPlot+Porechop+Filtlong (QC + trimming)
 #           └─► [host removal — optional] bwa-mem2 / minimap2
-#                 └─► MEGAHIT + metaSPAdes + metaviralSPAdes / Flye + hifiasm (assembly)
+#                 └─► MEGAHIT / Flye (ONT) or metaMDBG (HiFi) (assembly)
 #                 └─► Merge + filter + MMseqs2 (deduplication)
 #                       ├─► QUAST (assembly quality)
 #                       ├─► Viral detection ──► CheckV ──► vRhyme
@@ -27,7 +27,7 @@
 # MODULES (rules/):
 #   qc.smk              — BLOCK 1  : fastp, NanoPlot, Porechop, Filtlong
 #   host_removal.smk    — BLOCK 1.5: bwa-mem2/minimap2 host decontamination (optional)
-#   assembly.smk        — BLOCK 2  : MEGAHIT, metaSPAdes, metaviralSPAdes, Flye, hifiasm, Medaka
+#   assembly.smk        — BLOCK 2  : MEGAHIT, Flye + Medaka (ONT), metaMDBG (HiFi)
 #   merge_dedup.smk     — BLOCK 3  : merge_contigs, MMseqs2
 #   quast.smk           — BLOCK 4  : QUAST
 #   viral_detection.smk — BLOCK 5  : VS2, GeNomad, viral_consensus
@@ -106,11 +106,6 @@ FASTQ_DIR            = _expand(config["fastq_dir"])
 OUTDIR               = _expand(config["outdir"])
 THREADS              = config["threads"]
 
-USE_SPADES           = config.get("use_spades", True)
-SPADES_MEM           = config["spades_mem"]
-SPADES_KMERS         = config["spades_kmers"]
-SPADES_KMER_LIST     = config["spades_kmer_list"]
-
 MEGAHIT_MEM          = config["megahit_mem_gb"] * 1_000_000_000  # bytes
 MEGAHIT_PRESET       = config["megahit_preset"]
 MEGAHIT_CUSTOM_PARAMS = config["megahit_custom_params"]
@@ -141,16 +136,8 @@ LR_TECH              = config["lr_tech"]
 LR_MIN_LEN           = config["lr_min_len"]
 LR_MIN_MEAN_Q        = config["lr_min_mean_q"]
 LR_FLYE_OVERLAP      = config["lr_flye_overlap"]
-LR_HIFIASM_HOM       = config["lr_hifiasm_hom"]
 LR_MEDAKA_MODEL      = config["lr_medaka_model"]
 LR_ONT_CHEM          = config["lr_ont_chem"]
-LR_METAMDBG          = config.get("lr_metaMDBG", True)
-
-# metaMDBG is only applicable for HiFi or ONT R10+ (not R9)
-USE_METAMDBG = (
-    LONG_READS and LR_METAMDBG and
-    (LR_TECH == "hifi" or (LR_TECH == "ont" and LR_ONT_CHEM == "hq"))
-)
 
 # ── Host genome removal (optional) ────────────────────────────────────
 HOST_GENOME      = _expand(config.get("host_genome", "")) if config.get("host_genome", "") else ""
@@ -253,8 +240,6 @@ MAG_DEREP_ANI     = config.get("mag_derep_ani", 95.0)
 COBRA_ENABLED      = config.get("use_cobra", False)
 COBRA_MEGAHIT_MINK = config.get("cobra_megahit_mink", 21)
 COBRA_MEGAHIT_MAXK = config.get("cobra_megahit_maxk", 141)
-COBRA_SPADES_MINK  = config.get("cobra_spades_mink", 21)
-COBRA_SPADES_MAXK  = config.get("cobra_spades_maxk", 127)
 
 # ── Reads-only classification (Sylph) ─────────────────────────────────
 READS_CLASSIFY_ENABLED = config.get("reads_classify", False)
@@ -419,7 +404,13 @@ def _t_foundation():
         t += expand(f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta", sample=SAMPLES)
         t += expand(f"{OUTDIR}/{{sample}}/quast/report.tsv", sample=SAMPLES)
         if LONG_READS:
-            t += expand(f"{OUTDIR}/{{sample}}/assembly/lr/merged/done.txt", sample=SAMPLES)
+            # done sentinel of the single LR assembler (merge_lr is gone)
+            t += expand(
+                f"{OUTDIR}/{{sample}}/assembly/lr/medaka_done.txt"
+                if LR_TECH == "ont"
+                else f"{OUTDIR}/{{sample}}/assembly/lr/metaMDBG/done.txt",
+                sample=SAMPLES,
+            )
         # mapping/depth feeds both viral (vRhyme coverage) and prok (binning depth)
         t += expand(f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam", sample=SAMPLES)
         t += expand(f"{OUTDIR}/{{sample}}/mapping/{{sample}}_depth.txt", sample=SAMPLES)

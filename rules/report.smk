@@ -80,7 +80,6 @@ rule generate_report:
         samples          = list(SAMPLES.keys()),
         outdir           = OUTDIR,
         threads          = THREADS,
-        spades_mem       = SPADES_MEM,
         megahit_mem      = int(MEGAHIT_MEM // 1_000_000_000),
         min_contig       = MIN_CONTIG,
         min_seq_id       = MIN_SEQ_ID,

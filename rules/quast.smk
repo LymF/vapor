@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/quast.smk — BLOCK 4: Assembly Quality Assessment
 #
-# Short reads: avalia 5 conjuntos (MEGAHIT, metaSPAdes, metaviralSPAdes, merged, dedup)
+# Short reads: avalia 3 conjuntos (MEGAHIT, merged+filtrado, dedup)
 # Long reads : avalia apenas o conjunto final deduplicated
 # ══════════════════════════════════════════════════════════════════════
 
@@ -9,14 +9,12 @@
 rule quast:
     """
     QUAST assembly quality assessment.
-    Short reads: 5 contig sets (MEGAHIT, metaSPAdes, metaviralSPAdes, merged+filtered, deduplicated).
-    Long reads : only the deduplicated final contigs (no MEGAHIT/SPAdes to compare).
+    Short reads: 3 contig sets (MEGAHIT, merged+filtered, deduplicated).
+    Long reads : only the deduplicated final contigs (no MEGAHIT to compare).
     Key metrics: N50, L50, total length, # contigs, GC content.
     """
     input:
         megahit   = (rules.megahit.output.contigs           if not LONG_READS else []),
-        spades    = (rules.metaspades.output.contigs         if not LONG_READS else []),
-        metaviral = (rules.metaviral_spades.output.contigs   if not LONG_READS else []),
         merged    = (rules.merge_contigs.output.merged       if not LONG_READS else []),
         rep       = rules.mmseqs2.output.rep,
     output:
@@ -43,11 +41,9 @@ rule quast:
         else
             quast.py \
                 {input.megahit} \
-                {input.spades} \
-                {input.metaviral} \
                 {input.merged} \
                 {input.rep} \
-                --labels "MEGAHIT,metaSPAdes,metaviralSPAdes,merged_filtered,deduplicated" \
+                --labels "MEGAHIT,merged_filtered,deduplicated" \
                 --min-contig {MIN_CONTIG} \
                 --threads {threads} \
                 -o {params.outdir} \

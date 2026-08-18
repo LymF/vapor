@@ -30,7 +30,7 @@ Follow the steps in order — database downloads are the most time-consuming par
 | Disk (databases) | 400 GB | 600 GB |
 | Disk (results) | 200 GB / project | SSD preferred |
 
-> **Memory note:** metaSPAdes routinely uses 80–150 GB RAM for large metagenomes. Plan accordingly.
+> **Memory note:** MEGAHIT with `meta-sensitive` can use tens of GB of RAM on large metagenomes. Plan accordingly.
 
 ---
 
@@ -75,15 +75,15 @@ Or create manually (useful for testing individual environments):
 mamba create -n env_qc -c conda-forge -c bioconda \
     fastp quast multiqc -y
 
-# Assembly (MEGAHIT + SPAdes + metaMDBG + MMseqs2). MMseqs2 here is also
+# Assembly (MEGAHIT + metaMDBG + MMseqs2). MMseqs2 here is also
 # reused by rules mmseqs_taxonomy_viral/mmseqs_taxonomy_prok -- no separate
 # env needed for those.
 mamba create -n env_assembly -c conda-forge -c bioconda \
-    megahit spades metamdbg mmseqs2 -y
+    megahit metamdbg mmseqs2 -y
 
-# Long-read assembly: Flye + hifiasm (merged)
+# Long-read assembly: metaFlye (ONT track; HiFi uses metaMDBG from env_assembly)
 mamba create -n env_flye -c conda-forge -c bioconda \
-    flye hifiasm hifiasm_meta -y
+    flye -y
 
 # ONT polishing (GPU via CUDA)
 mamba create -n env_medaka -c conda-forge -c bioconda \
@@ -1057,8 +1057,8 @@ done
 
 ## Troubleshooting
 
-**metaSPAdes runs out of memory**
-Reduce `spades_mem` in `config.yaml`. If RAM is the bottleneck, use MEGAHIT only.
+**MEGAHIT runs out of memory**
+Reduce `megahit_mem_gb` in `config.yaml`, or switch `megahit_preset` to `default`.
 
 **GTDB-Tk: pplacer error**
 Confirm that `gtdbtk_db` points to the correct directory and that the database version is compatible with your installed GTDB-Tk (`gtdbtk check_install`).

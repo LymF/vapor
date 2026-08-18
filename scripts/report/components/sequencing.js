@@ -106,7 +106,7 @@
     }));
 
     // ── Assembly tab ──────────────────────────────────────────────────────────
-    const asmStages = ['MEGAHIT', 'metaSPAdes', 'metaviralSPAdes', 'merged_filtered', 'deduplicated'];
+    const asmStages = ['MEGAHIT', 'merged_filtered', 'deduplicated'];
     const metrics   = ['N50', 'Total length', '# contigs'];
 
     // Assembly progression per sample, grouped by stage. Stages are ORDINAL

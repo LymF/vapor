@@ -15,8 +15,7 @@ vapor/
 │
 ├── rules/                       ← modular rule files (one per functional block)
 │   ├── qc.smk                   # BLOCK 1  — fastp, NanoPlot, Porechop_ABI, Filtlong
-│   ├── assembly.smk             # BLOCK 2  — MEGAHIT, metaSPAdes, metaviralSPAdes,
-│   │                            #            Flye, hifiasm, Medaka, metaMDBG
+│   ├── assembly.smk             # BLOCK 2  — MEGAHIT (SR); Flye+Medaka (ONT) / metaMDBG (HiFi)
 │   ├── merge_dedup.smk          # BLOCK 3  — merge_contigs, MMseqs2
 │   ├── quast.smk                # BLOCK 4  — QUAST
 │   ├── viral_detection.smk      # BLOCK 5  — VirSorter2, GeNomad, consensus
@@ -44,7 +43,6 @@ vapor/
 │   └── reads_classify.smk       # BLOCK 15 — reads-only classification (Sylph + sylph-tax)
 │
 ├── scripts/                     ← auxiliary Python scripts
-│   ├── merge_lr_assemblies.py   # merge Flye + hifiasm + metaMDBG assemblies
 │   ├── prepare_diamond_db.py    # build Diamond DB + metadata TSV
 │   ├── prepare_mmseqs_taxdb.py   # build MMseqs2 seqTaxDB (--format img/ncbi/inphared)
 │   ├── split_viral_fastas.py    # split viral FASTA into per-genome files for PHIST
@@ -72,7 +70,7 @@ vapor/
 └── envs/                        ← reproducible conda environment definitions
     ├── env_qc.yaml
     ├── env_assembly.yaml        # includes MMseqs2 + metaMDBG
-    ├── env_flye.yaml            # includes hifiasm + hifiasm_meta
+    ├── env_flye.yaml            # metaFlye (ONT assembly)
     ├── env_medaka.yaml
     ├── env_lr_utils.yaml
     ├── env_mapping.yaml
@@ -193,7 +191,6 @@ All parameters are defined in **`config.yaml`** — no `.smk` files need to be e
 | `mag_derep_ani` | ANI threshold for MAG dereplication (default `95.0`) |
 | `cobra_enabled` | `true` to extend viral contigs with COBRA (SR PE only, default `false`) |
 | `cobra_megahit_maxk` | COBRA k-mer max for MEGAHIT contigs (default `141`) |
-| `cobra_spades_maxk` | COBRA k-mer max for SPAdes contigs (default `127`) |
 | `reads_classify` | `true` to enable reads-only classification module (Sylph, default `false`) |
 | `reads_classify_dbs` | Dict with up to 4 optional DB paths: `imgvr`, `uhgv`, `gtdb`, `custom` |
 | `reads_classify_tax_dir` | Directory for sylph-tax taxonomy files (auto-populated if empty) |
@@ -235,8 +232,8 @@ snakemake --snakefile Snakefile --use-conda --cores 1 --create-envs-only
 | Environment | Main tools |
 |---|---|
 | `env_qc` | fastp, quast, multiqc |
-| `env_assembly` | megahit, spades, metaMDBG, mmseqs2 (also reused by mmseqs_taxonomy_viral/prok) |
-| `env_flye` | flye, hifiasm, hifiasm_meta |
+| `env_assembly` | megahit, metaMDBG, mmseqs2 (also reused by mmseqs_taxonomy_viral/prok) |
+| `env_flye` | flye |
 | `env_medaka` | medaka (ONT polishing) |
 | `env_lr_utils` | nanoplot, porechop_abi, filtlong |
 | `env_mapping` | bwa-mem2, minimap2, samtools |
@@ -273,7 +270,7 @@ VAPOR includes four optional quality-enhancement steps, all enabled by default a
 | **GUNC** | `gunc` | Detects chimeric MAGs by checking taxon consistency across Diamond-annotated genes; report appears in final summary |
 | **skani vOTU catalog** | `votu_catalog_skani`, `votu_catalog_cluster` | Clusters the pooled viral genomes of every sample and co-assembly group at ICTV standard (95% ANI + 85% AF) using skani pairwise ANI; replaces the simpler MMseqs2 identity grouping, and clusters once globally instead of per sample |
 | **galah MAG derep** | `galah_derep` | Dereplicates prokaryotic bins using CheckM2 quality scores; selects highest-quality representative per cluster before GTDB-Tk |
-| **COBRA** | `cobra_megahit`, `cobra_spades`, `cobra_merge` | Extends fragmented viral contigs by traversing the assembly graph k-mer overlap; runs twice (MEGAHIT + SPAdes params), longest extension wins; disabled by default — beneficial for low-diversity viromes |
+| **COBRA** | `cobra_megahit`, `cobra_merge` | Extends fragmented viral contigs by traversing the MEGAHIT assembly graph k-mer overlap; longest extension wins; disabled by default — beneficial for low-diversity viromes |
 
 ---
 

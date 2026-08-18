@@ -3,8 +3,7 @@
 #
 # cobra_coverage   — convert jgi depth → 2-col TSV (run: block, no container)
 # cobra_megahit    — COBRA with MEGAHIT k-mer params (maxK=141)
-# cobra_spades     — COBRA with metaSPAdes k-mer params (maxK=127)
-# cobra_merge      — merge both runs; longest extension wins (run: block)
+# cobra_merge      — collect the extended sequences; longest wins (run: block)
 #
 # Only active when cobra_enabled: true in config.yaml.
 # When disabled, viral_binning rules consume viral_consensus.fasta directly
@@ -96,61 +95,13 @@ rule cobra_megahit:
         """
 
 
-rule cobra_spades:
-    """
-    COBRA with metaSPAdes k-mer params (assembler=metaspades, default maxK=127).
-    Extends viral contigs using k-mer overlap from the SPAdes assembly graph.
-    NOTE: uses || true for the same reason as cobra_megahit.
-    """
-    input:
-        all_contigs = f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_rep_seq.fasta",
-        query       = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_consensus.fasta",
-        coverage    = f"{OUTDIR}/{{sample}}/cobra/coverage.tsv",
-        bam         = f"{OUTDIR}/{{sample}}/mapping/{{sample}}.sorted.bam",
-        bwa_done    = (f"{OUTDIR}/{{sample}}/mapping/bwa_mem_done.txt"
-                       if not LONG_READS else []),
-    output:
-        done = f"{OUTDIR}/{{sample}}/cobra/spades/done.txt",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/cobra_spades.log"
-    benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/cobra_spades.tsv"
-    conda: "../envs/env_cobra.yaml"
-    container: CONTAINERS.get("cobra_meta")
-    threads: THREADS
-    params:
-        outdir = f"{OUTDIR}/{{sample}}/cobra/spades",
-        mink   = COBRA_SPADES_MINK,
-        maxk   = COBRA_SPADES_MAXK,
-    shell:
-        """
-        rm -rf {params.outdir}
-        cobra-meta \
-            -f {input.all_contigs} \
-            -q {input.query} \
-            -m {input.bam} \
-            -c {input.coverage} \
-            -a metaspades \
-            -mink {params.mink} \
-            -maxk {params.maxk} \
-            -t {threads} \
-            -o {params.outdir} \
-            > {log} 2>&1 && RC=0 || RC=$?
-        if [ "$RC" -ne 0 ]; then
-            echo "failed: cobra-meta exit $RC" > {output.done}
-        else
-            echo "ok" > {output.done}
-        fi
-        """
-
-
 rule cobra_merge:
     """
-    Merge COBRA-extended sequences from MEGAHIT and SPAdes runs.
+    Collect the COBRA-extended sequences from the MEGAHIT run.
     Strategy per contig:
-      1. Collect all non-orphan sequences from both run output dirs
+      1. Collect all non-orphan sequences from the run output dir
       2. Map back to original query names via the joining summary
-      3. Keep the longest extension across both runs
+      3. Keep the longest extension
       4. Fall back to original sequence if not extended
     Output: {sample}_cobra_viral.fasta — used by viral_binning rules when enabled.
     Pure Python run: block — no container needed.
@@ -158,7 +109,6 @@ rule cobra_merge:
     input:
         viral   = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_consensus.fasta",
         done_mh = f"{OUTDIR}/{{sample}}/cobra/megahit/done.txt",
-        done_sp = f"{OUTDIR}/{{sample}}/cobra/spades/done.txt",
     output:
         fasta = f"{OUTDIR}/{{sample}}/cobra/{{sample}}_cobra_viral.fasta",
     log:
@@ -167,7 +117,6 @@ rule cobra_merge:
         f"{OUTDIR}/{{sample}}/benchmarks/cobra_merge.tsv"
     params:
         mh_dir = f"{OUTDIR}/{{sample}}/cobra/megahit",
-        sp_dir = f"{OUTDIR}/{{sample}}/cobra/spades",
     run:
         import os, glob
 
@@ -207,7 +156,7 @@ rule cobra_merge:
         # best[orig_name] = (header_in_output, sequence)
         best = {}
 
-        for run_dir in [params.mh_dir, params.sp_dir]:
+        for run_dir in [params.mh_dir]:
             # --- find joining summary ---
             summaries = glob.glob(os.path.join(run_dir, "*joining_summary*"))
             categories = parse_summary(summaries[0]) if summaries else {}

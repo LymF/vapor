@@ -21,8 +21,8 @@ flowchart TD
 
     HR --> ASM
     subgraph ASM["3 · Montagem"]
-        A1["MEGAHIT + metaSPAdes<br/>+ metaviralSPAdes"]
-        A2["Flye + hifiasm + metaMDBG<br/>→ Medaka<br/><i>long reads</i>"]
+        A1["MEGAHIT"]
+        A2["Flye → Medaka <i>(ONT)</i><br/>metaMDBG <i>(HiFi)</i><br/><i>long reads</i>"]
     end
 
     ASM --> COBRA["3b · COBRA<br/><i>extensão de contigs, opcional</i>"]
@@ -100,11 +100,8 @@ Opcional, ativa com `host_genome` no config. SR: `bwa-mem2 mem` → `samtools -f
 | Ferramenta | Trilha |
 |---|---|
 | **MEGAHIT** | SR (sempre) |
-| **metaSPAdes** | SR (`use_spades`) |
-| **metaviralSPAdes** | SR, montagem viral dedicada |
-| **Flye** | LR |
-| **hifiasm** | LR (HiFi) |
-| **metaMDBG** | LR (`lr_metaMDBG`) |
+| **Flye** | LR, `lr_tech: ont` |
+| **metaMDBG** | LR, `lr_tech: hifi` |
 | **Medaka** | polimento LR (ONT) |
 | **COBRA** | extensão de contigs pós-montagem, por assembler |
 | **QUAST** | métricas de montagem |

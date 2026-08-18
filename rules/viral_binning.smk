@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/viral_binning.smk — BLOCK 7: Viral Binning and QC
 #
-# cobra        — extend/join viral contigs using metaSPAdes assembly graph
+# cobra        — extend/join viral contigs using the MEGAHIT assembly graph
 # checkv       — quality assessment on (cobra_extended | viral_consensus)
 # vrhyme       — groups viral contigs into vMAGs (coverage + protein homology)
 # checkv_vrhyme — quality assessment on vRhyme vMAGs

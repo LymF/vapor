@@ -1502,7 +1502,6 @@ def collect_tool_versions():
         "fastp":         _ver(f"{C} env_qc fastp --version"),
         "MultiQC":       _ver(f"{C} env_qc multiqc --version"),
         "MEGAHIT":       _ver(f"{C} env_assembly megahit --version"),
-        "metaSPAdes":    _ver(f"{C} env_assembly spades.py --version"),
         "MMseqs2":       _ver(f"{C} env_assembly mmseqs version"),
         "QUAST":         _ver(f"{C} env_qc quast.py --version"),
         "BWA-MEM2":      _ver(f"{C} env_mapping bwa-mem2 version"),

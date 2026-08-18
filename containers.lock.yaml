@@ -24,7 +24,6 @@ genomad: docker://quay.io/biocontainers/genomad:1.11.2--pyhdfd78af_0
 genome_map: docker://ghcr.io/lymf/vapor-genome-map:1.0
 gtdbtk: docker://quay.io/biocontainers/gtdbtk:2.6.1--pyh1f0d9b5_2
 gunc: docker://quay.io/biocontainers/gunc:1.1.1--pyhdfd78af_0
-hifiasm: docker://quay.io/biocontainers/hifiasm:0.25.0--h5ca1c30_0
 medaka: docker://quay.io/biocontainers/medaka:2.2.0--py312ha65e1bd_0
 megahit: docker://quay.io/biocontainers/megahit:1.2.9--haf24da9_8
 metabat2: docker://quay.io/biocontainers/metabat2:2.18--h6f16272_0
@@ -44,7 +43,6 @@ rgi: docker://quay.io/biocontainers/rgi:6.0.5--pyh05cac1d_0
 samtools: docker://quay.io/biocontainers/samtools:1.23--h96c455f_0
 semibin: docker://quay.io/biocontainers/semibin:2.2.1--pyhdfd78af_0
 skani: docker://quay.io/biocontainers/skani:0.3.1--ha6fb395_0
-spades: docker://quay.io/biocontainers/spades:4.2.0--haf24da9_0
 sylph: docker://quay.io/biocontainers/sylph:0.9.0--ha6fb395_0
 sylph_tax: docker://quay.io/biocontainers/sylph-tax:1.9.1--pyhdfd78af_0
 vamb: docker://quay.io/biocontainers/vamb:5.0.4--pyhdfd78af_0

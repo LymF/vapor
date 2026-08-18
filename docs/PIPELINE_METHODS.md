@@ -33,8 +33,8 @@ Per sample, the deduplicated representative set `{sample}_rep_seq.fasta` (MMseqs
 is the single reference for viral detection, mapping, binning, taxonomy, host.
 
 ### 1.3 Read modes
-- **SR/PE** (paired), **SR/SE** (single-end) — MEGAHIT + metaSPAdes.
-- **LR** — metaFlye + hifiasm + (ONT) Medaka + metaMDBG.
+- **SR/PE** (paired), **SR/SE** (single-end) — MEGAHIT.
+- **LR** — one assembler by `lr_tech`: metaFlye + Medaka (ONT) or metaMDBG (HiFi).
 Mapping: bwa-mem2 (SR) / minimap2 (LR). Mapping is against the **full** assembly and is
 **shared** by viral (vRhyme) and prok (binners); viral/prok separation happens at the
 **binning input** stage, not the mapping stage.
@@ -61,11 +61,13 @@ VAMB group bins are written as **`*.fna`** (per-sample Binette bins are `*.fa`).
 - **SR QC**: fastp (adapter/quality trim). **LR QC**: NanoPlot + Porechop + Filtlong
   (`lr_min_len`, `lr_min_mean_q`).
 - **Optional host removal**: bwa-mem2/minimap2 vs `host_genome`, before assembly.
-- **Assembly (SR)**: MEGAHIT (`-m` bytes, `--min-contig-len MIN_CONTIG`, preset) +
-  metaSPAdes (PE) / SPAdes `-s` (SE) + metaviralSPAdes (PE). Merged with tool prefixes,
-  filtered `< MIN_CONTIG`, deduplicated by **MMseqs2 at `MIN_SEQ_ID` (95%)** → `rep_seq`.
-- **Assembly (LR)**: metaFlye `--meta` (`--nano-raw`/`--nano-hq`/`--pacbio-hifi` by
-  `lr_tech`/`lr_ont_chem`, `--min-overlap LR_FLYE_OVERLAP`) + hifiasm-meta + Medaka (ONT).
+- **Assembly (SR)**: MEGAHIT (`-m` bytes, `--min-contig-len MIN_CONTIG`, preset), the
+  single short-read assembler. Headers prefixed `MEGAHIT_`, filtered `< MIN_CONTIG`,
+  deduplicated by **MMseqs2 at `MIN_SEQ_ID` (95%)** → `rep_seq`.
+- **Assembly (LR)**: a single assembler chosen by `lr_tech`. **ONT** — metaFlye `--meta`
+  (`--nano-raw`/`--nano-hq` by `lr_ont_chem`, `--min-overlap LR_FLYE_OVERLAP`), polished
+  with Medaka. **HiFi** — metaMDBG `--in-hifi`, no polishing. There is no merge step:
+  the assembler output feeds MMseqs2 directly.
 
 ---
 

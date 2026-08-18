@@ -36,7 +36,6 @@ Examples:
   vapor --unlock                              unlock directory after crash
 
 Module switches (override config.yaml without editing):
-  vapor --set use_spades=false                skip SPAdes (low-RAM server)
   vapor --set use_cobra=true                  enable viral contig extension
   vapor --set use_pharokka=false              skip phage annotation
   vapor --set use_phold=false                 skip structure-based annotation
@@ -56,7 +55,7 @@ Performance and thresholds:
   vapor --set viral_consensus_mode=count      switch viral detection mode
 
 Combined:
-  vapor --threads 40 --set use_spades=false --set use_gunc=false
+  vapor --threads 40 --set use_cobra=true --set use_gunc=false
   vapor --dry-run --set use_pharokka=false --set use_phold=false
 
 Config file (config.yaml) must be edited before running.
@@ -305,8 +304,8 @@ def main():
         default=[],
         help=(
             "Override a config.yaml value without editing the file. "
-            "Repeatable: --set use_spades=false --set threads=32. "
-            "Keys match config.yaml (e.g. use_spades, use_cobra, min_contig, "
+            "Repeatable: --set use_cobra=true --set threads=32. "
+            "Keys match config.yaml (e.g. use_cobra, use_gunc, min_contig, "
             "pharokka_min_completeness, votu_ani)."
         ),
     )

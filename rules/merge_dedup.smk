@@ -1,27 +1,25 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/merge_dedup.smk — BLOCK 3: Merge, Filter and Deduplication
 #
-# merge_contigs : combines MEGAHIT + metaSPAdes + metaviralSPAdes,
-#                 adds MEGAHIT_/SPADES_/METAVIRAL_ prefix, filters < MIN_CONTIG bp
+# merge_contigs : takes the MEGAHIT contigs, adds the MEGAHIT_ prefix and
+#                 filters < MIN_CONTIG bp
 # mmseqs2       : deduplication at 95% identity → {sample}_rep_seq.fasta
 #                 (used as input by ALL downstream rules)
 #
-# For long reads the merged FASTA comes from rules.merge_lr.output.merged
-# and is passed directly to mmseqs2 (merge_contigs is SR-only).
+# For long reads the single assembler's output (Flye+Medaka for ONT,
+# metaMDBG for HiFi) is passed directly to mmseqs2 (merge_contigs is SR-only).
 # ══════════════════════════════════════════════════════════════════════
 
 
 rule merge_contigs:
     """
-    Merge MEGAHIT + metaSPAdes + metaviralSPAdes contigs (short reads only).
-    - Adds MEGAHIT_ / SPADES_ / METAVIRAL_ prefix to each header to prevent collisions
+    Prefix and length-filter the MEGAHIT contigs (short reads only).
+    - Adds the MEGAHIT_ prefix to each header (kept so downstream contig IDs
+      stay stable now that metaSPAdes/metaviralSPAdes are gone)
     - Filters contigs shorter than MIN_CONTIG bp
-    - metaviralSPAdes may produce an empty file (no viral contigs) — handled gracefully
     """
     input:
         megahit   = rules.megahit.output.contigs,
-        spades    = rules.metaspades.output.contigs,
-        metaviral = rules.metaviral_spades.output.contigs,
     output:
         merged = f"{OUTDIR}/{{sample}}/mmseqs/{{sample}}_merged_filtered.fasta",
     log:
@@ -48,8 +46,6 @@ rule merge_contigs:
         with open(output.merged, "w") as out, open(log[0], "w") as lf:
             sources = [
                 (input.megahit,   "MEGAHIT"),
-                (input.spades,    "SPADES"),
-                (input.metaviral, "METAVIRAL"),
             ]
             for src, pfx in sources:
                 for header, seq in iter_fasta(src, pfx):
@@ -68,12 +64,17 @@ rule mmseqs2:
     Output: {sample}_rep_seq.fasta — non-redundant contig set used by ALL
     downstream rules (viral detection, mapping, binning, taxonomy).
     Input:
-      Short reads → merge_contigs (MEGAHIT + metaSPAdes + metaviralSPAdes)
-      Long reads  → merge_lr     (Flye + hifiasm)
+      Short reads       → merge_contigs (MEGAHIT)
+      Long reads (ONT)  → medaka_lr     (Flye, polished)
+      Long reads (HiFi) → metaMDBG_lr   (metaMDBG, no polishing)
     """
     input:
         contigs = (
-            f"{OUTDIR}/{{sample}}/assembly/lr/merged/{{sample}}_lr_merged.fasta"
+            (
+                f"{OUTDIR}/{{sample}}/assembly/lr/flye_polished/assembly.fasta"
+                if LR_TECH == "ont"
+                else f"{OUTDIR}/{{sample}}/assembly/lr/metaMDBG/assembly.fasta"
+            )
             if LONG_READS
             else rules.merge_contigs.output.merged
         ),

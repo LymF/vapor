@@ -20,7 +20,9 @@ descartadas com motivo.
 | Remoção do VIBRANT | **feito** — commit `d8dbf7d` |
 | (f) `bacphlip_votu` + (g) `eggnog_viral` | **feito** — commit `bf2d358`, regras globais |
 | Relatório religado (Lifestyle + Putative AMGs) | **feito** — commit `1c66c6c` |
-| Restante | **próximo passo: (b)** — ver "Ordem de execução" |
+| (b) metaSPAdes + metaviralSPAdes | **feito** — só o MEGAHIT nas short reads |
+| (c) um montador só para long reads | **feito** — Flye+Medaka (ONT) / metaMDBG (HiFi) |
+| Restante | **próximo passo: (h)** — ver "Ordem de execução" |
 
 Branch de trabalho: `master` (o `refactor/unit-wildcard` já foi mergeado por
 fast-forward e pode ser apagado).
@@ -40,8 +42,8 @@ abaixo. Não execute em ordem alfabética.
 (f) bacphlip_votu .................. FEITO  bf2d358
 (g) eggnog_viral ................... FEITO  bf2d358
         ↓
-(b) remover metaSPAdes + metaviralSPAdes
-(c) um montador só para long reads
+(b) remover metaSPAdes + metaviralSPAdes ... FEITO
+(c) um montador só para long reads ....... FEITO
         ↓
 (h) migrar regras para o representante   ← ANTES de (d)
         ↓
@@ -86,7 +88,7 @@ Decisão de schema: as colunas de lifestyle e AMG do `make_votu_table.py`
 **continuam existindo, preenchidas como vazio**, para não quebrar quem consome o
 arquivo e para religar a fonte depois sem migração.
 
-### (b) Remover metaSPAdes e metaviralSPAdes
+### (b) Remover metaSPAdes e metaviralSPAdes — FEITO
 
 Fica só o MEGAHIT nas short reads.
 
@@ -97,10 +99,77 @@ Precedente: o metaFun testou MEGAHIT vs metaSPAdes em 3 ambientes CAMI e ficou
 só com o MEGAHIT — venceu em comprimento total e fração de bp alinhados, com
 desempate por eficiência de recursos.
 
-### (c) Um montador só para long reads
+**O que saiu:** regras `metaspades`, `metaviral_spades` e `cobra_spades`; chaves
+`use_spades`, `spades_mem`, `spades_kmers`, `spades_kmer_list`,
+`cobra_spades_mink/maxk`; `spades=4.2.0` do `env_assembly`; entrada `spades` do
+`containers.yaml`/`.lock.yaml`; rótulos do QUAST (5 → 3 conjuntos) e do relatório.
 
-Escolha por `lr_tech`: **Flye para ONT, metaMDBG para HiFi**. Sai o `hifiasm_lr`
-ou o `metaMDBG_lr` conforme a escolha, e o `merge_lr` morre.
+**O que ficou de propósito:** o `merge_contigs` continua existindo e continua
+prefixando `MEGAHIT_` — ele só morre em (d), e manter o prefixo evita renomear
+contig em todo o resultado já produzido. O `cobra_merge` também ficou, agora com
+um diretório de corrida só.
+
+**Verificação:** dry-run PE 195 → 189 jobs, 331 → 323 outputs. Delta = 2 amostras
+× 4 arquivos (metaspades `contigs.fasta` + `.gfa`, metaviral `contigs.fasta`,
+`cobra/spades/done.txt`) e 2 × 3 regras. Nada mais mudou. Dry-run também limpo
+em SE (189 jobs) e long reads (167 jobs).
+
+### (c) Um montador só para long reads — FEITO
+
+Escolha por `lr_tech`: **Flye para ONT, metaMDBG para HiFi**. O `hifiasm_lr` sai
+sempre; o `merge_lr` morre.
+
+**O que saiu:** regras `hifiasm_lr` e `merge_lr`; o ramo hifiasm do `medaka_lr`
+(output `hifiasm_pol`); o guard `USE_METAMDBG` e o ramo `--in-ont` do
+`metaMDBG_lr`; constantes `LR_HIFIASM_HOM`, `LR_METAMDBG` e `USE_METAMDBG` do
+`Snakefile`; chaves `lr_hifiasm_hom` e `lr_metaMDBG` do `config.yaml`;
+`hifiasm`/`hifiasm_meta` do `env_flye`; entrada `hifiasm` dos containers;
+`scripts/merge_lr_assemblies.py` (apagado, sem consumidor).
+
+**Estrutura nova:** dentro de `if LONG_READS:` as regras passam a ser
+instanciadas por `if LR_TECH == "ont":` / `else:`, então nunca existe montador
+no DAG que não vai ser usado. O `mmseqs2` consome:
+- ONT → `{sample}/assembly/lr/flye_polished/assembly.fasta`
+- HiFi → `{sample}/assembly/lr/metaMDBG/assembly.fasta`
+
+**Prefixo de header:** o `merge_lr` prefixava `FLYE_`/`HIFIASM_`/`MDBG_`. Com um
+montador só o prefixo some para long reads. Verificado por grep que **ninguém
+faz parsing dele** em `scripts/`, `rules/` ou `scripts/report/` — e o
+`votu_catalog_pool` já prefixa por origem no catálogo global.
+
+**Alvo do `rule all` reapontado:** o `Snakefile` ainda pedia
+`assembly/lr/merged/done.txt` (o sentinel do `merge_lr`). Passou a pedir o
+sentinel do montador único — `medaka_done.txt` (ONT) ou `metaMDBG/done.txt`
+(HiFi). Esse era o único ponto que o grep por "merge_lr" não pegava, porque a
+referência era um caminho literal.
+
+**Verificação:** dry-run limpo nos quatro modos.
+
+| modo | jobs antes | jobs depois |
+|---|---|---|
+| PE  | 189 | 189 (diff de outputs **vazio**) |
+| SE  | 189 | 189 |
+| LR ONT | 167 | 161 |
+| LR HiFi | — | 159 |
+
+Delta LR-ONT = 6 = 2 amostras × 3 regras (`hifiasm_lr`, `merge_lr`,
+`metaMDBG_lr`); o conjunto de regras do DAG não mudou em mais nada. Short reads
+intactas, como exigido.
+
+**Bug pré-existente encontrado e corrigido (fora de (c)):** a trilha **HiFi não
+rodava desde antes deste roadmap**. Em `rules/qc.smk` o `filtlong_lr` recebia,
+quando `lr_tech != "ont"`, o caminho
+`{sample}/lr_filtered/{sample}_placeholder.fastq.gz` — **arquivo que nenhuma
+regra produz** → `MissingInputException` antes mesmo da montagem. Como o
+`porechop_lr` já trata HiFi internamente (faz `cat` das reads cruas), o
+`filtlong_lr` passou a consumir sempre a saída dele: uma trilha só para as duas
+tecnologias, sem condicional. O condicional antigo tinha ainda um segundo
+problema — o `and LONG_READS` era morto, já que a regra só existe dentro do
+`if LONG_READS:`.
+
+Depois do conserto o HiFi monta o DAG: **159 jobs**, com
+`porechop_lr` (pass-through) → `filtlong_lr` → `metaMDBG_lr`, sem Flye nem
+Medaka. ONT e short reads não mudaram nada.
 
 ### (d) Remover `merge_contigs`, `merge_lr` e `mmseqs2` (dedup)
 

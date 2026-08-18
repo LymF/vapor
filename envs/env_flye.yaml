@@ -39,8 +39,6 @@ dependencies:
   - gst-plugins-base=1.24.11
   - gstreamer=1.24.11
   - harfbuzz=12.2.0
-  - hifiasm=0.25.0
-  - hifiasm_meta=hamtv0.3.5
   - htslib=1.22.1
   - icu=75.1
   - intervaltree=3.1.0
