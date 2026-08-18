@@ -450,20 +450,28 @@ def _t_viral():
         t.append(f"{OUTDIR}/votu_catalog/matrices_done.txt")
         t.append(f"{OUTDIR}/votu_catalog/bacphlip/votu_lifestyle.tsv")
         t.append(f"{OUTDIR}/votu_catalog/bacphlip/done.txt")
+        t.append(f"{OUTDIR}/votu_catalog/taxonomy/viral_taxonomy_merged.tsv")
+        t.append(f"{OUTDIR}/votu_catalog/taxonomy/taxonomy_done.txt")
         if USE_EGGNOG_VIRAL:
             t.append(f"{OUTDIR}/votu_catalog/eggnog_viral/putative_amgs.tsv")
             t.append(f"{OUTDIR}/votu_catalog/eggnog_viral/done.txt")
+        # pharokka/phold/genome_maps: moved to the global catalog on
+        # 2026-08-18 (second half of "(h)", docs/ROADMAP_SIMPLIFICACAO.md) --
+        # no longer per-sample, see rules/votu_catalog.smk.
+        t.append(f"{OUTDIR}/votu_catalog/annotation/pharokka/done.txt")
+        t.append(f"{OUTDIR}/votu_catalog/annotation/phold/done.txt")
+        t.append(f"{OUTDIR}/votu_catalog/annotation/genome_maps/phage_maps_done.txt")
+        t.append(f"{OUTDIR}/votu_catalog/annotation/genome_maps/virus_maps_done.txt")
+        # defensefinder_viral/dbapis_viral: moved to the global catalog on
+        # 2026-08-18 too (same move, same reasoning) -- no longer per-sample
+        # or per-group, see rules/votu_catalog.smk.
+        if DEFENSE_AMR_VIRAL_ENABLED:
+            t.append(f"{OUTDIR}/votu_catalog/defensefinder/done.txt")
+            t.append(f"{OUTDIR}/votu_catalog/dbapis/done.txt")
     t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_abundance.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt", sample=SAMPLES)
-    if DEFENSE_AMR_VIRAL_ENABLED:
-        t += expand(f"{OUTDIR}/{{sample}}/viral/defensefinder/done.txt", sample=SAMPLES)
-        t += expand(f"{OUTDIR}/{{sample}}/viral/dbapis/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/abundance/viral_abundance.tsv", sample=SAMPLES)
-    t += expand(f"{OUTDIR}/{{sample}}/annotation/pharokka/done.txt", sample=SAMPLES)
-    t += expand(f"{OUTDIR}/{{sample}}/annotation/phold/done.txt", sample=SAMPLES)
-    t += expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/phage_maps_done.txt", sample=SAMPLES)
-    t += expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/virus_maps_done.txt", sample=SAMPLES)
     return t
 
 
@@ -545,13 +553,12 @@ def _t_coassembly():
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/taxonomy/taxonomy_done.txt")
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/checkv/quality_summary.tsv")
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/votu/votu_all_reps.fasta")
-                # viral annotation (pharokka/phold, self-skip if DB unset)
-                t.append(f"{OUTDIR}/coassembly/{g}/annotation/pharokka/done.txt")
-                t.append(f"{OUTDIR}/coassembly/{g}/annotation/phold/done.txt")
-                # viral defense / anti-defense
-                if DEFENSE_AMR_VIRAL_ENABLED:
-                    t.append(f"{OUTDIR}/coassembly/{g}/viral/defensefinder/done.txt")
-                    t.append(f"{OUTDIR}/coassembly/{g}/viral/dbapis/done.txt")
+                # pharokka/phold/defensefinder_viral/dbapis_viral: moved to
+                # the global catalog on 2026-08-18 (second half of "(h)")
+                # -- the catalog already includes every coassembly group as
+                # a source, so there is no per-group target here any more;
+                # see the global votu_catalog/{annotation/{pharokka,phold},
+                # defensefinder,dbapis} targets in _t_viral() above.
                 # vRhyme vMAGs + PHIST host prediction need coverage/MAGs → short reads only
                 if not LONG_READS:
                     t.append(f"{OUTDIR}/coassembly/{g}/viral/checkv_vrhyme/quality_summary.tsv")

@@ -21,8 +21,18 @@ rule generate_report:
             "checkv_vrhyme":      expand(f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme/quality_summary.tsv",         sample=SAMPLES),
             "support":            expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_tool_support.tsv",     sample=SAMPLES),
             "taxonomy":           expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",        sample=SAMPLES),
-            "antidefense_viral":  expand(f"{OUTDIR}/{{sample}}/viral/defensefinder/viral_antidefense_systems.tsv", sample=SAMPLES),
-            "dbapis_viral":       expand(f"{OUTDIR}/{{sample}}/viral/dbapis/dbapis_hits.tsv",                     sample=SAMPLES),
+            # antidefense_viral/dbapis_viral: ONE global file each, not one
+            # per sample, since 2026-08-18 (second half of "(h)",
+            # docs/ROADMAP_SIMPLIFICACAO.md) -- defensefinder_viral/
+            # dbapis_viral now run once over the whole vOTU catalog
+            # (votu_defensefinder_viral/votu_dbapis_viral,
+            # rules/votu_catalog.smk). See
+            # load_antidefensefinder_viral/load_dbapis_viral
+            # (scripts/report/data_loaders.py) for how the single table is
+            # fanned back out to every sample key for the existing chart
+            # plumbing.
+            "antidefense_viral":  f"{OUTDIR}/votu_catalog/defensefinder/viral_antidefense_systems.tsv",
+            "dbapis_viral":       f"{OUTDIR}/votu_catalog/dbapis/dbapis_hits.tsv",
         } if TRACK_VIRAL else {}),
         # Prokaryotic track
         **({

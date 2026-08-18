@@ -367,8 +367,9 @@ rule prok_bin_proteins:
     Per-genome protein prediction (Prodigal) shared by every defense/AMR
     annotation tool in rules/defense_amr.smk plus mmseqs_taxonomy_prok in
     rules/taxonomy.smk -- runs once regardless of how many downstream tools
-    consume it (same reuse pattern as rules.prodigal_viral.output.faa for
-    viral taxonomy). Lives here (not in defense_amr.smk, where it
+    consume it (same reuse pattern as rules.votu_prodigal.output.faa for
+    viral taxonomy, moved global in rules/votu_catalog.smk 2026-08-18).
+    Lives here (not in defense_amr.smk, where it
     conceptually originated) because both defense_amr.smk and taxonomy.smk
     reference rules.prok_bin_proteins, and Snakemake requires a rule to be
     defined (via include: order in the Snakefile) before anything reuses it

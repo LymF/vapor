@@ -1,259 +1,187 @@
 # ══════════════════════════════════════════════════════════════════════
-# rules/taxonomy.smk — BLOCK 9: Viral Taxonomy
+# rules/taxonomy.smk — BLOCK 9: Viral Taxonomy (per-sample view) +
+#                       Prokaryote custom taxonomy
 #
-# No fixed source priority -- rule viral_taxonomy compares the rank DEPTH
-# each source resolves to and takes the deepest, ties broken by trust order.
-# Sources:
-#   MMseqs2/INPHARED — real per-query LCA against INPHARED (rule
-#                      mmseqs_taxonomy_viral), contig-level LCA-of-LCAs
-#                      across that contig's proteins. Replaced an earlier
-#                      Diamond/INPHARED best-hit+majority-vote tier (removed
-#                      2026-06-22 -- see memory project_viral_taxonomy_merge).
-#   MMseqs2/Custom  — optional user-supplied seqTaxDB (e.g. IMG/VR, rule
-#                      mmseqs_taxonomy_custom_viral), same LCA approach.
-#                      Replaced an earlier diamond_custom_viral best-hit+
-#                      majority-vote rule entirely (removed 2026-06-23).
-#   GeNomad         — marker-gene lineage string, parsed to deepest level
-# See memory project_viral_taxonomy_merge for the full rationale.
+# The viral taxonomy computation itself (prodigal_viral -> mmseqs_taxonomy_
+# viral/custom -> the GeNomad/MMseqs merge) moved to rules/votu_catalog.smk
+# on 2026-08-18 as `votu_prodigal` / `votu_mmseqs_taxonomy` /
+# `votu_mmseqs_taxonomy_custom` / `votu_taxonomy` -- see
+# docs/ROADMAP_SIMPLIFICACAO.md "(h) Princípio: computar no representante,
+# herdar no membro". A vOTU is the same biological entity in every sample
+# that carries a member of it, so its taxonomy is computed ONCE on the
+# global vOTU representative, not once per sample on byte-identical input.
 #
-# Also contains mmseqs_taxonomy_prok for prokaryote bin taxonomy (separate
-# from the viral merge above; diamond_custom_prok was removed -- mmseqs
-# replaces it outright, not just outranks it).
+# `viral_taxonomy` below is what is left on the per-sample side (kept its
+# old name so rules.viral_taxonomy references, e.g. finalize.smk, don't
+# need to change): it
+# reads the global table and re-exposes it at the old per-sample path with
+# the old per-sample schema (bare contig IDs), so make_votu_table.py,
+# rules/report.smk and rules/finalize.smk keep working unmodified.
+#
+# Also contains mmseqs_taxonomy_prok for prokaryote bin taxonomy -- this one
+# stays per-sample on purpose: prokaryote bins are not deduplicated into a
+# global catalog the way vOTUs are, so there is no single global
+# representative to compute this against.
 # ══════════════════════════════════════════════════════════════════════
 
 
-def _mmseqs_lca_rollup(hits_path, ranks):
-    """Shared by mmseqs_taxonomy_viral (INPHARED) and
-    mmseqs_taxonomy_custom_viral (e.g. IMG/VR) results -- both produce the
-    same (qseqid, taxid, rank, name, lineage) shape over the same 8-level
-    ICTV rank scheme (realm..genus), just against different seqTaxDBs.
-
-    mmseqs operates per-PROTEIN; roll up to per-CONTIG by taking the longest
-    common prefix (a second, contig-level LCA) across that contig's own
-    already-LCA-resolved protein lineages -- avoids one well-conserved
-    protein dominating the whole-genome call. Returns
-    {contig: {order, family, subfamily, genus, rank, lineage, n_proteins}}.
+rule viral_taxonomy:
     """
-    import csv, os, re, collections
-    _RANK_PREFIX = re.compile(r'^[a-z]+_')
-    contig_protein_lineages = collections.defaultdict(list)
-    if os.path.exists(hits_path) and os.path.getsize(hits_path) > 0:
-        with open(hits_path) as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                protein_id = row.get("qseqid", "")
-                rank       = (row.get("rank") or "").strip()
-                lineage    = (row.get("lineage") or "").strip()
-                if not protein_id or not lineage or rank in ("", "no rank", "root"):
-                    continue
-                contig = "_".join(protein_id.split("_")[:-1]) or protein_id
-                names = [_RANK_PREFIX.sub("", p).strip() for p in lineage.split(";") if p.strip()]
-                if names:
-                    contig_protein_lineages[contig].append(names)
+    Per-sample/group view of the global vOTU taxonomy table (rule
+    votu_taxonomy, rules/votu_catalog.smk). Implements INHERITANCE, not
+    identity: every member of a vOTU that has a representative annotated in
+    the global table gets THAT representative's annotation, not just
+    members that happen to be their own vOTU's representative. This is the
+    premise the whole (h) architecture rests on -- a vOTU is an ANI>=95% /
+    AF>=85% cluster (ICTV species level), so every member is by
+    construction the same biological entity as its representative, which is
+    exactly what authorizes computing the analysis once and reusing it.
 
-    result = {}
-    for contig, lineages in contig_protein_lineages.items():
-        common = []
-        for level in zip(*lineages):
-            if len(set(level)) == 1:
-                common.append(level[0])
-            else:
-                break
-        if not common:
-            continue
-        depth = len(common)
-        result[contig] = {
-            "order":      common[4] if depth >= 5 else "",
-            "family":     common[5] if depth >= 6 else "",
-            "subfamily":  common[6] if depth >= 7 else "",
-            "genus":      common[7] if depth >= 8 else "",
-            "rank":       ranks[depth - 1] if depth <= len(ranks) else ranks[-1],
-            "lineage":    ";".join(common),
-            "n_proteins": len(lineages),
-        }
-    return result
+    (2026-08-18 correction: an earlier version of this rule only filtered
+    the global table by source_id prefix, which is IDENTITY, not
+    inheritance -- it only recovered a row for a member that IS the
+    representative of its own vOTU. With 32 samples most members' vOTU
+    representative belongs to a different sample, so that version left the
+    taxonomy column silently empty for most contigs. See
+    docs/ROADMAP_SIMPLIFICACAO.md "(h)" for the full writeup.)
 
+    JOIN, spelled out (three tables, two join steps):
+      1. clusters (votu_catalog_cluster.output.clusters): `member`
+         (NAMESPACED) -> `representative` (NAMESPACED). Built into
+         member_to_rep.
+      2. provenance (votu_catalog_pool.output.provenance): `member_id`
+         (NAMESPACED) -> `original_contig_id` (BARE), filtered to rows
+         whose `source_id` == this sample/group -- this enumerates every
+         member contig belonging to this source, not just the ones chosen
+         as a representative.
+      3. global_tsv (votu_taxonomy.output.tsv): `seq_name` (NAMESPACED,
+         representative IDs only -- one row per MQ+ vOTU representative)
+         -> annotation row.
+      For every member of this source (step 2): look up its representative
+      (step 1), then look up that representative's row in global_tsv (step
+      3). A vOTU whose representative isn't MQ+ has no row in global_tsv --
+      the member then gets NO output row. There is no fallback to another
+      member of the same vOTU; that gap is intentional (see "quality gate"
+      note below), not a bug.
 
-rule prodigal_viral:
-    """Predict ORFs from the vOTU MQ+ representatives for taxonomy searches."""
+    Output side: `seq_name` is written as the MEMBER's own BARE
+    `original_contig_id` (never the representative's), so every other
+    per-sample table (CheckV, PHIST) that make_votu_table.py joins against
+    keeps working. Two columns are appended at the end, additive only --
+    confirmed both make_votu_table.py (load_taxonomy, csv.DictReader +
+    row.get by name) and the report loader
+    (scripts/report/data_loaders.py:load_viral_taxonomy, same pattern)
+    read named columns and ignore trailing ones, so this does not break
+    either contract:
+      votu_representative -- namespaced ID of the representative the row's
+                              annotation was inherited from
+      is_representative    -- "True" if this member IS its own vOTU's
+                              representative, else "False"
+
+    Quality-gate note: global_tsv only has rows for MQ+ representatives
+    (votu_catalog_reps.output.mq_fasta gate). A vOTU whose representative
+    falls below that gate has no annotation ANYWHERE in the catalog -- not
+    a per-sample limitation, the same vOTU would be unannotated in every
+    sample that carries one of its members. Logged below as "representative
+    has no row in global table (not MQ+)".
+    """
     input:
-        viral = rules.votu_catalog_reps.output.mq_fasta,
+        global_tsv = rules.votu_taxonomy.output.tsv,
+        provenance = rules.votu_catalog_pool.output.provenance,
+        clusters   = rules.votu_catalog_cluster.output.clusters,
     output:
-        faa  = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_proteins.faa",
-        done = f"{OUTDIR}/{{sample}}/viral/taxonomy/prodigal_done.txt",
-    log:   f"{OUTDIR}/{{sample}}/logs/prodigal_viral.log"
-    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/prodigal_viral.tsv"
-    conda: "../envs/env_viral.yaml"
-    container:  CONTAINERS.get("prodigal")
+        tsv  = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",
+        done = f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",
+    log:   f"{OUTDIR}/{{sample}}/logs/viral_taxonomy_view.log"
+    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/viral_taxonomy_view.tsv"
     threads: 1
-    shell:
-        """
-        mkdir -p $(dirname {output.faa})
-        if [ ! -s {input.viral} ]; then
-            touch {output.faa}
-            echo "skipped: no viral contigs" > {output.done}; exit 0
-        fi
-        prodigal -i {input.viral} -a {output.faa} -p meta -f gff > {log} 2>&1
-        echo "ok" > {output.done}
-        """
-
-
-rule mmseqs_taxonomy_viral:
-    """
-    The pipeline's only INPHARED-based taxonomy source (replaced an earlier
-    Diamond/INPHARED best-hit+majority-vote rule on 2026-06-22 -- removed
-    entirely, see memory project_viral_taxonomy_merge). MMseqs2 `taxonomy`
-    computes a real per-query lowest-common-ancestor against an
-    INPHARED-derived seqTaxDB, avoiding "spurious specificity" (von
-    Meijenfeldt et al. 2019, CAT/BAT) the same way mmseqs_taxonomy_prok does
-    for IMG_NR -- relevant here because divergent environmental phages
-    (INPHARED's own niche relative to RefSeq) are exactly where best-hit
-    identity cutoffs are least reliable.
-
-    Same pattern as mmseqs_taxonomy_prok: the seqTaxDB is NOT built here.
-    Pre-build it ONCE with scripts/prepare_mmseqs_taxdb.py --format inphared
-    (see INSTALL.md) -- skipped gracefully if missing. Deliberately not
-    auto-built inline: the seqTaxDB lives under the shared INPHARED_DB, not
-    a per-sample Snakemake output, so auto-building on first sight would
-    race across samples under --cores >1.
-
-    viral_taxonomy compares this against MMseqs2-custom/GeNomad by
-    resolved rank depth, not a fixed priority order, so this can win, lose,
-    or tie per contig.
-    """
-    input:
-        faa  = rules.prodigal_viral.output.faa,
-        done = rules.prodigal_viral.output.done,
-    output:
-        hits = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_vs_inphared.tsv",
-        done = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_inphared_done.txt",
-    log:   f"{OUTDIR}/{{sample}}/logs/mmseqs_taxonomy_viral.log"
-    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/mmseqs_taxonomy_viral.tsv"
-    conda: "../envs/env_assembly.yaml"
-    container:  CONTAINERS.get("mmseqs2")
-    threads: THREADS
     params:
-        seqtaxdb = f"{INPHARED_DB}/inphared_mmseqs_taxdb/seqTaxDB",
         # derivado do output, nao de {{sample}}: regra herdada por
         # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
-        outdir   = lambda wc, output: os.path.dirname(output.done),
-        querydb  = lambda wc, output: os.path.join(os.path.dirname(output.done), "queryDB"),
-        result   = lambda wc, output: os.path.join(os.path.dirname(output.done), "result"),
-        tmp      = lambda wc, output: os.path.join(os.path.dirname(output.done), "tmp"),
+        source_id = lambda wc, output: os.path.basename(
+            os.path.dirname(os.path.dirname(os.path.dirname(output.tsv)))),
     run:
-        import os
+        import csv, os
         from pathlib import Path
 
-        os.makedirs(params.outdir, exist_ok=True)
-        header = "qseqid\ttaxid\trank\tname\tlineage\n"
+        os.makedirs(os.path.dirname(str(output.tsv)), exist_ok=True)
 
-        def write_empty(msg):
-            with open(str(log[0]), "a") as lf:
-                lf.write(msg + "\n")
-            Path(str(output.hits)).write_text(header)
-            Path(str(output.done)).touch()
+        # 1. clusters: member (namespaced) -> representative (namespaced)
+        member_to_rep = {}
+        with open(str(input.clusters)) as fh:
+            for row in csv.DictReader(fh, delimiter="	"):
+                member_to_rep[row["member"]] = row["representative"]
 
-        if not os.path.exists(str(params.seqtaxdb) + ".dbtype"):
-            write_empty(
-                "[mmseqs_taxonomy_viral] No seqTaxDB at " + str(params.seqtaxdb) +
-                " -- run scripts/prepare_mmseqs_taxdb.py --format inphared once first (see INSTALL.md). Skipping."
-            )
-            return
+        # 3. global annotation table: representative seq_name (namespaced,
+        #    MQ+ only) -> full annotation row
+        rep_annotation = {}
+        fields = None
+        with open(str(input.global_tsv)) as fh:
+            rdr = csv.DictReader(fh, delimiter="	")
+            fields = rdr.fieldnames or []
+            for row in rdr:
+                rep_annotation[row.get("seq_name", "")] = row
 
-        if not os.path.exists(str(input.faa)) or os.path.getsize(str(input.faa)) == 0:
-            write_empty("[mmseqs_taxonomy_viral] No viral proteins -- skipping")
-            return
+        extra_fields = ["votu_representative", "is_representative"]
+        out_fields = list(fields) + extra_fields
 
-        # mmseqs taxonomy refuses to run if its output DB already exists
-        # ("result.dbtype exists already!") -- happens on any retry after a
-        # previous attempt got partway through (same fix as mmseqs_taxonomy_prok,
-        # confirmed live on litrp4). querydb doesn't need this: createdb's own
-        # message confirms it overwrites an existing one on its own.
-        shell("rm -rf {params.tmp} {params.result}*; mkdir -p {params.tmp}")
-        shell("mmseqs createdb {input.faa} {params.querydb} >> {log} 2>&1")
-        shell(
-            "mmseqs taxonomy {params.querydb} {params.seqtaxdb} {params.result} {params.tmp} "
-            "--threads {threads} --tax-lineage 1 >> {log} 2>&1"
-        )
-        shell(
-            "mmseqs createtsv {params.querydb} {params.result} {output.hits}.raw >> {log} 2>&1"
-        )
-        Path(str(output.hits)).write_text(header)
-        if os.path.exists(str(output.hits) + ".raw"):
-            with open(str(output.hits) + ".raw") as f, open(str(output.hits), "a") as out:
-                out.writelines(f)
-            os.remove(str(output.hits) + ".raw")
-        Path(str(output.done)).touch()
+        # 2. provenance, filtered to this source's members, drives the
+        #    output: one row attempted per member, not per representative.
+        n_members = 0
+        n_no_rep = 0
+        n_rep_not_mq = 0
+        n_written = 0
+        n_is_rep = 0
+        rows_out = []
+        with open(str(input.provenance)) as fh:
+            for row in csv.DictReader(fh, delimiter="	"):
+                if row.get("source_id", "") != params.source_id:
+                    continue
+                n_members += 1
+                member_id = row["member_id"]
+                bare_id   = row["original_contig_id"]
 
+                rep = member_to_rep.get(member_id)
+                if not rep:
+                    n_no_rep += 1
+                    continue
 
-rule mmseqs_taxonomy_custom_viral:
-    """
-    Optional custom viral MMseqs2 seqTaxDB (e.g. IMG/VR) -- real per-query
-    LCA, same approach as mmseqs_taxonomy_viral but against a user-supplied
-    DB instead of INPHARED. Replaces an earlier diamond_custom_viral
-    best-hit+majority-vote rule entirely (removed 2026-06-23, see memory
-    project_viral_taxonomy_merge).
+                annot = rep_annotation.get(rep)
+                if annot is None:
+                    n_rep_not_mq += 1
+                    continue
 
-    Same pattern as mmseqs_taxonomy_prok/mmseqs_taxonomy_viral: the seqTaxDB
-    is NOT built here -- pre-build it once with scripts/prepare_mmseqs_taxdb.py
-    (e.g. --format imgvr, see INSTALL.md). Skipped gracefully if
-    custom_viral_mmseqs_db isn't configured, same as any other optional DB.
-    """
-    input:
-        faa  = rules.prodigal_viral.output.faa,
-        done = rules.prodigal_viral.output.done,
-    output:
-        hits = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_vs_custom.tsv",
-        done = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_custom_viral_done.txt",
-    log:   f"{OUTDIR}/{{sample}}/logs/mmseqs_taxonomy_custom_viral.log"
-    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/mmseqs_taxonomy_custom_viral.tsv"
-    conda: "../envs/env_assembly.yaml"
-    container:  CONTAINERS.get("mmseqs2")
-    threads: THREADS
-    params:
-        seqtaxdb = CUSTOM_VIRAL_MMSEQS_DB,
-        # derivados do output (requisito da heranca por coassembly.smk).
-        outdir   = lambda wc, output: os.path.join(os.path.dirname(output.done), "mmseqs_custom"),
-        querydb  = lambda wc, output: os.path.join(os.path.dirname(output.done), "mmseqs_custom", "queryDB"),
-        result   = lambda wc, output: os.path.join(os.path.dirname(output.done), "mmseqs_custom", "result"),
-        tmp      = lambda wc, output: os.path.join(os.path.dirname(output.done), "mmseqs_custom", "tmp"),
-    run:
-        import os
-        from pathlib import Path
+                out_row = dict(annot)
+                out_row["seq_name"] = bare_id
+                out_row["votu_representative"] = rep
+                is_rep = (member_id == rep)
+                out_row["is_representative"] = "True" if is_rep else "False"
+                if is_rep:
+                    n_is_rep += 1
+                rows_out.append(out_row)
+                n_written += 1
 
-        os.makedirs(params.outdir, exist_ok=True)
-        header = "qseqid\ttaxid\trank\tname\tlineage\n"
+        with open(str(output.tsv), "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=out_fields, delimiter="	")
+            w.writeheader()
+            w.writerows(rows_out)
 
-        def write_empty(msg):
-            with open(str(log[0]), "a") as lf:
-                lf.write(msg + "\n")
-            Path(str(output.hits)).write_text(header)
-            Path(str(output.done)).touch()
+        with open(str(log[0]), "w") as lf:
+            lf.write(f"[viral_taxonomy_view] source: {params.source_id}\n")
+            lf.write(f"[viral_taxonomy_view] members of this source (provenance): {n_members}\n")
+            lf.write(f"[viral_taxonomy_view] members with NO representative found in clusters.tsv "
+                     f"(should be 0 -- pool/clusters mismatch if not): {n_no_rep}\n")
+            lf.write(f"[viral_taxonomy_view] members whose representative has NO row in the "
+                     f"global taxonomy table (representative not MQ+): {n_rep_not_mq}\n")
+            lf.write(f"[viral_taxonomy_view] rows written (member -> inherited annotation): "
+                     f"{n_written}/{n_members}\n")
+            lf.write(f"[viral_taxonomy_view]   of which this source's own vOTU representative: "
+                     f"{n_is_rep}\n")
+            if n_members and n_written == 0:
+                lf.write("[viral_taxonomy_view] WARNING: 0 rows written for a non-empty source "
+                          "-- check clusters.tsv / global_tsv namespace alignment\n")
 
-        if not params.seqtaxdb or not os.path.exists(str(params.seqtaxdb) + ".dbtype"):
-            write_empty("[mmseqs_taxonomy_custom_viral] No custom_viral_mmseqs_db configured -- skipping")
-            return
-
-        if not os.path.exists(str(input.faa)) or os.path.getsize(str(input.faa)) == 0:
-            write_empty("[mmseqs_taxonomy_custom_viral] No viral proteins -- skipping")
-            return
-
-        # mmseqs taxonomy refuses to run if its output DB already exists --
-        # same lesson as mmseqs_taxonomy_viral/mmseqs_taxonomy_prok.
-        shell("rm -rf {params.tmp} {params.result}*; mkdir -p {params.tmp}")
-        shell("mmseqs createdb {input.faa} {params.querydb} >> {log} 2>&1")
-        shell(
-            "mmseqs taxonomy {params.querydb} {params.seqtaxdb} {params.result} {params.tmp} "
-            "--threads {threads} --tax-lineage 1 >> {log} 2>&1"
-        )
-        shell(
-            "mmseqs createtsv {params.querydb} {params.result} {output.hits}.raw >> {log} 2>&1"
-        )
-        Path(str(output.hits)).write_text(header)
-        if os.path.exists(str(output.hits) + ".raw"):
-            with open(str(output.hits) + ".raw") as f, open(str(output.hits), "a") as out:
-                out.writelines(f)
-            os.remove(str(output.hits) + ".raw")
-        Path(str(output.done)).touch()
+        Path(str(output.done)).write_text("ok\n")
 
 
 rule mmseqs_taxonomy_prok:
@@ -278,6 +206,10 @@ rule mmseqs_taxonomy_prok:
     Replaces diamond_custom_prok entirely (removed) -- custom prokaryote
     taxonomy now runs exclusively through this rule. Skips gracefully if
     custom_prok_mmseqs_db isn't configured, same as any other optional DB.
+
+    Stays per-sample: prokaryote bins are not deduplicated into a global
+    catalog the way vOTUs are (see rules/votu_catalog.smk), so there is no
+    single global representative to move this computation to.
     """
     input:
         manifest = rules.prok_bin_proteins.output.manifest,
@@ -333,193 +265,3 @@ rule mmseqs_taxonomy_prok:
                 out.writelines(f)
             os.remove(str(output.hits) + ".raw")
         Path(str(output.done)).touch()
-
-
-rule viral_taxonomy:
-    """
-    Merge taxonomy from all sources into one table per contig.
-    Sources: MMseqs2/INPHARED (LCA), MMseqs2/Custom (LCA), GeNomad.
-    No fixed source priority -- each source proposes a (family, genus, order)
-    call, and whichever resolves the DEEPEST rank wins per contig (genus >
-    family > order > unclassified). Ties are broken by trust order:
-    mmseqs_inphared > mmseqs_custom > genomad.
-    Why: with a fixed priority, an upstream tier's *shallow* hit would always
-    beat a downstream tier's deeper, better-supported call (e.g. GeNomad
-    resolving to genus) -- see [[project_viral_taxonomy_merge]] memory for
-    the full rationale and how each source's depth is computed. That same
-    memory documents why the earlier Diamond/INPHARED (2026-06-22) and
-    diamond_custom_viral (2026-06-23) best-hit+majority-vote tiers were
-    removed in favour of real per-query LCA (mmseqs_inphared/mmseqs_custom).
-    Output: viral_taxonomy_merged.tsv
-    """
-    input:
-        genomad_done    = rules.genomad.output.done,
-        mmseqs_hits     = rules.mmseqs_taxonomy_viral.output.hits,
-        mmseqs_done     = rules.mmseqs_taxonomy_viral.output.done,
-        custom_hits     = rules.mmseqs_taxonomy_custom_viral.output.hits,
-        custom_done     = rules.mmseqs_taxonomy_custom_viral.output.done,
-        viral           = rules.votu_catalog_reps.output.mq_fasta,
-    output:
-        tsv  = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",
-        done = f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt",
-    log:   f"{OUTDIR}/{{sample}}/logs/viral_taxonomy.log"
-    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/viral_taxonomy.tsv"
-    conda: "../envs/env_viral.yaml"
-    container:  CONTAINERS.get("diamond")
-    threads: 1
-    run:
-        import csv, os, glob, collections
-        from pathlib import Path
-
-        lf = open(str(log[0]), "w")
-
-        # All viral contigs
-        contigs = []
-        if os.path.exists(str(input.viral)):
-            with open(str(input.viral)) as f:
-                for line in f:
-                    if line.startswith(">"): contigs.append(line[1:].split()[0])
-        lf.write(f"Total viral contigs: {len(contigs)}\n")
-
-        # ── MMseqs2/INPHARED + MMseqs2/Custom (real per-query LCA) ──────
-        # Both rules produce the same (qseqid, taxid, rank, name, lineage)
-        # shape over the same 8-level ICTV rank scheme -- _mmseqs_lca_rollup
-        # (module-level helper, top of this file) does the per-contig rollup
-        # for either one.
-        _RANKS = ['realm', 'kingdom', 'phylum', 'class', 'order', 'family', 'subfamily', 'genus']
-        mmseqs_tax = _mmseqs_lca_rollup(str(input.mmseqs_hits), _RANKS)
-        lf.write(f"MMseqs2/INPHARED: {len(mmseqs_tax)} contigs\n")
-
-        custom_tax = _mmseqs_lca_rollup(str(input.custom_hits), _RANKS)
-        lf.write(f"MMseqs2/Custom: {len(custom_tax)} contigs\n")
-
-        # ── GeNomad ───────────────────────────────────────────────────
-        # Path derivado de input.genomad_done (idêntico ao Snakefile funcional)
-        genomad_tax = {}
-        gdir   = os.path.dirname(str(input.genomad_done))
-        gfiles = glob.glob(os.path.join(gdir, "**", "*_virus_summary.tsv"), recursive=True)
-        gpath  = gfiles[0] if gfiles else ""
-        if gpath and os.path.getsize(gpath) > 0:
-            with open(gpath) as f:
-                for row in csv.DictReader(f, delimiter="\t"):
-                    name  = row.get("seq_name","")
-                    tax   = row.get("taxonomy","")
-                    score = row.get("virus_score","0")
-                    if not name or not tax: continue
-                    parts = [p.strip() for p in tax.split(";")
-                             if p.strip() and p.strip() not in ("Viruses", "")]
-                    family=""; genus=""; order=""; cls=""; best=""
-                    # High-rank names (phylum/kingdom) must not be used as fallback
-                    _high = set()
-                    for p in parts:
-                        if p.endswith("viridae") or p.endswith("virnae"):
-                            family = p
-                        elif p.endswith("virales"):
-                            order  = p
-                        elif p.endswith("viricetes"):
-                            cls    = p
-                        elif p.endswith("virus") or p.endswith("phage"):
-                            genus  = p
-                        elif any(p.endswith(s) for s in
-                                 ("viricota", "virae", "viria", "virites")):
-                            _high.add(p)  # phylum/kingdom — skip as taxonomy fallback
-                    _low = [p for p in parts if p not in _high]
-                    best = genus or family or order or cls or (
-                        _low[-1] if _low else (parts[-1] if parts else ""))
-                    genomad_tax[name] = {
-                        "family": family, "genus": genus, "order": order,
-                        "class": cls, "best": best, "lineage": tax,
-                        "score": float(score or 0),
-                    }
-        lf.write(f"GeNomad: {len(genomad_tax)} contigs\n")
-
-        # ── Build final table ─────────────────────────────────────────
-        # No fixed tier priority: each source proposes (family, genus, order);
-        # whichever resolves the deepest rank wins. Ties broken by trust order
-        # (mmseqs_inphared > mmseqs_custom > genomad).
-        _PRIORITY = {"mmseqs_inphared": 1, "mmseqs_custom": 2, "genomad": 3}
-
-        def _depth(genus, family, order):
-            if genus:  return 3
-            if family: return 2
-            if order:  return 1
-            return 0
-
-        rows = []; stats = collections.Counter()
-        for contig in contigs:
-            mms = mmseqs_tax.get(contig, {})
-            gmd = genomad_tax.get(contig, {})
-            cms = custom_tax.get(contig, {})
-
-            candidates = []  # (source, ff, fg, fo, lin, conf, best)
-
-
-            if mms and (mms.get("family") or mms.get("genus") or mms.get("order")):
-                ff, fg, fo = mms.get("family",""), mms.get("genus",""), mms.get("order","")
-                candidates.append(("mmseqs_inphared", ff, fg, fo, mms.get("lineage",""),
-                                    f"{mms.get('rank','')} ({mms.get('n_proteins',0)} proteins)",
-                                    fg or ff or fo))
-
-            if cms and (cms.get("family") or cms.get("genus") or cms.get("order")):
-                ff, fg, fo = cms.get("family",""), cms.get("genus",""), cms.get("order","")
-                candidates.append(("mmseqs_custom", ff, fg, fo, cms.get("lineage",""),
-                                    f"{cms.get('rank','')} ({cms.get('n_proteins',0)} proteins)",
-                                    fg or ff or fo))
-
-            if gmd and gmd.get("family"):  # only true family; no class/order via this candidate
-                ff, fg, fo = gmd.get("family",""), gmd.get("genus",""), gmd.get("order","")
-                candidates.append(("genomad", ff, fg, fo, gmd.get("lineage",""),
-                                    f"{gmd['score']:.3f}", gmd.get("best","")))
-
-            if candidates:
-                candidates.sort(key=lambda c: (-_depth(c[2], c[1], c[3]), _PRIORITY[c[0]]))
-                source, ff, fg, fo, lin, conf, best = candidates[0]
-            elif gmd:
-                # GeNomad's only signal is class/order/higher -- still better than nothing
-                source = "genomad"
-                ff, fg, fo = "", "", gmd.get("order","")
-                best   = gmd.get("best","")
-                conf   = f"{gmd['score']:.3f}"
-                lin    = gmd.get("lineage","")
-            else:
-                source = "unclassified"
-                ff = fg = fo = conf = lin = best = ""
-
-            stats[source] += 1
-            rows.append({
-                "seq_name":      contig,
-                "final_family":  ff,
-                "final_genus":   fg,
-                "final_order":   fo,
-                "best_taxonomy": best,
-                "source":        source,
-                "confidence":    conf,
-                "lineage":       lin,
-                "genomad_best":  gmd.get("best",""),
-                "genomad_class": gmd.get("class",""),
-                "genomad_score": gmd.get("score",""),
-                "mmseqs_rank":         mms.get("rank",""),
-                "mmseqs_lineage":      mms.get("lineage",""),
-                "mmseqs_n_proteins":   mms.get("n_proteins",""),
-                "custom_rank":         cms.get("rank",""),
-                "custom_lineage":      cms.get("lineage",""),
-                "custom_n_proteins":   cms.get("n_proteins",""),
-            })
-
-        lf.write("\nSummary:\n")
-        for k, v in stats.most_common():
-            lf.write(f"  {k}: {v}\n")
-        total = len(rows)
-        unclass = stats.get("unclassified", 0)
-        lf.write(f"  Novel (unclassified): {unclass}/{total} = {100*unclass/total:.1f}%\n" if total else "")
-        lf.close()
-
-        fields = ["seq_name","final_family","final_genus","final_order","best_taxonomy",
-                  "source","confidence","lineage",
-                  "genomad_best","genomad_class","genomad_score",
-                  "mmseqs_rank","mmseqs_lineage","mmseqs_n_proteins",
-                  "custom_rank","custom_lineage","custom_n_proteins"]
-        with open(str(output.tsv), "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
-            w.writeheader(); w.writerows(rows)
-        Path(str(output.done)).write_text("ok\n")

@@ -684,30 +684,47 @@
   // viral proteins, plus dbAPIS as a complementary sequence-similarity
   // detector. Kept in separate columns/series, never merged (same
   // never-merge-tiers rule as AMR curated/exploratory).
+  //
+  // Both moved to the global vOTU catalog on 2026-08-18 (second half of
+  // "(h)", docs/ROADMAP_SIMPLIFICACAO.md): rules votu_defensefinder_viral /
+  // votu_dbapis_viral (rules/votu_catalog.smk) now run ONCE over the whole
+  // catalog instead of once per sample/group. ANTIDEFENSE_VIRAL_DF /
+  // ANTIDEFENSE_VIRAL_DBAPIS carry the SAME catalog-wide record list
+  // duplicated under every sample key (see load_antidefensefinder_viral /
+  // load_dbapis_viral, scripts/report/data_loaders.py) so the per-sample
+  // chart plumbing below keeps working unmodified -- the chart title says
+  // so explicitly, and the table below collapses the duplication back to
+  // one row per real hit.
   function _renderViralAntidefense(samples) {
     const df     = typeof ANTIDEFENSE_VIRAL_DF !== 'undefined' ? ANTIDEFENSE_VIRAL_DF : [];
     const dbapis = typeof ANTIDEFENSE_VIRAL_DBAPIS !== 'undefined' ? ANTIDEFENSE_VIRAL_DBAPIS : [];
 
     mkChart('viral-antidefense-chart', samplesBar({
-      samples, valueName: 'Anti-defense hits',
+      samples,
+      title: 'Viral Anti-defense Systems (DefenseFinder + dbAPIS, vOTU catalog — global, same across samples)',
+      valueName: 'Anti-defense hits',
       series: [
         { name: 'DefenseFinder (viral)', color: '#7c3aed', data: _byCount(df, 'System', samples) },
         { name: 'dbAPIS',                color: '#db2777', data: _byCount(dbapis, 'Virus', samples) },
       ],
     }));
 
+    // df/dbapis hold the catalog-wide hit list once per sample key (see
+    // comment above) -- take a single slice so the table lists each real
+    // hit once, not once per sample.
+    const one = samples[0];
     const allRows = [
-      ...df.map(r => ({ ...r, Hit: r.System, Detail: r.System_id })),
+      ...df.filter(r => r.sample === one).map(r => ({ ...r, sample: 'vOTU catalog', Hit: r.System, Detail: r.System_id })),
       // Gene/Defense_system_inhibited come from dbAPIS's own
       // seed_and_familyrep_all_infor.tsv (family -> gene name + readable
       // inhibited-system label, e.g. 'APIS331' -> restriction-modification
       // system) -- falls back to the bare family/gene ID from the hit
       // itself if that mapping file isn't downloaded yet.
-      ...dbapis.map(r => ({ ...r, Hit: r.Gene,
+      ...dbapis.filter(r => r.sample === one).map(r => ({ ...r, sample: 'vOTU catalog', Hit: r.Gene,
         Detail: [r.Defense_system_inhibited, `pident=${r.Pident} e=${r.Evalue}`].filter(Boolean).join(' — ') })),
     ];
     makeTable('viral-antidefense-table', allRows, [
-      { key: 'sample', label: 'Sample' },
+      { key: 'sample', label: 'Scope' },
       { key: 'Virus',  label: 'Viral contig' },
       { key: 'Source', label: 'Tool' },
       { key: 'Hit',    label: 'Hit / System' },

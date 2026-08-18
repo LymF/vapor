@@ -1357,112 +1357,44 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 lf.write(f'[viral_votu_reps] annotation subset (taxonomy/PHIST/Pharokka): {n_mq}\n')
 
 
-    # ORFs dos representantes MQ+ do grupo. Herda `rule prodigal_viral`
-    # (rules/taxonomy.smk): corpos identicos.
-    use rule prodigal_viral as coassembly_prodigal_viral with:
-        input:
-            viral = rules.coassembly_viral_votu_reps.output.mq_fasta,
-        output:
-            faa  = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/viral_proteins.faa",
-            done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/prodigal_done.txt",
-        log:   f"{OUTDIR}/coassembly/{{group}}/logs/prodigal_viral.log"
-        benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/prodigal_viral.tsv"
-
-    use rule mmseqs_taxonomy_viral as coassembly_mmseqs_taxonomy_viral with:
-        input:
-            faa  = rules.coassembly_prodigal_viral.output.faa,
-            done = rules.coassembly_prodigal_viral.output.done,
-        output:
-            hits = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_vs_inphared.tsv",
-            done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared_done.txt",
-        log:   f"{OUTDIR}/coassembly/{{group}}/logs/mmseqs_taxonomy_viral.log"
-        benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/mmseqs_taxonomy_viral.tsv"
-
-
-    # MMseqs2 contra o seqTaxDB custom (IMG/VR) para o grupo. Antes so a
-    # trilha per-sample tinha esta fonte, entao o mesmo contig recebia
-    # taxonomias diferentes conforme a trilha. Auto-skip se
-    # custom_viral_mmseqs_db nao estiver configurado.
-    use rule mmseqs_taxonomy_custom_viral as coassembly_mmseqs_taxonomy_custom_viral with:
-        input:
-            faa  = rules.coassembly_prodigal_viral.output.faa,
-            done = rules.coassembly_prodigal_viral.output.done,
-        output:
-            hits = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_vs_custom.tsv",
-            done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_custom_viral_done.txt",
-        log:   f"{OUTDIR}/coassembly/{{group}}/logs/mmseqs_taxonomy_custom_viral.log"
-        benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/mmseqs_taxonomy_custom_viral.tsv"
-
-    # Merge de taxonomia viral do grupo. Herda `rule viral_taxonomy`
-    # (rules/taxonomy.smk). Ate 2026-08-17 esta era uma copia de ~176 linhas
-    # que zerava `custom_tax = {}` em codigo, entao a trilha de grupo
-    # classificava com 2 fontes contra 3 da per-sample -- mesmo contig, base
-    # de evidencia diferente -- e ainda emitia as colunas custom_* sempre
-    # vazias. Com o MMseqs2/custom ligado acima, as duas trilhas passam a
-    # usar exatamente as mesmas fontes.
+    # Taxonomia viral do grupo: passou a ser so uma VIEW da tabela global
+    # (rule votu_taxonomy, rules/votu_catalog.smk) -- desde 2026-08-18 o
+    # catalogo global ja inclui os grupos de coassembly como fonte (ver
+    # _catalog_sources()), entao prodigal/mmseqs/genomad para o grupo ja
+    # rodam la dentro; nao ha mais nada per-grupo para calcular aqui.
+    # As gemeas coassembly_prodigal_viral / coassembly_mmseqs_taxonomy_viral /
+    # coassembly_mmseqs_taxonomy_custom_viral foram removidas nesta mudanca
+    # (redundantes com o catalogo global); coassembly_viral_taxonomy
+    # continua existindo, mas agora so herda a VIEW (rule viral_taxonomy,
+    # rules/taxonomy.smk), so com output/log/benchmark trocados para {group}.
     use rule viral_taxonomy as coassembly_viral_taxonomy with:
-        input:
-            genomad_done = rules.coassembly_genomad.output.done,
-            mmseqs_hits  = rules.coassembly_mmseqs_taxonomy_viral.output.hits,
-            mmseqs_done  = rules.coassembly_mmseqs_taxonomy_viral.output.done,
-            custom_hits  = rules.coassembly_mmseqs_taxonomy_custom_viral.output.hits,
-            custom_done  = rules.coassembly_mmseqs_taxonomy_custom_viral.output.done,
-            viral        = rules.coassembly_viral_votu_reps.output.mq_fasta,
         output:
             tsv  = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/viral_taxonomy_merged.tsv",
             done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/taxonomy_done.txt",
-        log:   f"{OUTDIR}/coassembly/{{group}}/logs/viral_taxonomy.log"
-        benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/viral_taxonomy.tsv"
+        log:   f"{OUTDIR}/coassembly/{{group}}/logs/viral_taxonomy_view.log"
+        benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/viral_taxonomy_view.tsv"
 
-    use rule pharokka as coassembly_pharokka with:
-        input:
-            viral_nr = rules.coassembly_viral_votu_reps.output.mq_fasta,
-            checkv   = rules.coassembly_checkv.output.summary,
-        output:
-            done = f"{OUTDIR}/coassembly/{{group}}/annotation/pharokka/done.txt",
-            gbk  = f"{OUTDIR}/coassembly/{{group}}/annotation/pharokka/pharokka.gbk",
-            tsv  = f"{OUTDIR}/coassembly/{{group}}/annotation/pharokka/pharokka_cds_final_merged_output.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/pharokka.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/pharokka.tsv"
+    # coassembly_pharokka / coassembly_phold removed 2026-08-18 (second half
+    # of "(h)", docs/ROADMAP_SIMPLIFICACAO.md): pharokka/phold now run once
+    # globally (votu_pharokka/votu_phold, rules/votu_catalog.smk) over the
+    # whole vOTU catalog, which already includes every coassembly group as a
+    # source (_catalog_sources() emits source_type 'group' too) -- a
+    # per-group pharokka/phold pass would just re-annotate representatives
+    # the global pass already covers.
 
-    use rule phold as coassembly_phold with:
-        input:
-            pharokka_done = rules.coassembly_pharokka.output.done,
-            pharokka_gbk  = rules.coassembly_pharokka.output.gbk,
-        output:
-            done = f"{OUTDIR}/coassembly/{{group}}/annotation/phold/done.txt",
-            gbk  = f"{OUTDIR}/coassembly/{{group}}/annotation/phold/phold.gbk",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/phold.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/phold.tsv"
-
-    use rule defensefinder_viral as coassembly_defensefinder_viral with:
-        input:
-            faa  = rules.coassembly_prodigal_viral.output.faa,
-            done = rules.coassembly_prodigal_viral.output.done,
-        output:
-            done        = f"{OUTDIR}/coassembly/{{group}}/viral/defensefinder/done.txt",
-            systems     = f"{OUTDIR}/coassembly/{{group}}/viral/defensefinder/viral_defense_systems.tsv",
-            antisystems = f"{OUTDIR}/coassembly/{{group}}/viral/defensefinder/viral_antidefense_systems.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/defensefinder_viral.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/defensefinder_viral.tsv"
-
-    use rule dbapis_viral as coassembly_dbapis_viral with:
-        input:
-            faa  = rules.coassembly_prodigal_viral.output.faa,
-            done = rules.coassembly_prodigal_viral.output.done,
-        output:
-            done = f"{OUTDIR}/coassembly/{{group}}/viral/dbapis/done.txt",
-            hits = f"{OUTDIR}/coassembly/{{group}}/viral/dbapis/dbapis_hits.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/dbapis_viral.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/dbapis_viral.tsv"
+    # coassembly_defensefinder_viral / coassembly_dbapis_viral removed
+    # 2026-08-18 (second half of "(h)", docs/ROADMAP_SIMPLIFICACAO.md):
+    # defensefinder_viral/dbapis_viral now run once globally
+    # (votu_defensefinder_viral/votu_dbapis_viral, rules/votu_catalog.smk)
+    # over the whole vOTU catalog, same move/rationale as
+    # coassembly_pharokka/coassembly_phold above. Both per-group twins
+    # already read the GLOBAL rules.votu_prodigal .faa (same fix applied
+    # earlier the same day), so each per-group run was silently processing
+    # the WHOLE catalog and writing it to a group-scoped path -- not just
+    # wasted compute (N+G identical runs) but a meaning bug: coassembly's
+    # finalize step (rule coassembly_organize_outputs, below) used to copy
+    # that catalog-wide file into final/viral/defense_amr/ as if it were
+    # the group's own defense systems.
 
 # ── Group vRhyme (viral vMAGs) — short reads only (needs coverage) ──────────────
 # Mirrors rule vrhyme / checkv_vrhyme (rules/viral_binning.smk) but bins the group's
@@ -1781,9 +1713,12 @@ if COASSEMBLY_ENABLED and GROUPS:
             d["checkv"]   = f"{b}/viral/checkv/quality_summary.tsv"
             d["taxonomy"] = f"{b}/viral/taxonomy/taxonomy_done.txt"
             d["votu_all"] = f"{b}/viral/votu/votu_all_reps.fasta"
-            if DEFENSE_AMR_VIRAL_ENABLED:
-                d["vdef"]   = f"{b}/viral/defensefinder/done.txt"
-                d["dbapis"] = f"{b}/viral/dbapis/done.txt"
+            # vdef/dbapis removed 2026-08-18 (second half of "(h)"): viral
+            # defense/anti-defense now lives only in the global vOTU
+            # catalog (votu_defensefinder_viral/votu_dbapis_viral,
+            # rules/votu_catalog.smk) -- there is no group-scoped file any
+            # more to depend on here (see the removal note above
+            # coassembly_organize_outputs).
             if not LONG_READS:
                 d["vrhyme"] = f"{b}/bins/vrhyme/done.txt"
                 if COASSEMBLY_BINNING:
@@ -1860,13 +1795,16 @@ if COASSEMBLY_ENABLED and GROUPS:
                     cp(f"{b}/viral/phist/phist_results.csv",
                        f"{final}/viral/host_prediction/phist_results.csv")
 
-                    # Viral defense / anti-defense
-                    cp(f"{b}/viral/defensefinder/viral_defense_systems.tsv",
-                       f"{final}/viral/defense_amr/viral_defense_systems.tsv")
-                    cp(f"{b}/viral/defensefinder/viral_antidefense_systems.tsv",
-                       f"{final}/viral/defense_amr/viral_antidefense_systems.tsv")
-                    cp(f"{b}/viral/dbapis/dbapis_hits.tsv",
-                       f"{final}/viral/defense_amr/dbapis_hits.tsv")
+                    # Viral defense / anti-defense: no longer copied here.
+                    # Removed 2026-08-18 (second half of "(h)") -- this used
+                    # to copy coassembly/{group}/viral/defensefinder|dbapis,
+                    # but since 2026-08-18 those rules read the GLOBAL
+                    # rules.votu_prodigal .faa, so the file at that path
+                    # held the WHOLE catalog's systems, not the group's.
+                    # Copying it into final/ as if group-scoped was exactly
+                    # the silent meaning bug (h) flagged; the only correct
+                    # copy now is the single global one at
+                    # {OUTDIR}/votu_catalog/{defensefinder,dbapis}/.
 
                 # ── Prokaryotic MAGs — classify with GTDB-Tk ──────────
                 archaea_bins, bacteria_bins = set(), set()

@@ -15,10 +15,9 @@
 #       viral_taxonomy_merged.tsv   — taxonomia 3-tier (MMseqs2/GeNomad/INPHARED)
 #     host_prediction/
 #       phist_results.tsv           — predição hospedeiro (PHIST)
-#     defense_amr/
-#       viral_defense_systems.tsv   — sistemas de defesa em ORFs virais (DefenseFinder)
-#       viral_antidefense_systems.tsv — anti-defesa em ORFs virais (AntiDefenseFinder)
-#       dbapis_hits.tsv             — anti-defesa (dbAPIS Diamond)
+#     (defense_amr/ viral não existe mais aqui -- DefenseFinder/dbAPIS em
+#      ORFs virais rodam uma única vez no catálogo global desde 2026-08-18,
+#      ver {OUTDIR}/votu_catalog/{defensefinder,dbapis}/)
 #
 #   final/bins/
 #     bacteria/                     — MAGs Bacteria (GTDB-Tk)
@@ -117,16 +116,22 @@ rule organize_outputs:
         **({
             "quast": rules.quast.output.report,
         } if (TRACK_VIRAL or TRACK_PROK) else {}),
-        # Viral core + taxonomy/host + defense/anti-defense
+        # Viral core + taxonomy/host. Viral defense/anti-defense (vdef/
+        # vantidef/dbapis) removed 2026-08-18 (second half of "(h)",
+        # docs/ROADMAP_SIMPLIFICACAO.md): defensefinder_viral/dbapis_viral
+        # now run once globally (votu_defensefinder_viral/votu_dbapis_viral,
+        # rules/votu_catalog.smk), so there is no per-sample file left to
+        # copy here -- copying the (now nonexistent) per-sample path would
+        # either break the DAG or, before this rule moved, silently copy
+        # the WHOLE catalog into a sample-scoped final/ path. The single
+        # correct copy is the global one at
+        # {OUTDIR}/votu_catalog/{defensefinder,dbapis}/.
         **({
             "checkv":     rules.checkv.output.summary,
             "viral":      rules.viral_consensus.output.fasta,
             "viral_nr":   rules.viral_nonredundant.output.fasta,
             "vrhyme":     rules.vrhyme.output.done,
             "taxonomy":   rules.viral_taxonomy.output.tsv,
-            "vdef":       rules.defensefinder_viral.output.systems,
-            "vantidef":   rules.defensefinder_viral.output.antisystems,
-            "dbapis":     rules.dbapis_viral.output.hits,
         } if TRACK_VIRAL else {}),
         # Prok bins + taxonomy + defense/anti-defense + AMR
         **({
@@ -203,10 +208,9 @@ rule organize_outputs:
             cp(g('taxonomy'),  f"{final}/viral/taxonomy/viral_taxonomy_merged.tsv")
             cp(g('phist'),     f"{final}/viral/host_prediction/phist_results.tsv")
 
-            # ── Viral defense / anti-defense ──────────────────────────
-            cp(g('vdef'),     f"{final}/viral/defense_amr/viral_defense_systems.tsv")
-            cp(g('vantidef'), f"{final}/viral/defense_amr/viral_antidefense_systems.tsv")
-            cp(g('dbapis'),   f"{final}/viral/defense_amr/dbapis_hits.tsv")
+            # Viral defense / anti-defense: no longer copied here (see the
+            # removal note above `input:`) -- only the global vOTU catalog
+            # copy at {OUTDIR}/votu_catalog/{defensefinder,dbapis}/ exists.
 
             # ── Prokaryotic bins — classify with GTDB-Tk ──────────────
             archaea_bins, bacteria_bins = set(), set()

@@ -507,9 +507,15 @@ def _parse_genomad_for_genome(genes_tsv, genome_id):
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
             gene_id = row.get("gene", "")
-            # gene ID: "contig_id|1" — extract contig
-            contig = gene_id.rsplit("|", 1)[0] if "|" in gene_id else gene_id
-            if contig != genome_id and not contig.startswith(genome_id + "_"):
+            # GeNomad numbers genes by appending "_N" to the contig id --
+            # "MEGAHIT_k141_9950_1", underscore-delimited. An older comment here
+            # claimed "contig_id|1" (pipe) and the code split on "|"; that was
+            # wrong, and once the catalog started prefixing ids with
+            # "{source_id}|" the split returned the SOURCE id, matched nothing,
+            # and every virus map was drawn with zero genes -- silently.
+            # Match on the "{genome_id}_" prefix instead: it holds whether or
+            # not genome_id itself carries a "source|" namespace prefix.
+            if not gene_id.startswith(genome_id + "_"):
                 continue
             try:
                 start  = int(row.get("start", 0))

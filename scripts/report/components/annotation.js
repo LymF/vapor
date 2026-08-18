@@ -17,6 +17,10 @@
   };
 
   // ── Annotate the sample dropdown with per-mode genome counts ─────────────
+  // "virus" mode is catalog-wide since 2026-08-18 ("(h)") -- every sample
+  // shows the SAME set of genome maps (see load_genome_maps,
+  // scripts/report/data_loaders.py), so the count is labeled "catalog" to
+  // avoid implying a per-sample recount. "prok" stays genuinely per-sample.
   function _updateMapsSampleLabels() {
     const sel    = document.getElementById('sample-sel-maps');
     const modeEl = document.getElementById('genome-map-mode');
@@ -25,7 +29,9 @@
     const maps = typeof GENOME_MAPS !== 'undefined' ? GENOME_MAPS : {};
     [...sel.options].forEach(opt => {
       const count = ((maps[opt.value] || {})[mode] || []).length;
-      opt.textContent = `${opt.value} (${count})`;
+      opt.textContent = mode === 'virus'
+        ? `${opt.value} (${count} — vOTU catalog, same for all samples)`
+        : `${opt.value} (${count})`;
     });
   }
 
@@ -61,6 +67,12 @@
     }));
 
     // PHROGS categories — same fold-to-top-7+Other treatment as COG above.
+    // Pharokka moved to the global vOTU catalog on 2026-08-18 ("(h)"), so
+    // phrogs[s] is now the SAME catalog-wide counts object for every
+    // sample s (see load_phrogs, scripts/report/data_loaders.py) -- the
+    // per-sample bars below will all read identical, which is expected,
+    // not a bug. Title says so explicitly instead of implying a
+    // per-sample recount.
     const phrogsTotals = {};
     samples.forEach(s => Object.entries(phrogs[s] || {}).forEach(([c, v]) => { phrogsTotals[c] = (phrogsTotals[c] || 0) + v; }));
     const phrogsTop = foldOther(phrogsTotals, 7).map(d => d[0]);
@@ -76,7 +88,7 @@
     }));
 
     mkChart('ann-phrogs-chart', samplesBar({
-      samples, title: 'PHROGS Functional Categories (Pharokka)',
+      samples, title: 'PHROGS Functional Categories (Pharokka, vOTU catalog — global, same across samples)',
       valueName: 'Gene count', stack: true,
       series: phrogsSeries.map(s => ({ name: s.name, data: s.data,
                                        color: s.color || (s.itemStyle || {}).color })),

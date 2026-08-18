@@ -716,25 +716,40 @@ def load_antidefensefinder(paths, samples):
 # kept in its own loader/JS constant, never merged with the DefenseFinder
 # calls (same "never merge tiers" rule as AMR curated/exploratory).
 
-def load_antidefensefinder_viral(paths, samples):
-    """Anti-defense systems on viral proteins. Unlike the bin-side loader,
-    the 'genome' column here is just the sample (defensefinder_viral makes
-    one call across the whole sample's viral protein set, not per-genome) —
-    the actual virus/contig is recovered from the first protein in
-    protein_in_syst, which is reliable since every gene in one system sits
-    on the same replicon."""
+def load_antidefensefinder_viral(path, samples):
+    """Anti-defense systems on viral proteins, from the global vOTU catalog's
+    DefenseFinder --antidefensefinder pass (rule votu_defensefinder_viral,
+    rules/votu_catalog.smk). Moved off per-sample paths on 2026-08-18
+    (second half of "(h)", docs/ROADMAP_SIMPLIFICACAO.md): the per-sample
+    rule fanned out N+G times over byte-identical input, and worse, its
+    per-group output silently held the WHOLE catalog's systems (not just
+    that group's), because both already read rules.votu_prodigal's global
+    .faa. There is exactly ONE table to read, at
+    {outdir}/votu_catalog/defensefinder/viral_antidefense_systems.tsv --
+    the same records list is returned under every sample key, same
+    duplication trade-off as load_phrogs/load_genome_maps (data_loaders.py),
+    so the existing per-sample chart/table plumbing in hostdefense.js keeps
+    working unmodified; the chart there is labeled "vOTU catalog --
+    global, same across samples".
+
+    The 'genome' column in the source TSV is just the catalog-wide protein
+    set label (one DefenseFinder call across the whole catalog, not
+    per-genome) -- the actual virus/contig (a NAMESPACED
+    "{source_id}|{contig}" ID, since votu_prodigal runs on the namespaced
+    catalog FASTA) is recovered from the first protein in protein_in_syst,
+    which is reliable since every gene in one system sits on the same
+    replicon."""
     records = []
-    for p, s in zip(paths, samples):
-        for row in load_tsv(p):
-            sys_type = row.get('type', row.get('subtype', ''))
-            proteins = _split_proteins_in_syst(row.get('protein_in_syst', ''))
-            if not sys_type or not proteins: continue
-            virus = _contig_from_protein_id(proteins[0])
-            if not virus: continue
-            records.append({'sample': s, 'Virus': virus, 'System': sys_type,
-                             'System_id': row.get('sys_id', sys_type),
-                             'Genes': row.get('genes_count', ''), 'Source': 'DefenseFinder'})
-    return records
+    for row in load_tsv(path):
+        sys_type = row.get('type', row.get('subtype', ''))
+        proteins = _split_proteins_in_syst(row.get('protein_in_syst', ''))
+        if not sys_type or not proteins: continue
+        virus = _contig_from_protein_id(proteins[0])
+        if not virus: continue
+        records.append({'Virus': virus, 'System': sys_type,
+                         'System_id': row.get('sys_id', sys_type),
+                         'Genes': row.get('genes_count', ''), 'Source': 'DefenseFinder'})
+    return [dict(r, sample=s) for s in samples for r in records]
 
 
 def _load_apis_family_map(apis_db_dir):
@@ -764,15 +779,23 @@ def _load_apis_family_map(apis_db_dir):
     return by_key
 
 
-def load_dbapis_viral(paths, samples, apis_db_dir=''):
-    """dbAPIS (Yan et al. 2023, NAR) DIAMOND blastp hits on viral proteins
-    (rule dbapis_viral). Keeps only the best (lowest e-value) hit per query
-    protein. sseqid is pipe-delimited: '{family_or_gene_id}|{IMGVR_UViG_id}|
+def load_dbapis_viral(path, samples, apis_db_dir=''):
+    """dbAPIS (Yan et al. 2023, NAR) DIAMOND blastp hits on viral proteins,
+    from the global vOTU catalog's dbAPIS pass (rule votu_dbapis_viral,
+    rules/votu_catalog.smk). Moved off per-sample paths on 2026-08-18, same
+    move/rationale as load_antidefensefinder_viral above -- ONE table at
+    {outdir}/votu_catalog/dbapis/dbapis_hits.tsv, the same records list
+    duplicated under every sample key (see that function's docstring).
+    Keeps only the best (lowest e-value) hit per query protein. sseqid is
+    pipe-delimited: '{family_or_gene_id}|{IMGVR_UViG_id}|
     {genome_id}|{locus_with_coords}' (confirmed against a real run on
     litrp4, e.g. 'AcrIIA7|IMGVR_UViG_3300037418_004174|3300037418|
     Ga0395900_0000476_40112_40693') -- the first field alone is already a
     real, informative name (a dbAPIS family ID like 'APIS331', or a known
-    gene name like 'AcrIIA7' for characterized Acr families).
+    gene name like 'AcrIIA7' for characterized Acr families). qseqid (and
+    therefore 'Virus' via _contig_from_protein_id) is a NAMESPACED
+    "{source_id}|{contig}" ID, since votu_prodigal runs on the namespaced
+    catalog FASTA.
 
     'Gene'/'Defense_system_inhibited' add the readable translation via
     _load_apis_family_map (seed_and_familyrep_all_infor.tsv) -- e.g.
@@ -780,29 +803,28 @@ def load_dbapis_viral(paths, samples, apis_db_dir=''):
     just the bare family ID. Falls back to the raw Family/empty string if
     apis_db_dir wasn't configured or the mapping file isn't there yet."""
     fam_map = _load_apis_family_map(apis_db_dir)
+    best = {}
+    for row in load_tsv(path):
+        qseqid = row.get('qseqid', '')
+        if not qseqid: continue
+        try: evalue = float(row.get('evalue', '1') or '1')
+        except ValueError: evalue = 1.0
+        if qseqid not in best or evalue < best[qseqid][0]:
+            best[qseqid] = (evalue, row)
     records = []
-    for p, s in zip(paths, samples):
-        best = {}
-        for row in load_tsv(p):
-            qseqid = row.get('qseqid', '')
-            if not qseqid: continue
-            try: evalue = float(row.get('evalue', '1') or '1')
-            except ValueError: evalue = 1.0
-            if qseqid not in best or evalue < best[qseqid][0]:
-                best[qseqid] = (evalue, row)
-        for qseqid, (evalue, row) in best.items():
-            virus = _contig_from_protein_id(qseqid)
-            if not virus: continue
-            sseqid = row.get('sseqid', '')
-            family = sseqid.split('|', 1)[0] if sseqid else ''
-            gene, defense_system = fam_map.get(family, ('', ''))
-            records.append({'sample': s, 'Virus': virus, 'Protein': qseqid,
-                             'Family': family or sseqid, 'Gene': gene or family or sseqid,
-                             'Defense_system_inhibited': defense_system,
-                             'Hit': sseqid, 'Pident': row.get('pident', ''),
-                             'Evalue': row.get('evalue', ''), 'Bitscore': row.get('bitscore', ''),
-                             'Source': 'dbAPIS'})
-    return records
+    for qseqid, (evalue, row) in best.items():
+        virus = _contig_from_protein_id(qseqid)
+        if not virus: continue
+        sseqid = row.get('sseqid', '')
+        family = sseqid.split('|', 1)[0] if sseqid else ''
+        gene, defense_system = fam_map.get(family, ('', ''))
+        records.append({'Virus': virus, 'Protein': qseqid,
+                         'Family': family or sseqid, 'Gene': gene or family or sseqid,
+                         'Defense_system_inhibited': defense_system,
+                         'Hit': sseqid, 'Pident': row.get('pident', ''),
+                         'Evalue': row.get('evalue', ''), 'Bitscore': row.get('bitscore', ''),
+                         'Source': 'dbAPIS'})
+    return [dict(r, sample=s) for s in samples for r in records]
 
 
 # ── Defense islands (Han et al. 2026 / Beavogui et al. 2024 definition) ──────
@@ -1393,19 +1415,28 @@ def load_eggnog(outdir, samples):
 
 
 def load_phrogs(outdir, samples):
-    """Load Pharokka CDS TSV and count PHROGS categories per sample."""
-    result = {}
-    for s in samples:
-        p = os.path.join(outdir, s, "annotation", "pharokka",
-                         "pharokka_cds_final_merged_output.tsv")
-        cnt = Counter()
-        for row in load_tsv(p):
-            cat = (row.get('phrog_category', '') or row.get('category', '') or
-                   'unknown function').lower().strip()
-            if not cat: cat = 'unknown function'
-            cnt[cat] += 1
-        result[s] = dict(cnt)
-    return result
+    """PHROGS category counts from the global vOTU catalog's Pharokka run.
+
+    Moved off per-sample paths on 2026-08-18 (second half of "(h)",
+    docs/ROADMAP_SIMPLIFICACAO.md): pharokka now runs once over the whole
+    vOTU catalog (rule votu_pharokka, rules/votu_catalog.smk), not once per
+    sample. There is exactly ONE table to read, at
+    {outdir}/votu_catalog/annotation/pharokka/pharokka_cds_final_merged_output.tsv
+    -- the same dict is returned under every sample key so the existing
+    per-sample chart plumbing in annotation.js keeps working unmodified;
+    the chart title there was updated to say "vOTU catalog" instead of
+    implying a per-sample count.
+    """
+    p = os.path.join(outdir, "votu_catalog", "annotation", "pharokka",
+                     "pharokka_cds_final_merged_output.tsv")
+    cnt = Counter()
+    for row in load_tsv(p):
+        cat = (row.get('phrog_category', '') or row.get('category', '') or
+               'unknown function').lower().strip()
+        if not cat: cat = 'unknown function'
+        cnt[cat] += 1
+    catalog_counts = dict(cnt)
+    return {s: catalog_counts for s in samples}
 
 
 def load_svg(svg_path):
@@ -1416,33 +1447,47 @@ def load_svg(svg_path):
 
 
 def load_genome_maps(outdir, samples):
-    """Load genome map SVGs for virus/prok modes, max 5 per category per sample.
+    """Load genome map SVGs for virus/prok modes, max 5 per category, from
+    the global vOTU catalog.
 
     "virus" merges the phage/ and virus/ output subfolders into a single list
     -- the report shows one unified "Virus" view, with each genome tagged
     category="Phage" or category="Virus" (the backend split still exists on
     disk, decided by PHROGS hallmark-gene evidence in genome_map_universal.py,
     but the UI no longer forces the user to pick a mode to see all of them).
+
+    Phage/virus maps moved to the global catalog on 2026-08-18 (second half
+    of "(h)"): genome_map_phage/genome_map_virus now run once, over vOTU
+    representatives (rules votu_genome_map_phage/votu_genome_map_virus,
+    rules/votu_catalog.smk), at
+    {outdir}/votu_catalog/annotation/genome_maps/{{phage,virus}}. The SAME
+    catalog-wide "virus" list is returned under every sample key, same
+    rationale as load_phrogs above. "prok" stays genuinely per-sample
+    (genome_map_prok, rules/annotation.smk) -- prokaryotic MAGs are not
+    deduplicated into a global catalog the way vOTUs are.
     """
+    virus_base = os.path.join(outdir, "votu_catalog", "annotation", "genome_maps")
+    virus_maps = []
+    for mode, category in (("phage", "Phage"), ("virus", "Virus")):
+        mdir = os.path.join(virus_base, mode)
+        for svg_f in sorted(glob.glob(os.path.join(mdir, "*.svg")))[:5]:
+            gid = os.path.basename(svg_f).replace("_map.svg", "")
+            svg = load_svg(svg_f)
+            if svg:
+                seq = ""
+                fasta_f = os.path.join(mdir, f"{gid}.fasta")
+                if os.path.exists(fasta_f):
+                    try:
+                        with open(fasta_f) as ff:
+                            seq = "".join(l.strip() for l in ff if not l.startswith(">"))
+                    except Exception:
+                        pass
+                virus_maps.append({"id": gid, "svg": svg, "seq": seq, "category": category})
+
     result = {}
     for s in samples:
+        result[s] = {"virus": virus_maps, "prok": []}
         base = os.path.join(outdir, s, "annotation", "genome_maps")
-        result[s] = {"virus": [], "prok": []}
-        for mode, category in (("phage", "Phage"), ("virus", "Virus")):
-            mdir = os.path.join(base, mode)
-            for svg_f in sorted(glob.glob(os.path.join(mdir, "*.svg")))[:5]:
-                gid = os.path.basename(svg_f).replace("_map.svg", "")
-                svg = load_svg(svg_f)
-                if svg:
-                    seq = ""
-                    fasta_f = os.path.join(mdir, f"{gid}.fasta")
-                    if os.path.exists(fasta_f):
-                        try:
-                            with open(fasta_f) as ff:
-                                seq = "".join(l.strip() for l in ff if not l.startswith(">"))
-                        except Exception:
-                            pass
-                    result[s]["virus"].append({"id": gid, "svg": svg, "seq": seq, "category": category})
         mdir = os.path.join(base, "prok")
         for svg_f in sorted(glob.glob(os.path.join(mdir, "*.svg")))[:5]:
             gid = os.path.basename(svg_f).replace("_map.svg", "")

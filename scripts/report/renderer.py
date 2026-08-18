@@ -99,8 +99,11 @@ def _build(snakemake):
     phist_paths_l    = [path_dict(_inp('phist'), samples).get(s, '') for s in samples]
     defensefinder_paths_l     = [path_dict(_inp('defensefinder'), samples).get(s, '') for s in samples]
     antidefensefinder_paths_l = [path_dict(_inp('antidefensefinder'), samples).get(s, '') for s in samples]
-    antidefense_viral_paths_l = [path_dict(_inp('antidefense_viral'), samples).get(s, '') for s in samples]
-    dbapis_viral_paths_l      = [path_dict(_inp('dbapis_viral'), samples).get(s, '') for s in samples]
+    # Global vOTU catalog paths (moved off per-sample on 2026-08-18, second
+    # half of "(h)"): ONE file each, not one per sample -- see
+    # load_antidefensefinder_viral/load_dbapis_viral docstrings.
+    antidefense_viral_path = getattr(snakemake.input, 'antidefense_viral', '') or ''
+    dbapis_viral_path      = getattr(snakemake.input, 'dbapis_viral', '') or ''
     prok_protein_manifest_l   = [path_dict(_inp('prok_protein_manifest'), samples).get(s, '') for s in samples]
     amr_consensus_paths_l     = [path_dict(_inp('amr_consensus'), samples).get(s, '') for s in samples]
 
@@ -130,9 +133,9 @@ def _build(snakemake):
     phist_data   = load_phist(phist_paths_l, samples)
     defensefinder_data     = load_defensefinder(defensefinder_paths_l, samples)
     antidefensefinder_data = load_antidefensefinder(antidefensefinder_paths_l, samples)
-    antidefense_viral_df_data    = load_antidefensefinder_viral(antidefense_viral_paths_l, samples)
+    antidefense_viral_df_data    = load_antidefensefinder_viral(antidefense_viral_path, samples)
     antidefense_viral_dbapis_data = load_dbapis_viral(
-        dbapis_viral_paths_l, samples, getattr(snakemake.params, 'apis_db_dir', ''))
+        dbapis_viral_path, samples, getattr(snakemake.params, 'apis_db_dir', ''))
     defense_islands = compute_defense_islands(prok_protein_manifest_l, samples, defensefinder_data)
     amr_consensus_data = load_amr_consensus(amr_consensus_paths_l, samples,
                                              low_depth_mode=low_depth_mode)

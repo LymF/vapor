@@ -401,6 +401,46 @@ resultado.**
 As duas regras adicionadas em (f) e (g) já nasceram globais e não aumentam esta
 dívida.
 
+#### Fechamento (2026-08-18): `defensefinder_viral` e `dbapis_viral` também globalizadas
+
+Auditoria adicional encontrou o mesmo padrão em duas regras que já liam a
+saída global do `votu_prodigal` (movida na primeira metade do (h)) mas
+continuavam sendo regras **por amostra**, com gêmeas por grupo em
+`rules/coassembly.smk`: `defensefinder_viral` (`rules/defense_amr.smk:181`)
+e `dbapis_viral` (`:294`).
+
+Duas consequências, iguais em espécie às do `pharokka`/`viral_taxonomy`/
+`genome_map_virus` documentadas acima:
+
+1. **Desperdício N+G**: rodavam sobre entrada byte-idêntica em toda
+   amostra/grupo, o mesmo problema diagnosticado para `prodigal_viral`, só
+   que um nível abaixo.
+2. **Mudança de significado silenciosa nos grupos**: como cada regra de
+   grupo também lia o `.faa` global, `{group}/viral/defensefinder/
+   viral_defense_systems.tsv` continha os sistemas de defesa de **todo o
+   catálogo**, não do grupo — e `rules/coassembly.smk` copiava esse
+   arquivo para `final/viral/defense_amr/` como se fosse do grupo. Mesma
+   classe de bug do namespace de ID, mas na camada de finalize em vez de
+   join.
+
+Movidas para `rules/votu_catalog.smk` como `votu_defensefinder_viral` e
+`votu_dbapis_viral`, saída sob `{OUTDIR}/votu_catalog/{defensefinder,dbapis}/`,
+lógica interna preservada integralmente (mesmo `--antidefensefinder`, cache
+de modelos, auto-download do dbAPIS, split defense/antidefense). As regras
+por amostra e as gêmeas de grupo foram apagadas; os consumidores
+(`Snakefile`, `rules/finalize.smk`, `rules/coassembly.smk`, `rules/report.smk`,
+`scripts/report/data_loaders.py`, `scripts/report/renderer.py`,
+`scripts/report/components/hostdefense.js`) foram repontados para o caminho
+global. `rules/defense_amr.smk:rule defensefinder` (procariótico, por bin) e
+suas gêmeas de grupo **não foram tocadas** — bins não são dedupados num
+catálogo global, então essa regra continua legitimamente por amostra.
+
+Verificado com dry-run nos quatro perfis (`config_dagtest`/PE,
+`config_se`/SE, `config_lr`/LR-ONT, `config_lr_hifi`/LR-HiFi): delta exato
+de −2 jobs por amostra, −2 por grupo, +2 globais em todos os quatro, sem
+mudança de contagem em nenhuma outra regra (`defensefinder` procariótico
+incluído).
+
 ---
 
 ## Achados que não devem ser redescobertos
@@ -490,6 +530,103 @@ para um módulo opcional de benchmark em vez do caminho default.
 ## Ideias ainda não avaliadas
 
 Nenhuma foi analisada a fundo — não tratar como aprovadas.
+
+### Pendências abertas pelo (h) — auditadas, não consertadas
+
+Três defeitos de **empacotamento/disponibilidade**, nenhum produz resultado
+biológico errado. Dois são anteriores ao (h).
+
+1. **`final/viral/defense_amr/` virou diretório vazio** (introduzido pelo (h)).
+   O `finalize.smk:176` e o `coassembly.smk:1755` continuam criando o
+   diretório, mas com o defensefinder/dbAPIS virais globalizados **nenhuma
+   regra escreve dentro dele** — verificado por grep, não há um único writer.
+   Conserto: uma regra `finalize_votu_catalog` copiando
+   `votu_catalog/{defensefinder,dbapis}/*.tsv` (e, pela mesma lógica, pharokka,
+   phold e os genome maps) para `final/votu_catalog/`, mais remover o `mkdir`
+   órfão dos dois organize. Precedente pronto: `finalize_reads_classify`
+   (`finalize.smk:295-307`). **É decisão de layout do `final/`** — por isso não
+   foi feito junto.
+
+2. **Corrida entre o relatório e a anotação** (anterior ao (h), agravada).
+   `rules/report.smk` não tem aresta `input:` para `votu_pharokka`,
+   `votu_phold` nem `votu_genome_map_*`, e o `generate_report` não os alcança
+   transitivamente. Com `--cores` alto, o `report.html` pode ser escrito antes
+   do pharokka existir: gráfico PHROGS vazio e nenhum genome map, **sem erro no
+   log**. O `load_phrogs`/`load_genome_maps` hardcodam o caminho global sem
+   aresta. Conserto: arestas gated por `VOTU_CATALOG_ENABLED`.
+
+3. **`votu_catalog_enabled: false` ficou auto-contraditório.** Os alvos de
+   pharokka/phold/genome maps foram para dentro do bloco
+   `if VOTU_CATALOG_ENABLED:` (`Snakefile:444`), quando os antigos alvos por
+   amostra eram incondicionais — com a flag desligada o relatório perde PHROGS
+   e todos os genome maps virais. Ao mesmo tempo os dois inputs novos do
+   `report.smk` são incondicionais e arrastam a cadeia do catálogo de volta.
+   A flag já era meio decorativa; o (h) alargou a inconsistência.
+
+### Quinta manifestação do bug de namespace — `split_viral_fastas.py`
+
+**Anterior ao (h)** (vem do `8ef8bb4`), e é o mesmo padrão. O roadmap marcou o
+`phist` como "legítimo" e não pegou.
+
+O `phist` passa ao script o `mq_fasta` **global** (headers namespaced) junto com
+os bins de `{sample}/bins/vrhyme/`, cujos headers são do conjunto viral **por
+amostra** (nus). O script monta `binned_contigs` a partir dos bins (nus) e testa
+`if seq_name not in binned_contigs` contra nomes namespaced — **o teste nunca
+dispara**. Resultado: todo contig já binado é escrito de novo como FASTA
+individual, e o PHIST emite linha duplicada para a mesma sequência — exatamente
+a redundância que o docstring do script diz eliminar. A jusante, o
+`build_host_collapse` conta `n_viruses` em dobro e soma `total_rpkm` duas vezes
+por gênero.
+
+Efeito colateral relacionado: as linhas de bin do PHIST trazem
+`Virus = vRhyme_best_bins.3`, que não casa com nada nos joins de antidefesa e
+abundância — essas linhas mostram `—` na matriz para sempre. Inerente a tratar
+bin como genoma, não é o mesmo bug.
+
+**Commit separado** — não faz parte do (h).
+
+- **`eggnog_viral` roda um Prodigal próprio** sobre o mesmo `mq_fasta`
+  (`votu_catalog.smk`), duplicando o `votu_prodigal` que o (h) tornou global.
+  Achado pela auditoria do (h) em 2026-08-18. Pequeno e no mesmo espírito do
+  (h): trocar pelo `.faa` global e conferir se o eggNOG precisa de algum flag
+  de predição que o `votu_prodigal` não usa (prodigal-gv vs prodigal padrão —
+  **verificar antes de assumir que são intercambiáveis**).
+
+- **Catálogo global de MAGs procarióticos** — o análogo do (h) do lado
+  procariótico, e o maior item em aberto. Verificado em 2026-08-18: o
+  `galah_derep` é **por amostra** (desreplica os bins da própria amostra) e
+  alimenta **só o GTDB-Tk** (`prok_binning.smk:711`). Não existe nada
+  equivalente ao `votu_catalog`. Consequência: MAGs da mesma espécie
+  recuperados em amostras diferentes são anotados repetidamente por bakta,
+  eggNOG e pelas ferramentas de AMR, e nada garante que dois deles recebam a
+  mesma anotação.
+
+  A biologia que justifica o (h) vale igual — 95% ANI é nível de espécie para
+  procarioto também. Mas o custo é outro: no viral o catálogo global já
+  existia e a metade difícil estava pronta; aqui seria preciso **construir** um
+  galah cruzando amostras, com provenance e herança próprios.
+
+  **Diferença qualitativa que importa para priorizar: aqui nada está saindo
+  errado.** É redundância de compute e risco de inconsistência entre anotações
+  do mesmo organismo — não resultado zerado passando por resultado biológico,
+  que era o caso do `pharokka`. Não tem a urgência que o (h) tinha.
+
+  Não confundir com as regras de AMR e anotação procariótica em si
+  (`amrfinderplus`, `rgi_card`, `deeparg`, `abricate`, `defensefinder`,
+  `bakta`, `eggnog_prok`): elas consomem `prok_bin_proteins`, que é derivado
+  dos bins **daquela** amostra — conteúdo genuinamente diferente por amostra.
+  Rodar N vezes ali não é desperdício, é o trabalho. E não há ali a classe de
+  bug do (h): o consumo é por amostra e o dado é por amostra, sem espaço para
+  ID nu bater contra namespaced.
+
+- **Retirar os genome maps** (`genome_map_phage`, `genome_map_virus`,
+  `genome_map_prok`, `scripts/genome_map*.py`, painel do relatório) — intenção
+  declarada pelo usuário em 2026-08-18. Enquanto isso não acontece, fica uma
+  dívida conhecida e aceita: com os mapas globalizados em (h), o
+  `load_genome_maps` devolve a mesma lista sob toda chave de amostra e o
+  `renderer.py` serializa com `json.dumps`, que não deduplica — os SVGs inline
+  passam a ser replicados N vezes no `report.html`. Com 32 amostras isso são
+  dezenas de MB de HTML. **Não consertar**: some junto com os mapas.
 
 - **dbCAN** (CAZymes) — lacuna real, o metaFun tem e a vapor não. Disponível:
   bioconda 5.2.9, quay.io `5.2.9--pyhdfd78af_0`.
