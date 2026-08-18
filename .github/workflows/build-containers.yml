@@ -11,6 +11,8 @@ on:
       - "containers.yaml"
       - "containers.lock.yaml"
       - "scripts/pin_containers.py"
+      - "scripts/check_env_container_sync.py"
+      - "envs/**"
   release:
     types: [published]
   workflow_dispatch:
@@ -25,7 +27,7 @@ jobs:
   # imagem antiga, ou -- se o lock sumir -- todo `container:` volta a resolver
   # para None e a pipeline cai para conda sem avisar.
   check-lock:
-    name: containers.lock.yaml em dia
+    name: containers em dia (lock + sincronia com os envs)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +37,8 @@ jobs:
       - run: pip install pyyaml
       - name: Verificar lock contra containers.yaml
         run: python3 scripts/pin_containers.py --check
+      - name: Verificar que conda e container pinam a mesma versao
+        run: python3 scripts/check_env_container_sync.py --check
 
   genome-map:
     name: genome-map image

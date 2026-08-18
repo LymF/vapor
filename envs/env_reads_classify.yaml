@@ -3,8 +3,11 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
-  - sylph >=0.6
-  - sylph-tax >=1.7
+  # pinados nas mesmas versoes de containers.yaml: sem isso o caminho
+  # conda resolve para a versao mais nova do dia e o caminho container
+  # roda a pinada, produzindo resultados diferentes no mesmo commit.
+  - sylph =0.9.0
+  - sylph-tax =1.9.1
   - python >=3.9
   - pandas >=1.5
   - biopython >=1.80

@@ -16,7 +16,10 @@
 # ── QC ─────────────────────────────────────────────────────────────────
 fastp:
   image: fastp
-  version: "1.3.5"
+  # alinhado a envs/env_qc.yaml (fastp=1.3.3). env_qc e um env resolvido:
+  # subir a versao aqui sem re-resolver o env faria os dois caminhos de
+  # execucao rodarem fastp diferentes.
+  version: "1.3.3"
 
 quast:
   image: quast
