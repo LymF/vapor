@@ -68,7 +68,9 @@ rule filter_viral_for_prok:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/filter_viral_for_prok.tsv"
     params:
-        genomad_dir = lambda wc: f"{OUTDIR}/{wc.sample}/viral/genomad",
+        # derivado do input, nao de wildcards.sample: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        genomad_dir = lambda wc, input: os.path.dirname(str(input.genomad)),
     run:
         import os, glob, csv
 

@@ -1140,32 +1140,11 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 lf.write(f'Total trimmed set: {n_total}\n')
 
 
-    rule coassembly_filter_viral_for_prok:
-        """
-        Remove free-living viral contigs from the co-binning (VAMB) input —
-        group-level mirror of the per-sample `filter_viral_for_prok`
-        (rules/prok_binning.smk:40). Fixes a Plan 2 gap: `vamb_cobinning`
-        previously binned the FULL group co-assembly (`contigs.fa`),
-        including free-living viral contigs, so group MAGs could be
-        virus-contaminated.
-
-        Strategy (identical to the per-sample rule):
-          1. coassembly_viral_consensus fasta        → set of viral contigs
-          2. CheckV `provirus=Yes` + GeNomad `|provirus_` suffix → provirus set
-          3. remove = viral_consensus MINUS provirus
-          4. {group}/contigs.fa MINUS remove → {group}_contigs_nonviral.fasta
-
-        Provirus-bearing contigs always stay in the prok input (the provirus
-        region is integrated within a bacterial host contig — removing it
-        would drop the host genome with the prophage). Free-living viruses
-        (no host chromosome context) are removed to clean up MAGs.
-
-        Only defined when COASSEMBLY_VIRAL is enabled — it requires the
-        group's viral detection outputs (consensus/CheckV/GeNomad). When
-        COASSEMBLY_VIRAL is off, `_coassembly_prok_contigs` falls back to the
-        unfiltered `contigs.fa` directly (no filter possible without viral
-        detection).
-        """
+    # Remove contigs virais antes do co-binning. Herda
+    # `rule filter_viral_for_prok` (rules/prok_binning.smk): os corpos eram
+    # identicos. O grupo entra pelos contigs do co-assembly (nao ha etapa de
+    # dereplicacao MMseqs2), dai o nome de output `_contigs_nonviral`.
+    use rule filter_viral_for_prok as coassembly_filter_viral_for_prok with:
         input:
             contigs = f"{OUTDIR}/coassembly/{{group}}/contigs.fa",
             viral   = rules.coassembly_viral_consensus.output.fasta,
@@ -1178,84 +1157,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             f"{OUTDIR}/coassembly/{{group}}/logs/filter_viral_for_prok.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/filter_viral_for_prok.tsv"
-        params:
-            genomad_dir = lambda wc: f"{OUTDIR}/coassembly/{wc.group}/viral/genomad",
-        run:
-            import os, glob, csv
-
-            viral_set = set()
-            with open(input.viral) as f:
-                for line in f:
-                    if line.startswith(">"):
-                        viral_set.add(line[1:].strip().split()[0])
-
-            # Always keep provirus-bearing contigs in prok binning
-            provirus_set = set()
-            try:
-                with open(input.checkv) as f:
-                    rdr = csv.DictReader(f, delimiter="\t")
-                    for row in rdr:
-                        if (row.get("provirus", "") or "").strip().lower() == "yes":
-                            cid = (row.get("contig_id", "") or "").strip()
-                            if cid:
-                                provirus_set.add(cid)
-            except Exception:
-                pass
-
-            for gf in glob.glob(os.path.join(str(params.genomad_dir),
-                                             "**", "*_virus_summary.tsv"),
-                                recursive=True):
-                try:
-                    with open(gf) as f:
-                        rdr = csv.DictReader(f, delimiter="\t")
-                        for row in rdr:
-                            seq = (row.get("seq_name", "") or "").strip()
-                            if "|provirus_" in seq:
-                                provirus_set.add(seq.split("|")[0])
-                except Exception:
-                    pass
-
-            # Contigs we will remove from the prok input
-            remove_set = viral_set - provirus_set
-
-            os.makedirs(os.path.dirname(output.filtered), exist_ok=True)
-            kept = removed = total = 0
-            with open(input.contigs) as fin, open(output.filtered, "w") as fout:
-                write = False
-                header = None
-                for line in fin:
-                    if line.startswith(">"):
-                        if header is not None:
-                            # finalize previous record (already written if write=True)
-                            pass
-                        header = line[1:].strip().split()[0]
-                        total += 1
-                        if header in remove_set:
-                            write = False
-                            removed += 1
-                        else:
-                            write = True
-                            kept += 1
-                            fout.write(line)
-                    else:
-                        if write:
-                            fout.write(line)
-
-            with open(output.stats, "w") as s:
-                s.write("metric\tcount\n")
-                s.write(f"total_contigs\t{total}\n")
-                s.write(f"viral_total\t{len(viral_set)}\n")
-                s.write(f"provirus_kept\t{len(provirus_set)}\n")
-                s.write(f"removed\t{removed}\n")
-                s.write(f"kept_for_prok\t{kept}\n")
-
-            with open(log[0], "w") as lf:
-                lf.write(f"Total contigs        : {total}\n")
-                lf.write(f"Viral consensus      : {len(viral_set)}\n")
-                lf.write(f"Provirus (kept)      : {len(provirus_set)}\n")
-                lf.write(f"Removed (viral-only) : {removed}\n")
-                lf.write(f"Kept for prok binning: {kept}\n")
-
 
     rule coassembly_skani_votu:
         """
