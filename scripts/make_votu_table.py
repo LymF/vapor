@@ -27,6 +27,8 @@ Inputs (wired via Snakemake):
   checkv_tsv      viral/checkv/quality_summary.tsv    (this sample, bare IDs)
   taxonomy_tsv    viral/taxonomy/viral_taxonomy_merged.tsv (this sample, bare IDs)
   phist_csv       viral/phist/phist_results.csv       (this sample, bare IDs)
+  lifestyle_tsv   votu_catalog/bacphlip/votu_lifestyle.tsv (global, keyed by representative)
+  amg_tsv         votu_catalog/eggnog_viral/putative_amgs.tsv (global, keyed by representative)
 
 Output:
   viral/votu/{sample}_vOTU_table.tsv
@@ -179,6 +181,34 @@ def load_taxonomy(taxonomy_tsv):
     return data
 
 
+def load_lifestyle(lifestyle_tsv):
+    """Returns {representative_id: lifestyle}. Keyed by the namespaced vOTU
+    representative ID (BACPHLIP runs once per representative, not per
+    member) — see rules/votu_catalog.smk:bacphlip_votu."""
+    data = {}
+    for row in read_tsv(lifestyle_tsv, required=False):
+        rid = (row.get("votu_id") or "").strip()
+        if not rid:
+            continue
+        data[rid] = row.get("lifestyle", "unknown")
+    print(f"[make_votu_table] BACPHLIP lifestyle calls: {len(data)}", file=sys.stderr)
+    return data
+
+
+def load_amg_counts(amg_tsv):
+    """Returns {representative_id: n_putative_AMGs}. Keyed by the namespaced
+    vOTU representative ID (eggNOG runs once per MQ+ representative) —
+    see rules/votu_catalog.smk:eggnog_viral."""
+    counts = defaultdict(int)
+    for row in read_tsv(amg_tsv, required=False):
+        rid = (row.get("votu_id") or "").strip()
+        if not rid:
+            continue
+        counts[rid] += 1
+    print(f"[make_votu_table] Putative AMG-bearing representatives: {len(counts)}", file=sys.stderr)
+    return counts
+
+
 def load_phist(phist_csv):
     """Returns {virus_id: {host_bin, host_score}} — best (lowest adj-pvalue) hit."""
     data = {}
@@ -218,6 +248,8 @@ def main():
     checkv_tsv    = snakemake.input.checkv
     taxonomy_tsv  = snakemake.input.taxonomy
     phist_csv     = snakemake.params.phist_csv
+    lifestyle_tsv = snakemake.params.lifestyle_tsv
+    amg_tsv       = snakemake.params.amg_tsv
     out_tsv       = snakemake.output.tsv
     sample        = snakemake.wildcards.sample
 
@@ -227,17 +259,20 @@ def main():
         clusters_tsv, sample)
     rep_lengths            = load_rep_lengths(votu_reps_fa)
     checkv                 = load_checkv(checkv_tsv)
-    # Lifestyle/AMG source (VIBRANT) was removed from the pipeline; keep the
-    # columns in the schema, filled via the existing empty-lookup fallbacks.
-    lifestyle, amg_counts  = {}, {}
-    taxonomy                = load_taxonomy(taxonomy_tsv)
+    # Lifestyle (BACPHLIP) and putative AMGs (eggNOG) are computed once per
+    # vOTU representative by the global catalog rules, not per member —
+    # keyed here by the representative's namespaced ID, not the bare member
+    # ID used for CheckV/taxonomy/PHIST below.
+    lifestyle                = load_lifestyle(lifestyle_tsv)
+    amg_counts               = load_amg_counts(amg_tsv)
+    taxonomy                 = load_taxonomy(taxonomy_tsv)
     hosts                   = load_phist(phist_csv)
 
     COLS = [
         "votu_id", "representative", "member", "is_rep", "cluster_size", "sample",
         "rep_length_bp",
         "checkv_quality", "checkv_completeness", "checkv_length", "genome_type",
-        "lifestyle", "n_AMGs",
+        "lifestyle", "n_putative_AMGs",
         "taxonomy_family", "taxonomy_genus", "taxonomy_order",
         "taxonomy_best", "taxonomy_source",
         "host_bin", "host_score",
@@ -267,8 +302,10 @@ def main():
                 cv   = checkv.get(mem, {})
                 tax  = taxonomy.get(mem, {})
                 host = hosts.get(mem, {})
-                mem_lifestyle = lifestyle.get(mem, "unknown")
-                mem_amgs      = amg_counts.get(mem, 0)
+                # Lifestyle/AMGs are per-representative, so every member of
+                # a given vOTU reports the same value (the representative's).
+                mem_lifestyle = lifestyle.get(rep, "unknown")
+                mem_amgs      = amg_counts.get(rep, 0)
                 is_rep = "True" if f"{sample}|{mem}" == rep else "False"
 
                 writer.writerow({
@@ -284,7 +321,7 @@ def main():
                     "checkv_length":       cv.get("checkv_length", ""),
                     "genome_type":         cv.get("genome_type", ""),
                     "lifestyle":           mem_lifestyle,
-                    "n_AMGs":              mem_amgs,
+                    "n_putative_AMGs":     mem_amgs,
                     "taxonomy_family":     tax.get("taxonomy_family", ""),
                     "taxonomy_genus":      tax.get("taxonomy_genus", ""),
                     "taxonomy_order":      tax.get("taxonomy_order", ""),

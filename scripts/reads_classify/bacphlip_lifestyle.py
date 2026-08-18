@@ -60,8 +60,11 @@ def main():
         os.rename(default_out, bacphlip_out)
 
     # Compute lifestyle summary
+    # BACPHLIP writes 3 columns: sequence name (as the DataFrame index) plus
+    # both probabilities -- its header line is literally "\tVirulent\tTemperate"
+    # (bacphlip.py:271). Naming only 2 columns here raised a Length mismatch.
     bp = pd.read_csv(bacphlip_out, sep="\t")
-    bp.columns = ["sequence_name", "virulent_score"]
+    bp.columns = ["sequence_name", "virulent_score", "temperate_score"]
     bp["lifestyle"] = bp["virulent_score"].apply(
         lambda s: "Virulent" if s > vir_thresh else "Temperate"
     )

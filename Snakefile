@@ -230,6 +230,13 @@ VOTU_AF                 = config.get("votu_af", 85.0)
 VOTU_CATALOG_ENABLED   = config.get("votu_catalog_enabled", True)
 VOTU_PRESENCE_MIN_COV  = config.get("votu_presence_min_coverage", 75.0)
 
+# BACPHLIP lifestyle (lytic/lysogenic) over vOTU representatives.
+BACPHLIP_MIN_QUALITY         = config.get("bacphlip_min_quality", ["Complete", "High-quality"])
+BACPHLIP_VIRULENCE_THRESHOLD = config.get("bacphlip_virulence_threshold", 0.5)
+
+# eggNOG-mapper over viral ORFs from MQ+ vOTU representatives -> putative AMGs.
+USE_EGGNOG_VIRAL = config.get("use_eggnog_viral", True)
+
 # ONT reads carry a per-read error rate well above 5%, so the 95% identity
 # filter used for Illumina/HiFi would reject nearly every ONT alignment and
 # silently empty the presence matrix. Default per technology; overridable.
@@ -450,6 +457,11 @@ def _t_viral():
         t.append(f"{OUTDIR}/votu_catalog/presence_matrix.tsv")
         t.append(f"{OUTDIR}/votu_catalog/votu_abundance_matrix.tsv")
         t.append(f"{OUTDIR}/votu_catalog/matrices_done.txt")
+        t.append(f"{OUTDIR}/votu_catalog/bacphlip/votu_lifestyle.tsv")
+        t.append(f"{OUTDIR}/votu_catalog/bacphlip/done.txt")
+        if USE_EGGNOG_VIRAL:
+            t.append(f"{OUTDIR}/votu_catalog/eggnog_viral/putative_amgs.tsv")
+            t.append(f"{OUTDIR}/votu_catalog/eggnog_viral/done.txt")
     t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_abundance.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt", sample=SAMPLES)

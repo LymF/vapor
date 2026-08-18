@@ -265,6 +265,211 @@ rule votu_catalog_reps:
             write_status(str(output.done), "ok")
 
 
+rule bacphlip_votu:
+    """
+    BACPHLIP lifestyle (lytic/lysogenic) call, once per vOTU representative.
+
+    Default gate is Complete/High-quality only, deliberately conservative:
+    BACPHLIP decides lysogeny from the presence of integrase/recombinase/
+    repressor domains, and an incomplete genome can simply be missing the
+    fragment that would have carried one. The error is NOT symmetric —
+    fragmentation biases calls towards "lytic" and inflates the apparent
+    lytic fraction — so genomes below `bacphlip_min_quality` are excluded
+    rather than called anyway.
+    """
+    input:
+        fasta  = rules.votu_catalog_reps.output.all_fasta,
+        checkv = _catalog_checkv_summaries,
+    output:
+        lifestyle = f"{CATALOG_DIR}/bacphlip/votu_lifestyle.tsv",
+        done      = f"{CATALOG_DIR}/bacphlip/done.txt",
+    log:
+        f"{OUTDIR}/logs/bacphlip_votu.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/bacphlip_votu.tsv"
+    conda: "../envs/env_reads_classify.yaml"
+    threads: 1
+    params:
+        min_quality         = BACPHLIP_MIN_QUALITY,
+        virulence_threshold = BACPHLIP_VIRULENCE_THRESHOLD,
+        outdir              = lambda wc, output: os.path.dirname(output.lifestyle),
+    run:
+        import subprocess
+
+        HEADER = ["votu_id", "lifestyle", "virulent_score", "temperate_score",
+                  "checkv_quality", "quality_tier_used"]
+        os.makedirs(params.outdir, exist_ok=True)
+
+        def write_header_only():
+            with open(str(output.lifestyle), "w") as fh:
+                fh.write("\t".join(HEADER) + "\n")
+
+        completeness, quality = _load_catalog_completeness()
+
+        tmp_fasta = os.path.join(params.outdir, "votu_input.fasta")
+        kept = {}
+        cur_id = None
+        cur_keep = False
+        n_kept = 0
+        with open(str(input.fasta)) as fin, open(tmp_fasta, "w") as fout:
+            for line in fin:
+                if line.startswith(">"):
+                    cur_id = line[1:].strip().split()[0]
+                    cur_keep = quality.get(cur_id, "") in params.min_quality
+                    if cur_keep:
+                        kept[cur_id] = quality.get(cur_id, "")
+                        n_kept += 1
+                        fout.write(line)
+                elif cur_keep:
+                    fout.write(line)
+
+        with open(str(log[0]), "w") as lf:
+            lf.write(f"[bacphlip_votu] quality tiers accepted: {params.min_quality}\n")
+            lf.write(f"[bacphlip_votu] vOTU representatives kept: {n_kept}\n")
+
+        if n_kept == 0:
+            write_header_only()
+            write_status(str(output.done), "skipped: no vOTU at required CheckV quality")
+            return
+
+        rc = subprocess.run(
+            ["bacphlip", "-i", tmp_fasta, "--multi_fasta"],
+            stdout=open(str(log[0]), "a"), stderr=subprocess.STDOUT,
+        ).returncode
+
+        bacphlip_out = tmp_fasta + ".bacphlip"
+        if rc != 0 or not os.path.exists(bacphlip_out):
+            write_header_only()
+            write_status(str(output.done), f"failed: bacphlip exit {rc}")
+            return
+
+        import csv as _csv
+        with open(bacphlip_out) as fh:
+            rdr = _csv.reader(fh, delimiter="\t")
+            bp_header = next(rdr, None)
+            rows = list(rdr)
+
+        with open(str(output.lifestyle), "w") as fh:
+            fh.write("\t".join(HEADER) + "\n")
+            for row in rows:
+                if len(row) < 3:
+                    continue
+                votu_id = row[0]
+                try:
+                    virulent_score  = float(row[1])
+                    temperate_score = float(row[2])
+                except ValueError:
+                    continue
+                lifestyle = "lytic" if virulent_score >= params.virulence_threshold else "lysogenic"
+                fh.write("\t".join([
+                    votu_id, lifestyle, f"{virulent_score:.6g}", f"{temperate_score:.6g}",
+                    kept.get(votu_id, ""), "/".join(params.min_quality),
+                ]) + "\n")
+
+        write_status(str(output.done), "ok")
+
+
+rule eggnog_viral:
+    """
+    eggNOG-mapper over ORF predictions from the MQ+ vOTU representatives,
+    once for the whole catalog (prodigal is cheap, eggNOG is the expensive
+    step, so this runs one pass instead of per-sample).
+
+    Downstream filtering (filter_putative_amgs.py) flags candidates only —
+    a KEGG_ko hit landing on a metabolism KEGG pathway map. These are
+    "putative AMGs": AMG calling from annotation alone is known to be
+    error-prone and requires genomic-context inspection to confirm, so the
+    pipeline never claims a confirmed AMG anywhere.
+    """
+    input:
+        fasta = rules.votu_catalog_reps.output.mq_fasta,
+    output:
+        annot = f"{CATALOG_DIR}/eggnog_viral/eggnog_annotations.tsv",
+        amg   = f"{CATALOG_DIR}/eggnog_viral/putative_amgs.tsv",
+        done  = f"{CATALOG_DIR}/eggnog_viral/done.txt",
+    log:
+        f"{OUTDIR}/logs/eggnog_viral.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/eggnog_viral.tsv"
+    conda: "../envs/env_annotation.yaml"
+    container: CONTAINERS.get("eggnog_mapper")
+    threads: THREADS
+    params:
+        outdir   = lambda wc, output: os.path.dirname(output.annot),
+        proteins = lambda wc, output: os.path.join(os.path.dirname(output.annot), "votu_proteins.faa"),
+        amg_script = os.path.join(SCRIPTS_DIR, "filter_putative_amgs.py"),
+    shell:
+        """
+        mkdir -p {params.outdir}
+
+        AMG_HEADER="votu_id\\tprotein_id\\tKEGG_ko\\tKEGG_Pathway\\tCOG_category\\tDescription"
+
+        if [ "{USE_EGGNOG_VIRAL}" != "True" ]; then
+            echo "[eggnog_viral] use_eggnog_viral: false — skipping" | tee {log}
+            touch {output.annot}
+            printf "$AMG_HEADER\\n" > {output.amg}
+            echo "skipped: use_eggnog_viral is false" > {output.done}
+            exit 0
+        fi
+
+        if [ -z "{EGGNOG_DB}" ] || [ ! -d "{EGGNOG_DB}" ]; then
+            echo "[eggnog_viral] EGGNOG_DB not configured — skipping" | tee {log}
+            touch {output.annot}
+            printf "$AMG_HEADER\\n" > {output.amg}
+            echo "skipped: EGGNOG_DB not configured" > {output.done}
+            exit 0
+        fi
+
+        if [ ! -s {input.fasta} ]; then
+            echo "[eggnog_viral] empty input FASTA (no MQ+ vOTU representatives) — skipping" | tee -a {log}
+            touch {output.annot}
+            printf "$AMG_HEADER\\n" > {output.amg}
+            echo "skipped: empty MQ+ representative FASTA" > {output.done}
+            exit 0
+        fi
+
+        prodigal -i {input.fasta} -a {params.proteins} -p meta >> {log} 2>&1 && RC=0 || RC=$?
+        if [ $RC -ne 0 ]; then
+            echo "[eggnog_viral] prodigal failed (exit $RC)" | tee -a {log}
+            touch {output.annot}
+            printf "$AMG_HEADER\\n" > {output.amg}
+            echo "failed: prodigal exit $RC" > {output.done}
+            exit 0
+        fi
+
+        emapper.py \
+            -m diamond \
+            --itype proteins \
+            -i {params.proteins} \
+            -o eggnog_viral \
+            --output_dir {params.outdir} \
+            --cpu {threads} \
+            --data_dir {EGGNOG_DB} \
+            --override \
+            >> {log} 2>&1 && RC=0 || RC=$?
+
+        if [ $RC -ne 0 ] || [ ! -f {params.outdir}/eggnog_viral.emapper.annotations ]; then
+            echo "[eggnog_viral] emapper.py failed (exit $RC)" | tee -a {log}
+            touch {output.annot}
+            printf "$AMG_HEADER\\n" > {output.amg}
+            echo "failed: emapper.py exit $RC" > {output.done}
+            exit 0
+        fi
+
+        cp {params.outdir}/eggnog_viral.emapper.annotations {output.annot}
+
+        python3 {params.amg_script} {output.annot} {output.amg} && RC=0 || RC=$?
+        if [ $RC -ne 0 ]; then
+            echo "[eggnog_viral] filter_putative_amgs.py failed (exit $RC)" | tee -a {log}
+            printf "$AMG_HEADER\\n" > {output.amg}
+            echo "failed: filter_putative_amgs.py exit $RC" > {output.done}
+            exit 0
+        fi
+
+        echo "ok" > {output.done}
+        """
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Read recruitment against the catalog + presence/abundance matrices
 #

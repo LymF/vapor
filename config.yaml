@@ -102,6 +102,13 @@ votu_catalog_enabled:       true    # global vOTU catalog (replaces per-sample c
 votu_presence_min_coverage: 75.0    # % of the representative covered to count as present (Roux 2017)
 votu_recruit_min_identity:  null    # min. read identity %; null = 95 (SR/HiFi) or 85 (ONT)
 
+# BACPHLIP — lifestyle dos vOTUs montados (litico/lisogenico)
+bacphlip_min_quality: ["Complete", "High-quality"]   # tiers CheckV aceitos; adicione "Medium-quality" por sua conta e risco
+bacphlip_virulence_threshold: 0.5
+
+# eggNOG sobre ORFs virais -> candidatos a AMG ("putative AMGs")
+use_eggnog_viral: true
+
 # Minimum CheckV quality tier kept for downstream viral analyses (taxonomy,
 # host prediction, pharokka/phold annotation, genome maps). Lower it for
 # high-novelty / short-fragment data (e.g. IonTorrent viromes) where most

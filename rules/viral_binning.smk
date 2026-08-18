@@ -290,6 +290,13 @@ rule make_votu_table:
         **({
             "phist": f"{OUTDIR}/{{sample}}/viral/phist/done.txt",
         } if INTEGRATION_ENABLED else {}),
+        # BACPHLIP lifestyle and eggNOG putative-AMG calls are global (run
+        # once over the catalog's vOTU representatives, see
+        # rules/votu_catalog.smk). Soft-fail like PHIST: the rules always
+        # write at least a header-only TSV, even when skipped/failed, so
+        # this input always resolves and the script degrades to empty dicts.
+        lifestyle = rules.bacphlip_votu.output.lifestyle,
+        amg       = rules.eggnog_viral.output.amg,
     output:
         tsv = f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv",
     log:
@@ -297,7 +304,9 @@ rule make_votu_table:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/make_votu_table.tsv"
     params:
-        phist_csv   = f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv",
+        phist_csv     = f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv",
+        lifestyle_tsv = rules.bacphlip_votu.output.lifestyle,
+        amg_tsv       = rules.eggnog_viral.output.amg,
     # run: executes in the Snakemake Python process — bypasses container/conda
     # issues with script: calling `python` (not `python3`) inside containers.
     # Note: run: blocks expose input/output/params/wildcards directly (no

@@ -17,7 +17,8 @@ descartadas com motivo.
 | item | estado |
 |---|---|
 | status real no `done.txt` (15 regras) | **feito** — commit `4ff4507`, já no master |
-| Remoção do VIBRANT | **em execução** quando este doc foi escrito |
+| Remoção do VIBRANT | **feito** — commit `d8dbf7d` |
+| (f) `bacphlip_votu` + (g) `eggnog_viral` | **feito** — regras globais |
 | Restante abaixo | não iniciado |
 
 Branch de trabalho: `master` (o `refactor/unit-wildcard` já foi mergeado por
@@ -30,7 +31,7 @@ fast-forward e pode ser apagado).
 Executar **nesta ordem**. Cada passo é verificado antes do seguinte (ver
 "Como verificar").
 
-### (a) Remover VIBRANT — EM EXECUÇÃO
+### (a) Remover VIBRANT — FEITO (commit `d8dbf7d`)
 
 Motivo: parte relevante do falso positivo viral vem dele.
 
@@ -106,7 +107,7 @@ o limiar trabalharia contra o motivo de ter tirado o VIBRANT.
 Custo a antecipar: baixar para 1000 bp multiplica a contagem de contigs — o
 mapeamento fica bem mais pesado.
 
-### (f) `bacphlip_votu` — repor lifestyle
+### (f) `bacphlip_votu` — repor lifestyle — FEITO
 
 O BACPHLIP **já está instalado** (`envs/env_reads_classify.yaml`, via pip) e o
 script `scripts/reads_classify/bacphlip_lifestyle.py` já existe — mas hoje recebe
@@ -127,7 +128,7 @@ direção de "virulento"** e infla artificialmente o percentual de líticos. Rod
 em MQ é permitido, mas é escolha consciente do usuário. Registrar em coluna qual
 tier foi usado.
 
-### (g) `eggnog_viral` — repor AMG como *putative*
+### (g) `eggnog_viral` — repor AMG como *putative* — FEITO
 
 **Nada a instalar.** A vapor já tem as duas peças:
 - `rule prodigal_viral` (`taxonomy.smk:76`) já produz os ORFs virais (`.faa`)
@@ -144,6 +145,43 @@ cravado** — decisão explícita do usuário. Justificativa: existe literatura 
 manual do contexto genômico. Isso vale igual para DRAM-v e VIBRANT: não estamos
 trocando método curado por bruto, estamos trocando um não-curado por outro mais
 barato.
+
+### (h) Migração incompleta para o catálogo global
+
+**Achado de 2026-08-18, ainda NÃO corrigido.**
+
+O `CLAUDE.md` registra que o catálogo global de vOTU *"Replaces the former
+per-sample clustering"*. A parte difícil está pronta: o `votu_catalog_pool`
+prefixa cada contig com sua origem (*"Contig IDs are only unique within an
+assembly, so they are prefixed with their source"*) e emite `provenance.tsv` —
+ou seja, **pool global com rastreio de origem já existe**.
+
+Mas nem toda regra a jusante foi movida junto. Sete regras por amostra consomem
+`votu_catalog_reps`. Verificado input a input (cuidado: referências
+`rules.X.output` são por amostra sem conter a string `{sample}` — uma checagem
+por texto literal dá falso positivo):
+
+| regra | inputs | veredito |
+|---|---|---|
+| `prodigal_viral` | **só o FASTA global** | **N× idêntico — desperdício confirmado** |
+| `pharokka` | global + CheckV **por amostra** | **suspeito, investigar** |
+| `viral_taxonomy` | + geNomad/MMseqs por amostra | legítimo |
+| `genome_map_phage` | + phold/pharokka por amostra | legítimo |
+| `phist` | + `bins_dir` por amostra | legítimo |
+| `genome_map_virus`, `make_votu_table` | dados por amostra | legítimo |
+
+**`prodigal_viral`**: entrada exclusivamente global, saída por amostra. Com 32
+amostras são 32 execuções produzindo bytes idênticos. Deve virar regra global.
+
+**`pharokka`**: recebe o FASTA global mas filtra por `rules.checkv.output.summary`,
+que é o CheckV **daquela amostra**. A qualidade dos representantes do catálogo
+global está nos summaries do próprio catálogo, não no de uma amostra qualquer.
+Efeito possível: cada amostra anota um subconjunto diferente do mesmo catálogo,
+por um critério que não pertence a ele. **Não classificado como bug sem análise
+dedicada** — é o tipo de coisa que produz resultado plausível e errado.
+
+As duas regras adicionadas em (f) e (g) já nasceram globais e não aumentam esta
+dívida.
 
 ---
 
