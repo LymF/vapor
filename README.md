@@ -184,7 +184,6 @@ All parameters are defined in **`config.yaml`** — no `.smk` files need to be e
 | `prok_filter_keep_provirus` | `true` to preserve provirus-containing contigs (default) |
 | `gunc_enabled` | `true` to run GUNC chimera detection on Binette final bins |
 | `gunc_db` | Path to `gunc_db_progenomes2.1.dmnd` |
-| `votu_catalog_enabled` | `true` to build the global vOTU catalog with skani (ICTV: 95% ANI + 85% AF) |
 | `votu_presence_min_coverage` | % of a vOTU representative a sample's reads must cover to count as "recruited" presence (default `75.0`, Roux et al. 2017) |
 | `votu_recruit_min_identity` | Min. read identity (%) for catalog recruitment; `null` = 95 (short/HiFi) or 85 (ONT) |
 | `mag_derep_enabled` | `true` to dereplicte MAGs with galah before GTDB-Tk |

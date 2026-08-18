@@ -214,7 +214,6 @@ VOTU_CLUSTERING_ENABLED = config.get("use_votu", True)
 VOTU_ANI                = config.get("votu_ani", 95.0)
 VOTU_AF                 = config.get("votu_af", 85.0)
 
-VOTU_CATALOG_ENABLED   = config.get("votu_catalog_enabled", True)
 VOTU_PRESENCE_MIN_COV  = config.get("votu_presence_min_coverage", 75.0)
 
 # BACPHLIP lifestyle (lytic/lysogenic) over vOTU representatives.
@@ -441,33 +440,38 @@ def _t_viral():
     t += expand(f"{OUTDIR}/{{sample}}/bins/vrhyme/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme/quality_summary.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_nonredundant.fasta", sample=SAMPLES)
-    if VOTU_CATALOG_ENABLED:
-        t.append(f"{OUTDIR}/votu_catalog/vOTU_clusters.tsv")
-        t.append(f"{OUTDIR}/votu_catalog/catalog_all_reps.fasta")
-        t.append(f"{OUTDIR}/votu_catalog/done.txt")
-        t.append(f"{OUTDIR}/votu_catalog/presence_matrix.tsv")
-        t.append(f"{OUTDIR}/votu_catalog/votu_abundance_matrix.tsv")
-        t.append(f"{OUTDIR}/votu_catalog/matrices_done.txt")
-        t.append(f"{OUTDIR}/votu_catalog/bacphlip/votu_lifestyle.tsv")
-        t.append(f"{OUTDIR}/votu_catalog/bacphlip/done.txt")
-        t.append(f"{OUTDIR}/votu_catalog/taxonomy/viral_taxonomy_merged.tsv")
-        t.append(f"{OUTDIR}/votu_catalog/taxonomy/taxonomy_done.txt")
-        if USE_EGGNOG_VIRAL:
-            t.append(f"{OUTDIR}/votu_catalog/eggnog_viral/putative_amgs.tsv")
-            t.append(f"{OUTDIR}/votu_catalog/eggnog_viral/done.txt")
-        # pharokka/phold/genome_maps: moved to the global catalog on
-        # 2026-08-18 (second half of "(h)", docs/ROADMAP_SIMPLIFICACAO.md) --
-        # no longer per-sample, see rules/votu_catalog.smk.
-        t.append(f"{OUTDIR}/votu_catalog/annotation/pharokka/done.txt")
-        t.append(f"{OUTDIR}/votu_catalog/annotation/phold/done.txt")
-        t.append(f"{OUTDIR}/votu_catalog/annotation/genome_maps/phage_maps_done.txt")
-        t.append(f"{OUTDIR}/votu_catalog/annotation/genome_maps/virus_maps_done.txt")
-        # defensefinder_viral/dbapis_viral: moved to the global catalog on
-        # 2026-08-18 too (same move, same reasoning) -- no longer per-sample
-        # or per-group, see rules/votu_catalog.smk.
-        if DEFENSE_AMR_VIRAL_ENABLED:
-            t.append(f"{OUTDIR}/votu_catalog/defensefinder/done.txt")
-            t.append(f"{OUTDIR}/votu_catalog/dbapis/done.txt")
+    # Catalogo global de vOTU: estagio obrigatorio desde 2026-08-18.
+    # A flag votu_catalog_enabled existia para quando o clustering por
+    # amostra ainda era a alternativa; ele foi removido, e a flag so
+    # gateava estes alvos -- nunca as regras, que os demais consumidores
+    # puxavam de volta de qualquer jeito.
+    t.append(f"{OUTDIR}/final/votu_catalog/done.txt")
+    t.append(f"{OUTDIR}/votu_catalog/vOTU_clusters.tsv")
+    t.append(f"{OUTDIR}/votu_catalog/catalog_all_reps.fasta")
+    t.append(f"{OUTDIR}/votu_catalog/done.txt")
+    t.append(f"{OUTDIR}/votu_catalog/presence_matrix.tsv")
+    t.append(f"{OUTDIR}/votu_catalog/votu_abundance_matrix.tsv")
+    t.append(f"{OUTDIR}/votu_catalog/matrices_done.txt")
+    t.append(f"{OUTDIR}/votu_catalog/bacphlip/votu_lifestyle.tsv")
+    t.append(f"{OUTDIR}/votu_catalog/bacphlip/done.txt")
+    t.append(f"{OUTDIR}/votu_catalog/taxonomy/viral_taxonomy_merged.tsv")
+    t.append(f"{OUTDIR}/votu_catalog/taxonomy/taxonomy_done.txt")
+    if USE_EGGNOG_VIRAL:
+        t.append(f"{OUTDIR}/votu_catalog/eggnog_viral/putative_amgs.tsv")
+        t.append(f"{OUTDIR}/votu_catalog/eggnog_viral/done.txt")
+    # pharokka/phold/genome_maps: moved to the global catalog on
+    # 2026-08-18 (second half of "(h)", docs/ROADMAP_SIMPLIFICACAO.md) --
+    # no longer per-sample, see rules/votu_catalog.smk.
+    t.append(f"{OUTDIR}/votu_catalog/annotation/pharokka/done.txt")
+    t.append(f"{OUTDIR}/votu_catalog/annotation/phold/done.txt")
+    t.append(f"{OUTDIR}/votu_catalog/annotation/genome_maps/phage_maps_done.txt")
+    t.append(f"{OUTDIR}/votu_catalog/annotation/genome_maps/virus_maps_done.txt")
+    # defensefinder_viral/dbapis_viral: moved to the global catalog on
+    # 2026-08-18 too (same move, same reasoning) -- no longer per-sample
+    # or per-group, see rules/votu_catalog.smk.
+    if DEFENSE_AMR_VIRAL_ENABLED:
+        t.append(f"{OUTDIR}/votu_catalog/defensefinder/done.txt")
+        t.append(f"{OUTDIR}/votu_catalog/dbapis/done.txt")
     t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_abundance.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt", sample=SAMPLES)

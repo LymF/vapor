@@ -33,6 +33,17 @@ rule generate_report:
             # plumbing.
             "antidefense_viral":  f"{OUTDIR}/votu_catalog/defensefinder/viral_antidefense_systems.tsv",
             "dbapis_viral":       f"{OUTDIR}/votu_catalog/dbapis/dbapis_hits.tsv",
+            # pharokka/phold/genome maps: NOT read through snakemake.input --
+            # load_phrogs/load_genome_maps (scripts/report/data_loaders.py)
+            # build the catalog path themselves. Without these edges the
+            # scheduler may run generate_report before pharokka finishes and
+            # emit a report with an empty PHROGS chart and no genome maps, with
+            # nothing in the log saying so. Declared here purely as ordering
+            # constraints; the loaders keep resolving their own paths.
+            "pharokka_global":    f"{OUTDIR}/votu_catalog/annotation/pharokka/done.txt",
+            "phold_global":       f"{OUTDIR}/votu_catalog/annotation/phold/done.txt",
+            "gmap_phage_global":  f"{OUTDIR}/votu_catalog/annotation/genome_maps/phage_maps_done.txt",
+            "gmap_virus_global":  f"{OUTDIR}/votu_catalog/annotation/genome_maps/virus_maps_done.txt",
         } if TRACK_VIRAL else {}),
         # Prokaryotic track
         **({

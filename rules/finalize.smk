@@ -173,7 +173,6 @@ rule organize_outputs:
             f"{final}/viral/viral_bins",
             f"{final}/viral/taxonomy",
             f"{final}/viral/host_prediction",
-            f"{final}/viral/defense_amr",
             f"{final}/bins/bacteria",
             f"{final}/bins/archaea",
             f"{final}/bins/unclassified",
@@ -318,3 +317,79 @@ if READS_CLASSIFY_ENABLED:
                     shutil.copy(src_f, os.path.join(dst, fname))
             with open(output.sentinel, 'w') as f:
                 f.write('ok\n')
+
+
+rule finalize_votu_catalog:
+    """
+    Copia os outputs globais do catalogo de vOTU para final/votu_catalog/.
+    Roda uma vez por pipeline, como o finalize_reads_classify.
+
+    Existe porque o item (h) (docs/ROADMAP_SIMPLIFICACAO.md) globalizou
+    pharokka, phold, genome maps, defensefinder viral e dbAPIS: eles deixaram
+    de ter caminho por amostra, e o organize_outputs por amostra/grupo passou
+    a criar final/viral/defense_amr/ sem que nenhuma regra escrevesse dentro.
+    O dado nao sumiu -- vive em {outdir}/votu_catalog/ -- mas parou de ser
+    entregue em final/. Esta regra reata a entrega, agora num lugar so, que e
+    o que a natureza global do dado pede.
+    """
+    input:
+        catalog_done = f"{OUTDIR}/votu_catalog/done.txt",
+        taxonomy     = f"{OUTDIR}/votu_catalog/taxonomy/viral_taxonomy_merged.tsv",
+        pharokka     = f"{OUTDIR}/votu_catalog/annotation/pharokka/done.txt",
+        phold        = f"{OUTDIR}/votu_catalog/annotation/phold/done.txt",
+        **({
+            "defense": f"{OUTDIR}/votu_catalog/defensefinder/done.txt",
+            "dbapis":  f"{OUTDIR}/votu_catalog/dbapis/done.txt",
+        } if DEFENSE_AMR_VIRAL_ENABLED else {}),
+    output:
+        sentinel = f"{OUTDIR}/final/votu_catalog/done.txt",
+    log:
+        f"{OUTDIR}/logs/finalize_votu_catalog.log"
+    run:
+        import os, shutil
+
+        src = f"{OUTDIR}/votu_catalog"
+        dst = f"{OUTDIR}/final/votu_catalog"
+        os.makedirs(dst, exist_ok=True)
+
+        # (origem relativa a votu_catalog/, destino relativo a final/votu_catalog/)
+        wanted = [
+            ("vOTU_clusters.tsv",                              "vOTU_clusters.tsv"),
+            ("catalog_all_reps.fasta",                         "catalog_all_reps.fasta"),
+            ("catalog_mq_reps.fasta",                          "catalog_mq_reps.fasta"),
+            ("provenance.tsv",                                 "provenance.tsv"),
+            ("presence_matrix.tsv",                            "presence_matrix.tsv"),
+            ("votu_abundance_matrix.tsv",                      "votu_abundance_matrix.tsv"),
+            ("taxonomy/viral_taxonomy_merged.tsv",             "viral_taxonomy_merged.tsv"),
+            ("bacphlip/votu_lifestyle.tsv",                    "votu_lifestyle.tsv"),
+            ("eggnog_viral/putative_amgs.tsv",                 "putative_amgs.tsv"),
+            ("annotation/pharokka/pharokka_cds_final_merged_output.tsv",
+                                                               "pharokka_cds.tsv"),
+            ("annotation/phold/phold.gbk",                     "phold.gbk"),
+            ("defensefinder/viral_defense_systems.tsv",        "viral_defense_systems.tsv"),
+            ("defensefinder/viral_antidefense_systems.tsv",    "viral_antidefense_systems.tsv"),
+            ("dbapis/dbapis_hits.tsv",                         "dbapis_hits.tsv"),
+        ]
+
+        copied, missing = [], []
+        for rel_src, rel_dst in wanted:
+            src_f = os.path.join(src, rel_src)
+            # Ausente e legitimo: a fonte pode ter sido pulada (DB nao
+            # configurado) ou nao ter produzido nada. Fica registrado no log
+            # em vez de virar erro -- mas fica registrado, para "sumiu" e
+            # "nao rodou" nao se confundirem.
+            if os.path.exists(src_f) and os.path.getsize(src_f) > 0:
+                shutil.copy(src_f, os.path.join(dst, rel_dst))
+                copied.append(rel_dst)
+            else:
+                missing.append(rel_src)
+
+        with open(str(log[0]), "w") as lf:
+            lf.write(f"[finalize_votu_catalog] copiados: {len(copied)}\n")
+            for name in copied:
+                lf.write(f"  ok      {name}\n")
+            for name in missing:
+                lf.write(f"  ausente {name}\n")
+
+        with open(output.sentinel, "w") as f:
+            f.write("ok\n")

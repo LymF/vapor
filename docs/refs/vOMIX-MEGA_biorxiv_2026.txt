@@ -1,0 +1,784 @@
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     vOMIX-MEGA: An ultra-fast end-to-end pipeline for
+     terabyte-scale viral metagenomics analysis
+     Erfan Shekarriz1, Elsa Vijendran1, Joshua WK Ho 1,2,3*
+
+     1
+       School of Biomedical Science, Li Ka Shing Faculty of Medicine, The University of Hong Kong, Hong Kong SAR,
+     China
+     2
+       School of Biomedical Engineering, The University of Hong Kong, Hong Kong SAR, China
+     3
+       Centre for Health AI Research and Translation (CHART), Li Ka Shing Faculty of Medicine, The University of
+     Hong Kong, Hong Kong SAR, China
+
+
+
+
+     *AUTHOR FOR CORRESPONDENCE:
+     Joshua WK Ho
+     Email: jwkho@hku.hk
+     +852 3917 9512
+     ORCiD 0000-0003-2331-7011
+     L4-44, Laboratory Block, 21 Sassoon Road, Hong Kong
+
+
+
+                                                                                                                                            1
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     ABSTRACT
+
+     Viral identification for terabyte-scale metagenomic data is limited by scalability and
+     computational resources. We present vOMIX-MEGA, an end-to-end viral metagenomic
+     framework that overcomes performance bottlenecks by significantly improving
+     parallelization and memory usage in critical steps. Benchmarked on empirical datasets, it
+     completes processing in up to 50 minutes with 24 GB of RAM, bypassing four other
+     state-of-the-art pipelines that require 7 hours (383 GB) to 14 days (32 GB). vOMIX-
+     MEGA is on average 21% and 13% more accurate when benchmarked on mock and
+     experimental data and is available via https://github.com/holab-hku/vOMIX-MEGA.
+
+
+
+
+                                                                                                                                            2
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+          1. MAIN
+
+     Viruses are mobile genetic elements driving global biogeochemical cycles, ecological dynamics,cs,
+     and disease transmission across all domains of life [1], [2], [3]. Culture-independent viral  ral
+     metagenomics is used to explore a vast reservoir of viral dark matter [4]. Rapid advances in
+     sequencing depth have made terabyte-scale datasets a routine standard in genomics research,    h,
+     generating a data surge that exposes severe bottlenecks in current computational workflows [5].
+
+     Established viral metagenomic software pipelines are fragmented and scale poorly, presenting an
+     impractical trade-off: they either exhibit massive memory bloats requiring high-performance   ce
+     computing clusters or introduce extreme runtime latencies extending over weeks [6], [7]..
+     Complicated deployment processes and software dependencies create further technical friction, n,
+     restricting high-throughput analyses and undermining cross-study reproducibility [8]. This   his
+     removes accessibility to large-scale viral metagenomic analysis for most researchers. To resolve
+                                                                                                   ve
+     these bottlenecks, we introduce vOMIX-MEGA, a containerized, end-to-end analytical pipeline   ne
+     engineered for high-performance, resource-accessible viral metagenomic profiling for terabyte--
+     scale data.
+
+
+
+
+     Figure 1 | Full pipeline overview of vOMIX-MEGA and underlying tools and modules..
+     Highlighted boxes include novel re-engineered algorithms that give vOMIX-MEGA its ability to
+
+
+
+
+                                                                                                                                            3
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     process terabyte-scale data rapidly without memory bloats. Key performance and algorithm
+     enhancements are marked accordingly.
+
+     vOMIX-MEGA’s efficiency is achieved by modifying core algorithms within standard
+     workflows to resolve single-threaded dependencies and memory-intensive operations. We
+     identified the evaluation of contig completeness and contamination via native CheckV [9], the
+     only widely used tool for this purpose, as a primary performance bottleneck, as its RAM
+     consumption scales exponentially with core provisioning (Supplementary Table 1). On terabyte-
+     scale inputs, native CheckV requires up to 939 GB of RAM when utilizing 64 CPUs, an
+     architecture inaccessible to most researchers (Figure 2a).
+
+     We bypassed this limitation by developing our own algorithmically revised version of CheckV
+     called CheckV-PyHMMER, which accelerates quality assessment while maintaining annotation
+     nearly identical to the original tool for all viruses (the differences being due to pyrodigal-gv’s
+     higher sensitivity to giant viruses [10]) (Supplementary Table 2 and 3). CheckV-PyHMMER
+     implements three structural optimizations: first, it decouples CPU-intensive contamination and
+     completeness modules from the memory-heavy reference database module; second, it replaces
+     native single-threaded Prodigal with Pyrodigal-gv [10], [11], which uses OpenMP parallelization
+     optimized for alternative genetic codes and giant viruses; third, it substitutes standard HMMER
+     with multi-threaded PyHMMER [12] Python bindings to achieve linear performance scaling
+     (Supplementary Figure 1).
+
+     For memory-constrained local nodes and all viral identification tools, an optional data-splitting
+     module (`--contig-splits`, `--checkv-splits`) partitions large nucleotide fasta inputs into parallel
+     fractions for isolated processing before performing a lossless concatenation, significantly
+     lowering peak resident set size (RSS) (Supplementary Figure 2). Standard sequence-clustering
+     algorithms (such as CD-HIT or CheckV’s native MEGABLAST-based pairwise alignment)
+     likewise require constructing exhaustive sequence databases or performing all-versus-all
+     alignments. The memory footprint (Resident Set Size; RSS) of these indexing and comparison
+     steps scales quadratically ሺܱሺܰ ଶ ሻሻ with the number of input sequences ܰ. When scaling to
+     terabyte-scale metagenomic datasets, this leads to massive memory inflation and execution
+     hangs, frequently requiring computer systems with large memory that are inaccessible to most
+     researchers. To bypass these hardware limitations, vOMIX-MEGA introduces an algorithmically
+     re-engineered Divide and Conquer algorithm with a data-splitting and iterative clustering
+     framework (`--cluster-iter`). This module processes large nucleotide FASTA inputs in parallel,
+     isolated fractions before performing hierarchical pooling and clustering, (Supplementary Figure
+     3), which we call a binary tree reduction (or tournament-style merger) reduction approach (See
+     Methods for full introduction to our method). Depending on layers of clustering, our algorithm
+     reduced the speed of clustering by CheckV’s ultrafast MEGABLAST method by up to 63%, and
+     its peak memory usage (RSS) by up to 64% respectively (Figure 2b) (Supplementary Table 4).
+     We benchmarked our approach using 1 (original algorithm), 2, 4, and 8 clustering iterations with
+
+
+                                                                                                                                            4
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     both CD-HIT and MEGABLAST approach on the same set of contigs (Supplementary Table 12),    2),
+     and found a 93% identity in clustering sequencing representatives (final clusters) between all
+     clustering iterations. (Supplementary Figure 6).
+
+     Finally and in general, we prevent memory-induced failures during large-scale operations by
+     systematically prioritizing tools with stable memory footprints across vOMIX-MEGA. For    or
+     example, `vomix viral-identify` uses geNomad [10] as its core identification framework,  rk,
+     omitting alternatives like DeepVirFinder [13] that exceed 300 GB RAM allocations at high gh
+     thread counts (Supplementary Table 5).
+
+
+
+
+     Figure 2 | Scalability and runtime analysis of vOMIX-MEGA and other viral metagenomic           ic
+     pipelines. (a) Runtime and peak memory use analysis comparing vOMIX-MEGA, vOMIX--
+     MEGA (multi-tool), ViWrap, VIRify, ViroProfiler, and the Nayfach et al. viral metagenomic       ic
+     pipelines. Analysis was carried out by using 64 CPUS across 10, 1000, 10000, and 100000        00
+     sequences, as well as using 1,4,16,32,64 CPUs with 50,000 sequences. Boxes marked with (***)    *)
+     mean that the run did not finish within the 14 days maximum runtime set for our analysis (b)
+     Runtime and memory use of the different clustering methods including binary tree reduction (or
+     tournament-style merger) reduction approach with --cluster-iter 1 (original), --cluster-iter 2, --
+     cluster-iter 4, and --cluster-iter 8 on 300,000 simulated contigs (c) Peak memory use of CheckV V
+     vs. CheckV-PyHMMER using 64 CPUs across an increasing number of contigs.
+
+
+
+
+                                                                                                                                            5
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     We performed high-throughput scalability and runtime analysis under peak operational
+     workloads, and benchmarked vOMIX-MEGA against four pipelines (ViroProfiler [14], Nayfach
+     et al. [15], VIRify [16], and ViWrap [17]) alongside an internal vOMIX-MEGA (multi-tool)
+     benchmark module using terabyte-scale datasets under a uniform allocation of 64 CPU cores
+     (Fig. 2a). At n=100,000 contigs, default vOMIX-MEGA completed end-to-end profiling in 54
+     minutes with a stable peak memory footprint of 20.1 GB. Conversely, the non-optimized multi-
+     tool module took 195 minutes and consumed 28.2 GB RAM due to DeepVirFinder's thread
+     overhead. Other standalone pipelines took substantially longer to analyze the same data and used
+     significantly higher memory; ViroProfiler and Nayfach et al. resolved the cohort but required
+     464 minutes (384 GB RAM) and 998 minutes (223 GB RAM), respectively, bottlenecked by
+     native CheckV execution. VIRify and ViWrap failed to complete processing within a strict 14-
+     day tracking ceiling. This performance gap was preserved at lower sequence counts; at n=50,000
+     contigs, vOMIX-MEGA completed processing in 78 minutes (19.8 GB RAM), outperforming
+     the mutl-tool (118 min, 29.1 GB RAM), Nayfach et al. (577 min, 189 GB RAM), and
+     ViroProfiler (714 min, 354 GB RAM) (Supplementary Table 6).
+
+     Thread-scaling experiments on the n=50,000 contig tier (1,4,16,32, and 64 cores) demonstrated
+     the parallel efficiency of vOMIX-MEGA (Figure 2a). Single-threaded execution required 357
+     minutes with a 19.7 GB RSS memory footprint; scaling to 64 cores monotonically reduced the
+     runtime to 35 minutes while peak physical memory remained flat between 19.7 and 20.2 GB.
+     The vOMIX-MEGA (multi-tool) identified all contigs in 308 to 49 minutes, but its memory
+     expanded to 48.2 GB at 64 CPUs due to DeepVirFinder. Competing workflows displayed severe
+     thread-dependent memory inflation: Nayfach et al. reached 384 GB RAM at 64 cores, and
+     ViroProfiler spiked to 402 GB RAM. VIRify and ViWrap remained unresolved for 14 days, with
+     core parallelization inflating peak physical memory to 136.2 GB and 148.8 GB, respectively
+     (Supplementary Table 6).
+
+     Standalone stress tests supported the performance advantages of CheckV-PyHMMER over
+     native CheckV at 64 CPUs (Figure 2c). At baseline volumes (n=1,000 and n=10,000), native
+     CheckV displayed lower runtimes (58 s and 196 s) than CheckV-PyHMMER (192 s and 861 s)
+     due to Python binding initialization overheads, but it demanded immense virtual memory
+     (572.6–615.7 GB) compared to CheckV-PyHMMER (2.9–4.2 GB). At high-throughput limits
+     (n≥100,000), CheckV-PyHMMER outpaced native execution. At n=100,000 sequences,
+     CheckV-PyHMMER completed execution in 47.5 minutes using 11.0 GB RAM, while native
+     CheckV required 53.5 minutes and 60.7 GB RAM. At n=300,000 contigs, native CheckV hit a
+     severe processing wall, requiring 72.0 hours of continuous execution and an un-scalable 939.1
+     GB of physical RAM (1.31 TB virtual memory). Conversely, CheckV-PyHMMER completed
+     the same analysis in 19.2 hours, marking a 3.7-fold reduction in runtime, while compressing
+     peak physical RAM to 34.2 GB (a 27.4-fold memory reduction) and capping virtual memory at
+     36.1 GB. When benchmarked on a large dataset of 300,000 contigs derived from an expanded
+     dataset of 41TB of data (See Methods), CheckV-PyHMMER was able to reduce runtime by 27%
+
+
+                                                                                                                                            6
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     and 38%, and peak memory RSS by 21% and 46% when run with `--checkv-splits 3` and `--
+     checkv-splits 7` respectively when compared to no splitting (`--checkv-splits 0`) (Supplementary
+     Table 7). With the --checkv-splits 7, CheckV-PyHMMER was able to maintain a maximum 18
+     GB memory footprint running this large dataset (Supplementary Table 7).
+
+     Our accuracy benchmarking on experimental and mock datasets was evaluated against a custom
+     mock validation cohort and a multi-biome experimental dataset from Wu et al. [7] to isolate
+     identification evaluation metrics across key tools (geNomad [10], DeepVirFinder [13], PhaMer
+     [18], VirSorter2 [19], VirFinder [20], VIBRANT [21], PPR-Meta [22], Seeker [23])
+     (Supplementary Figure 4). The default engine of vOMIX-MEGA, geNomad, performed the best,
+     reaching a Balanced Accuracy (BA) of 0.9785 on mock sequences and 0.8702 on experimental
+     data. Alternative workflows followed: VIRify (0.8985 mock, 0.7845 experimental), PPR-Meta
+     (0.8784 mock, 0.8259 experimental), ViWrap (0.8380 mock, 0.8296 experimental), and
+     ViroProfiler (0.8380 mock, 0.8251 experimental). The Nayfach et al. pipeline demonstrated a
+     low BA of 0.5041 (mock) and 0.5377 (experimental), nearing random classification (0.50). This
+     suggests that the metagenomic gut virus compendium, compiled via this pipeline, may retain
+     considerable host contamination despite structural size-filtering. Furthermore, consensus
+     algorithms reduced taxonomic accuracy; the vOMIX-MEGA (multi-tool) voting scheme dropped
+     BA to 0.7010 (mock) and 0.6189 (experimental), showing that a single optimized machine-
+     learning classifier provides superior resolution while avoiding latency introduced by using
+     multiple software (Supplementary Figure 5).
+
+     Our benchmarking revealed a specificity-sensitivity imbalance across alternative tools
+     (Supplementary Figure 5). While most platforms exhibited high sensitivity for authentic viral
+     contigs, exemplified by the vOMIX-MEGA (multi-tool) approach reaching 0.9918 (mock) and
+     0.9950 (experimental), they accumulated higher false-positive rates due to poor specificity. On
+     the mock cohort, specificity dropped drastically for VirSorter2 (0.5728), the multi-tool approach
+     (0.4101), VirFinder (0.2631), and VIBRANT (0.0843). This pattern was also observed with
+     experimental data benchmarking, where VirSorter2 and VIBRANT logged specificities of
+     0.3805 and 0.3630. The Nayfach et al. workflow coupled low sensitivity (0.6270 mock, 0.7102
+     experimental) with low specificity (0.3811 mock, 0.3653 experimental), introducing substantial
+     background noise that could mislead downstream metabolic and ecological annotations.
+     Conversely, default vOMIX-MEGA maintained precise, balanced discrimination, delivering high
+     specificities (0.9826 mock, 0.8104 experimental) alongside robust sensitivity thresholds (0.9743
+     and 0.9300), offering a reliable computational end-to-end pipeline for standardized viral
+     metagenomic discovery (Supplementary Table 8 and 9).
+
+     These results demonstrate that vOMIX-MEGA offers a standardized, resource-efficient solution
+     for          terabyte-scale       viral      metagenomic             data          analysis.
+
+
+
+
+                                                                                                                                            7
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+          2. ONLINE METHODS
+
+
+                2.1 Pipeline Architecture and Implementation
+
+     The vOMIX-MEGA framework is implemented as an automated, reproducible workflow built on
+     a Snakemake [24] back-end and is fully containerized using Docker and Singularity/Apptainer to
+     ensure cross-platform environment stability. Detailed methods regarding software compilation,
+     algorithmic re-engineering of core back-end components (such as the integration of CheckV-
+     PyHMMER and Pyrodigal-gv), and optimization protocols are described extensively in the
+     Supplementary Methods section of this study.
+
+                2.2. Runtime Analysis and Scalability Benchmarking
+
+     The development of vOMIX-MEGA was prompted by critical computational bottlenecks and
+     memory limitations observed during the baseline evaluation of a real-world hypertension patient
+     gut metagenomic contig collection comprising 41,853 contigs across 420 samples. To
+     systematically assess pipeline scalability under high-throughput processing loads, this baseline
+     repository was integrated into a larger evaluation framework alongside three independent,
+     terabyte-scale empirical datasets together making the following:
+
+          ●    Cow gut microbiome dataset [25]: 0.8 TB, 9,843 initial contigs.
+          ●    Mouse gut metagenome dataset [26]: 8.2 TB, 48,674 initial contigs.
+          ●    Hypertension human gut microbiome dataset [27]: 41 TB, 41,853 initial contigs.
+          ●    Global gut microbiome dataset: 60 TB, 126,789 initial contigs (Internal data gathered for
+               this study)
+
+     To eliminate database-size confounding variables and enable clear cross-pipeline visualization,
+     these empirical sequences were converted into six standardized benchmarking cohorts. Target
+     sequence thresholds were achieved by applying random subsampling (without replacement) to
+     reduce sequence volume, or random duplicate sequence injection to expand volume where
+     appropriate. This standardization protocol generated six final validation datasets scaling
+     precisely to n = 10, 1,000, 10,000, 50,000, 100,000, and 300,000 contigs.
+
+     Comparative performance profiles were executed across four alternative viral metagenomic
+     workflows, ViroProfiler, VIRify, ViWrap, and the Nayfach et al. pipeline, as well as the default
+     vOMIX-MEGA pipeline and its standalone vOMIX (multi-tool) module. While the default
+     vOMIX-MEGA framework relies on optimized sequence processing dependencies, the multi-
+     tool benchmark module sequentially performs non-optimized tools (geNomad, DeepVirFinder,
+
+
+                                                                                                                                            8
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     PhaMer, VirSorter2, VirFinder, and VIBRANT) within a single environment to provide users  ers
+     with direct comparative controls. For workflows where automated viral quality assessment was
+                                                                                                as
+     not natively supported (the Nayfach et al. pipeline and ViroProfiler), a standalone       ne
+     implementation of native CheckV was manually integrated into the execution stream to ensurere
+     uniform downstream evaluation of contig contamination and completeness metrics.
+
+     All benchmarking instances were deployed on identical, isolated high-performance computing ng
+     nodes across increasing thread allocation (1, 4, 16, 32, and 64 CPU cores). Hardware resource
+                                                                                                ce
+     allocation and execution efficiency were systematically noted using Snakemake’s default    ult
+     benchmarking capability. The framework continuously monitored and documented five primary  ry
+     computational dimensions:
+
+          ● Walltime: Total elapsed execution duration from data ingestion to output delivery,
+                                                                                           ry,
+               quantified in minutes.
+          ●    Memory Utilization: Multidimensional RAM consumption profiles tracking Virtual   al
+               Memory Size (VMS), Resident Set Size (RSS), Unique Set Size (USS), and Proportional
+                                                                                                al
+               Set Size (PSS).
+          ●    Data Throughput: Exact input and output file storage sizes.
+          ●    Mean Load: The average computational core utilization throughout active execution
+                                                                                               on
+               windows.
+          ●    CPU Time: Cumulative processing time utilized by allocated hardware threads.
+
+     A maximum execution ceiling was strictly enforced at 720 hours per individual pipeline run.   n.
+     Any analysis that failed to complete its assigned sequence tier within this allocated window was
+                                                                                                   as
+     terminated and logged as unresolved.
+
+                2.3 Data splitting and iterative clustering algorithm
+
+     The iterative clustering algorithm is structured as a binary tree reduction (or tournament-style
+                                                                                                   le
+     merger) (Supplementary Figure 3). The depth and branching factor of the tree are dynamically lly
+     controlled by a user-defined parameter , representing the total clustering iterations (`--    --
+     clustering-iter`).
+
+     The system operates according to the following mathematical rules:
+
+          ● Initial Partitioning: The raw input FASTA is divided into                                                 starting chunks:
+                                                                                                                                   ks:
+
+          ● Layer and Chunk Indexes: Let denote the current layer of the reduction tree, where
+                                                                                            re
+                                        .    Let          denote       the      chunk       index       within      layer       ,    where
+                                                                                                                                        re
+                                                   .
+
+
+                                                                                                                                            9
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+          ● Base Split Inputs: Let represent the -th partitioned raw FASTA file.
+          ● Clustering Operator: Let             denote the sequence clustering and dereplication
+                                                                                               on
+               function, executed using either CD-HIT or CheckV's MEGABLAST-based pairwise
+                                                                                       ise
+               alignment.
+
+     The recursive generation of clustered outputs                          at any given node of the tree is defined by the
+                                                                                                                         he
+     recurrence relation:
+
+
+
+
+     Using this binary tree architecture, the total number of individual clustering executions (  )
+     required to resolve the complete dataset down to a single, fully non-redundant output chunk nk
+     (    ) is given by:
+
+
+
+
+     The formal mathematical proof of why this architecture is guaranteed to reduce memory
+                                                                                        ry
+     reduction can be found in the Supplementary Methods of this paper.
+
+                     ○ Viral Identification Accuracy Benchmarking
+
+     All viral metagenomic pipelines and their underlying tools were benchmarked using a customm
+     mock contig dataset alongside a recently published experimental viral benchmarking dataset
+                                                                                              set
+     developed by Wu et al. All validation sequences were analyzed using the complete alternative
+                                                                                               ve
+     workflows described above, as well as the vOMIX-MEGA viral-benchmark module to isolate   ate
+     the standalone classification metrics of geNomad, DeepVirFinder, PhaMer, VirSorter2,     r2,
+     VirFinder, VIBRANT, PPR-Meta, and Seeker.
+
+     Diagnostic criteria, including Sensitivity, Specificity, Balanced Accuracy, and Receiverer
+     Operating Characteristic (ROC) curves, were calculated using the R package caret [28]. The
+                                                                                             he
+     underlying performance parameters were defined mathematically using the following       ng
+     expressions:
+
+
+          ●    Sensitivity = TP / (TP + FN)
+          ●    Specificity = TN / (TN + FP)
+          ●    Balanced Accuracy = (Sensitivity + Specificity) / 2
+          ●    F1-score = (2 × TP) / ((2 × TP) + FP + FN)
+
+
+                                                                                                                                          10
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     where TP represents True Positives, TN represents True Negatives, FP represents False
+     Positives, and FN represents False Negatives.
+
+
+                           2.3.1 Mock Benchmarking Cohort
+
+     To assemble the mock dataset, we downloaded all complete viral genomes (n = 4,143), complete
+     bacterial genomes (n = 3,020), chromosomal/complete eukaryotic genomes (n = 5,600), and all
+     plasmid sequences (n = 58,289) deposited to NCBI’s RefSeq database after July 21st, 2023. This
+     cutoff date matches the public training freeze of geNomad to ensure an unbiased evaluation of
+     the newest model architecture. Eukaryotic and plasmid sequences were included specifically to
+     evaluate false-positive misclassification rates common among k-mer based approaches.
+
+     Following the approach outlined by Wu et al., we quantified the similarity of post-July 21st,
+     2023 viral genomes against older entries using MMseqs2 [29] (easy-search with translated type -
+     -search-type 2). Viruses were partitioned into three categories based on evolutionary divergence:
+
+          ● Low identity: 20% similarity to older RefSeq entries.
+          ● Medium identity: >20% and 40% similarity to older RefSeq entries.
+          ● High identity: > 40% and 100% similarity to older RefSeq entries.
+
+     All genomes were fragmented into non-overlapping adjacent fragments of lengths 500, 1,000,
+     3,000, 5,000, and 10,000 nucleotides. From these pools, 10,000 sequences were selected at
+     random for each primary taxonomic division (viruses, bacteria, eukaryotes, and plasmids). For
+     prokaryotic and eukaryotic fragments, CheckV was applied to remove potential proviruses
+     before combining all segments into a unified test dataset.
+
+                           2.3.2 Experimental Benchmarking Cohort
+
+     For empirical validation, fully annotated contigs were obtained directly from the multi-biome
+     environmental database compiled by Wu et al. [30]
+
+
+
+
+                                                                                                                                          11
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+          3. CODE AVAILABILITY
+
+     The vOMIX-MEGA package, source code, and installation instructions are publicly available
+     on GitHub at https://github.com/holab-hku/vOMIX-MEGA, with comprehensive documentation
+     hosted at https://vomix-mega.readthedocs.io/en/latest/. The underlying workflow engine, vomix-
+     snakemake, is available at https://github.com/holab-hku/vomix-snakemake/wiki. All custom
+     scripts used to generate the figures and analyses presented in this study are archived at
+     https://github.com/erfanshekarriz/vomix-manuscript.
+
+
+          4. ACKNOWLEDGEMENTS
+
+     The authors gratefully acknowledge financial support from the Hong Kong PhD Fellowship
+     Scheme (HKPFS) awarded by the Research Grants Council (RGC) of Hong Kong. We also
+     extend our gratitude to the Li Ka Shing Faculty of Medicine and the School of Biomedical
+     Sciences at The University of Hong Kong for providing institutional support and infrastructure.
+
+
+          5. AUTHOR CONTRIBUTIONS
+
+     E.S. conceptualized the project, developed the algorithms, performed data analysis and
+     generation, and wrote the manuscript. E.V. contributed software code and designed the
+     architecture of the command-line interface wrapper script. J.W.K.H. conceptualized the project,
+     supervised the research and provided critical intellectual input and manuscript edits.
+
+
+          6. FUNDING
+
+     This work was supported by the Hong Kong PhD Fellowship Scheme (HKPFS) funded by the
+     Research Grants Council (RGC) of Hong Kong.
+
+
+          7. DATA AVAILABILITY
+
+     All data used to generate the figures and findings in this study are available at
+     https://github.com/erfanshekarriz/vomix-manuscript.
+
+
+          8. COMPETING INTERESTS
+
+
+
+
+                                                                                                                                          12
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     The authors declare no competing interests.
+
+
+          9. SUPPLEMENTARY INFORMATION
+
+     Supplementary Information is available for this paper (comprising Supplementary Methods,
+     Supplementary Figures, and Supplementary Tables).
+
+
+          10. REFERENCES
+
+     [1] B. Beamud, F. Benz, and D. Bikard, “Going viral: The role of mobile genetic elements in
+         bacterial immunity,” Cell Host Microbe, vol. 32, no. 6, pp. 804–819, Jun. 2024, doi:
+         10.1016/j.chom.2024.05.017.
+     [2] G.-H. Bai, S.-C. Lin, Y.-H. Hsu, and S.-Y. Chen, “The Human Virome: Viral Metagenomics,
+         Relations with Human Diseases, and Therapeutic Applications,” Viruses, vol. 14, no. 2, Art.
+         no. 2, Feb. 2022, doi: 10.3390/v14020278.
+     [3] J. Flint, V. R. Racaniello, G. F. Rall, T. Hatziioannou, and A. M. Skalka, Principles of
+         Virology, 5th ed. ASM Press, 2020. Accessed: Jun. 12, 2026. [Online]. Available:
+         https://www.perlego.com/book/1812763/principles-of-virology-pdf
+     [4] E. L. Delwart, “Viral metagenomics,” Rev. Med. Virol., vol. 17, no. 2, pp. 115–131, 2007,
+         doi: 10.1002/rmv.532.
+     [5] E. E. Schadt, M. D. Linderman, J. Sorenson, L. Lee, and G. P. Nolan, “Computational
+         solutions to large-scale data management and analysis,” Nat. Rev. Genet., vol. 11, no. 9, pp.
+         647–657, Sep. 2010, doi: 10.1038/nrg2857.
+     [6] S. F. S. Ho, N. E. Wheeler, A. D. Millard, and W. van Schaik, “Gauge your phage:
+         benchmarking of bacteriophage identification tools in metagenomic sequencing data,”
+         Microbiome, vol. 11, no. 1, p. 84, Apr. 2023, doi: 10.1186/s40168-023-01533-x.
+     [7] L.-Y. Wu, N. Pappas, Y. Wijesekara, G. J. Piedade, C. P. D. Brussaard, and B. E. Dutilh,
+         “Benchmarking Bioinformatic Virus Identification Tools Using Real-World Metagenomic
+         Data across Biomes,” May 22, 2023, bioRxiv. doi: 10.1101/2023.04.26.538077.
+     [8] V. Hoang et al., “Container Profiler: Profiling resource utilization of containerized big data
+         pipelines,” GigaScience, vol. 12, p. giad069, Dec. 2022, doi: 10.1093/gigascience/giad069.
+     [9] S. Nayfach, A. P. Camargo, F. Schulz, E. Eloe-Fadrosh, S. Roux, and N. C. Kyrpides,
+         “CheckV assesses the quality and completeness of metagenome-assembled viral genomes,”
+         Nat. Biotechnol., vol. 39, no. 5, Art. no. 5, May 2021, doi: 10.1038/s41587-020-00774-7.
+     [10] A. P. Camargo et al., “Identification of mobile genetic elements with geNomad,” Nat.
+         Biotechnol., pp. 1–10, Sep. 2023, doi: 10.1038/s41587-023-01953-y.
+     [11] M. Larralde, “Pyrodigal: Python bindings and interface to Prodigal, an efficient method
+         for gene prediction in prokaryotes,” J. Open Source Softw., vol. 7, no. 72, p. 4296, Apr.
+         2022, doi: 10.21105/joss.04296.
+     [12] M. Larralde and G. Zeller, “PyHMMER: a Python library binding to HMMER for
+         efficient sequence analysis,” Bioinformatics, vol. 39, no. 5, p. btad214, May 2023, doi:
+         10.1093/bioinformatics/btad214.
+     [13] J. Ren et al., “Identifying viruses from metagenomic data using deep learning,” Quant.
+         Biol., vol. 8, no. 1, pp. 64–77, Mar. 2020, doi: 10.1007/s40484-019-0187-4.
+
+                                                                                                                                          13
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     [14] J. Ru, M. Khan Mirzaei, J. Xue, X. Peng, and L. Deng, “ViroProfiler: a containerized
+         bioinformatics pipeline for viral metagenomic data analysis,” Gut Microbes, vol. 15, no. 1, p.
+         2192522, doi: 10.1080/19490976.2023.2192522.
+     [15] S. Nayfach et al., “Metagenomic compendium of 189,680 DNA viruses from the human
+         gut microbiome,” Nat. Microbiol., vol. 6, no. 7, Art. no. 7, Jul. 2021, doi: 10.1038/s41564-
+         021-00928-6.
+     [16] G. Rangel-Pineros et al., “VIRify: An integrated detection, annotation and taxonomic
+         classification pipeline using virus-specific protein profile hidden Markov models,” PLOS
+         Comput. Biol., vol. 19, no. 8, p. e1011422, Aug. 2023, doi: 10.1371/journal.pcbi.1011422.
+     [17] Z. Zhou, C. Martin, J. C. Kosmopoulos, and K. Anantharaman, “ViWrap: A modular
+         pipeline to identify, bin, classify, and predict viral–host relationships for viruses from
+         metagenomes,” iMeta, vol. 2, no. 3, p. e118, 2023, doi: 10.1002/imt2.118.
+     [18] J. Shang, C. Peng, H. Liao, X. Tang, and Y. Sun, “PhaBOX: a web server for identifying
+         and characterizing phage contigs in metagenomic data,” Bioinforma. Adv., vol. 3, no. 1, p.
+         vbad101, Jan. 2023, doi: 10.1093/bioadv/vbad101.
+     [19] J. Guo et al., “VirSorter2: a multi-classifier, expert-guided approach to detect diverse
+         DNA and RNA viruses,” Microbiome, vol. 9, no. 1, p. 37, Dec. 2021, doi: 10.1186/s40168-
+         020-00990-y.
+     [20] J. Ren, N. A. Ahlgren, Y. Y. Lu, J. A. Fuhrman, and F. Sun, “VirFinder: a novel k-mer
+         based tool for identifying viral sequences from assembled metagenomic data,” Microbiome,
+         vol. 5, no. 1, p. 69, Jul. 2017, doi: 10.1186/s40168-017-0283-5.
+     [21] K. Kieft, Z. Zhou, and K. Anantharaman, “VIBRANT: automated recovery, annotation
+         and curation of microbial viruses, and evaluation of viral community function from genomic
+         sequences,” Microbiome, vol. 8, no. 1, p. 90, Dec. 2020, doi: 10.1186/s40168-020-00867-0.
+     [22] Z. Fang et al., “PPR-Meta: a tool for identifying phages and plasmids from metagenomic
+         fragments using deep learning,” GigaScience, vol. 8, no. 6, p. giz066, Jun. 2019, doi:
+         10.1093/gigascience/giz066.
+     [23] N. Auslander, A. B. Gussow, S. Benler, Y. I. Wolf, and E. V. Koonin, “Seeker:
+         alignment-free identification of bacteriophage genomes by deep learning,” Nucleic Acids
+         Res., vol. 48, no. 21, p. e121, Dec. 2020, doi: 10.1093/nar/gkaa856.
+     [24] J. Köster and S. Rahmann, “Snakemake—a scalable bioinformatics workflow engine,”
+         Bioinformatics, vol. 28, no. 19, pp. 2520–2522, Oct. 2012, doi:
+         10.1093/bioinformatics/bts480.
+     [25] L. C. Conteville, J. V. da Silva, B. G. N. Andrade, L. L. Coutinho, J. C. P. Palhares, and
+         L. C. de A. Regitano, “Recovery of metagenome-assembled genomes from the rumen and
+         fecal microbiomes of Bos indicus beef cattle,” Sci. Data, vol. 11, no. 1, p. 1385, Dec. 2024,
+         doi: 10.1038/s41597-024-04271-3.
+     [26] B. S. Beresford-Jones et al., “The Mouse Gastrointestinal Bacteria Catalogue enables
+         translation between the mouse and human gut microbiotas via functional mapping,” Cell
+         Host Microbe, vol. 30, no. 1, pp. 124-138.e8, Jan. 2022, doi: 10.1016/j.chom.2021.12.003.
+     [27] P. D. Virwani et al., “Sex Differences in Association Between Gut Microbiome and
+         Essential Hypertension Based on Ambulatory Blood Pressure Monitoring,” Hypertension,
+         vol. 80, no. 6, pp. 1331–1342, Jun. 2023, doi: 10.1161/HYPERTENSIONAHA.122.20752.
+     [28] M. Kuhn, “Building Predictive Models in R Using the caret Package,” J. Stat. Softw.,
+         vol. 28, no. 5, 2008, doi: 10.18637/jss.v028.i05.
+     [29] M. Steinegger and J. Söding, “MMseqs2 enables sensitive protein sequence searching for
+
+
+                                                                                                                                          14
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+         the analysis of massive data sets,” Nat. Biotechnol., vol. 35, no. 11, pp. 1026–1028, Nov.
+         2017, doi: 10.1038/nbt.3988.
+     [30] L.-Y. Wu, Y. Wijesekara, G. J. Piedade, N. Pappas, C. P. D. Brussaard, and B. E. Dutilh,
+         “Benchmarking bioinformatic virus identification tools using real-world metagenomic data
+         across biomes,” Genome Biol., vol. 25, no. 1, p. 97, Apr. 2024, doi: 10.1186/s13059-024-
+         03236-4.
+
+
+
+
+                                                                                                                                          15
+  bioRxiv preprint doi: https://doi.org/10.64898/2026.07.28.741255; this version posted July 31, 2026. The copyright holder for this preprint
+(which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made
+                                              available under a CC-BY-NC 4.0 International license.
+
+
+
+
+     Author
+
+     Mx. SHEKARRIZ Erfan
+     Ph.D. Research Postgraduate
+     The Hong Kong University
+     +852 5606 4404
+     eshekar@connect.hku.hk
+     ORCiD 0000-0002-1817-6050
+     L4-44, Laboratory Block, 21 Sassoon Road, Hong Kong
+     Postal code 000000
+
+     Co-author 1
+     Ms. Elsa VIJENDRAN
+     Researcher
+     The Hong Kong University
+     +852 9141 7204
+     elsavj@hku.hk
+     ORCiD 0009-0003-4220-743X
+     3F, 15 Burd Street, Sheung Wan, Hong Kong
+     Postal code 000000
+
+     Co-author 2
+     Dr. Joshua WK Ho
+     Associate Professor
+     The University of Hong Kong
+     +852 3917 9512
+     jwkho@hku.hk
+     ORCiD 0000-0003-2331-7011
+     L4-44, Laboratory Block, 21 Sassoon Road, Hong Kong
+     Postal code 000000
+
+
+
+
+                                                                                                                                          16
+vOMIX-MEGA
+                                                                                           Major development in this study ↓↓↓
+
+                                                  10-1000 X Faster                                                                                              vomix viral-annotate -h                PhaVIP
+An ultra-fast & modular end-to-end pipeline                                                 vomix viral-identify -h
+                                                  20Gb Maximum
+for terabyte-scale viral metagenomics analysis.
+                                                  Memory Footprint                                                                                             eggNOG Mapper MetaCerberus             Pharokka
+                                                                                                geNomad
+                                                    vomix viral-benchmark -h                                                                                            viral_annotate_merged.csv
+      vomix assembly -h                                                                       Filtering & Combining Samples
+                                                           geNomad
+           MEGAHIT
+                                                                                                         vContigs (primary)
+                                                           VIBRANT                                                                                             vomix viral-taxonomy -h
+                                                                                                                     OR
+                                                                                           --clustering-sensitive           --clustering-fast (default)
+                                                           VirSorter2                                                                                                  geNomad        PhaGCN
+      vomix prerpocess -h                                                                                                     MEGABLAST
+                                                                                                 CD-HIT
+                                                                                                                                Pairwise
+           fastp    HOSTILE                                 VirFinder                                                                                                viral_taxonomy_merged.csv
+                                                                                                                               Alignment
+
+           Download SRA                                 DeepVirFinder
+
+                                                             PhaMer                                     CheckV-PyHMMER
+                                                                                                                                                               vomix viral-community -h
+
+                      Paired-end FastQ              viral_benchmark_merged.csv                          Completion-based                                       coverM make      coverM ﬁlter       coverM contig
+                                                                                                        Consensus Filtering
+                                                                                                                    (optional)                                                                   vOTU_tpm.csv
+                                                                                                                                                                        vOTU_rpkm.csv
+ Input :        SRA Accessions                              Assemblie (fasta)
+                    OR                                                                                    vOTUs (viral OTUs)
+                                                           strobealign
+                sample_list.csv
+                                                                                                                                                          Performance Enhancements
+                                                   vomix prok-binning -h                         vomix viral-host -h
+                                                                OR                                                                                                    Data split functionality
+      vomix prok-annotate -h                                                                      --cherry-host (default)
+                                                    --binning-consensus    --binning-gpu
+                   HUMAnN3                              MaxBin                  VAMB                 CHERRY                                                           Data split & iterative processing functionality
+           EC      EggNOG         GO                  MetaBAT2                                         PhaVIP
+                                                                                                                                                                      PyHMMER replacing HMMER
+        KEGG         Pfam    MetaCyc                  CONCOT                 CheckM2                     OR
+                                                                                                --iphop-host                                                          Pyrodigal-gv replacing Prodigal
+                                                        DAS Tool                Galah                                RaFAH
+                                                                                                     PHP              Blast                                           Key algorithmic enhancements
+     vomix prok-community -h                                              GTDB-Tk-v2                 WIsH           CRISPR
+       MetaPhlAn        stratify output
+                                                             Prokaryotic Bins                      VirusHostMatcher
+a)                                                      b)
+
+
+
+
+                                 Runtime (minutes)
+                   X12-fold
+                   speed
+     X9-fold       enhancement
+     speed
+     enhancement
+
+
+
+                                                        c)
+
+
+
+
+                                 Peak Memory RSS (Gb)
+                                                             (this study)
+

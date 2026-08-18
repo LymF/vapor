@@ -531,12 +531,16 @@ para um módulo opcional de benchmark em vez do caminho default.
 
 Nenhuma foi analisada a fundo — não tratar como aprovadas.
 
-### Pendências abertas pelo (h) — auditadas, não consertadas
+### Pendências abertas pelo (h) — TODAS CONSERTADAS em 2026-08-18
 
 Três defeitos de **empacotamento/disponibilidade**, nenhum produz resultado
 biológico errado. Dois são anteriores ao (h).
 
-1. **`final/viral/defense_amr/` virou diretório vazio** (introduzido pelo (h)).
+1. ~~**`final/viral/defense_amr/` virou diretório vazio**~~ — **FEITO**. Entrou a
+   regra `finalize_votu_catalog` (molde: `finalize_reads_classify`), que copia
+   os outputs globais para `final/votu_catalog/` e loga item a item o que foi
+   copiado e o que estava ausente — para "sumiu" e "não rodou" não se
+   confundirem. Os dois `mkdir` órfãos saíram. Descrição do problema original:
    O `finalize.smk:176` e o `coassembly.smk:1755` continuam criando o
    diretório, mas com o defensefinder/dbAPIS virais globalizados **nenhuma
    regra escreve dentro dele** — verificado por grep, não há um único writer.
@@ -547,7 +551,10 @@ biológico errado. Dois são anteriores ao (h).
    (`finalize.smk:295-307`). **É decisão de layout do `final/`** — por isso não
    foi feito junto.
 
-2. **Corrida entre o relatório e a anotação** (anterior ao (h), agravada).
+2. ~~**Corrida entre o relatório e a anotação**~~ — **FEITO**. O `report.smk`
+   ganhou arestas para `votu_pharokka`, `votu_phold` e os dois
+   `votu_genome_map_*`, declaradas só como restrição de ordem (os loaders
+   seguem resolvendo os próprios caminhos). Descrição do problema original:
    `rules/report.smk` não tem aresta `input:` para `votu_pharokka`,
    `votu_phold` nem `votu_genome_map_*`, e o `generate_report` não os alcança
    transitivamente. Com `--cores` alto, o `report.html` pode ser escrito antes
@@ -555,7 +562,14 @@ biológico errado. Dois são anteriores ao (h).
    log**. O `load_phrogs`/`load_genome_maps` hardcodam o caminho global sem
    aresta. Conserto: arestas gated por `VOTU_CATALOG_ENABLED`.
 
-3. **`votu_catalog_enabled: false` ficou auto-contraditório.** Os alvos de
+3. ~~**`votu_catalog_enabled: false` ficou auto-contraditório**~~ — **FEITO, pela
+   raiz: a flag foi removida.** Ela nasceu em 13/08 quando o catálogo global
+   era opcional e o clustering por amostra ainda existia como alternativa;
+   esse clustering foi removido, então a flag guardava uma alternativa
+   inexistente. E nunca desligou nada de verdade — gateava só os alvos do
+   `rule all`, nunca as definições de regra, que os demais consumidores
+   puxavam de volta. O catálogo passa a ser estágio obrigatório. Descrição do
+   problema original: Os alvos de
    pharokka/phold/genome maps foram para dentro do bloco
    `if VOTU_CATALOG_ENABLED:` (`Snakefile:444`), quando os antigos alvos por
    amostra eram incondicionais — com a flag desligada o relatório perde PHROGS
@@ -563,7 +577,7 @@ biológico errado. Dois são anteriores ao (h).
    `report.smk` são incondicionais e arrastam a cadeia do catálogo de volta.
    A flag já era meio decorativa; o (h) alargou a inconsistência.
 
-### Quinta manifestação do bug de namespace — `split_viral_fastas.py`
+### Quinta manifestação do bug de namespace — `split_viral_fastas.py` — CONSERTADA
 
 **Anterior ao (h)** (vem do `8ef8bb4`), e é o mesmo padrão. O roadmap marcou o
 `phist` como "legítimo" e não pegou.
@@ -583,7 +597,14 @@ Efeito colateral relacionado: as linhas de bin do PHIST trazem
 abundância — essas linhas mostram `—` na matriz para sempre. Inerente a tratar
 bin como genoma, não é o mesmo bug.
 
-**Commit separado** — não faz parte do (h).
+**Conserto (2026-08-18):** o script passou a receber o `source_id` como
+argumento e a registrar no `binned_contigs` **as duas formas** do nome de cada
+contig binado — a nua e a namespaced. Foi essa a direção escolhida, e não
+tirar o prefixo dos nomes do catálogo: ID nu só é único **dentro** de uma
+fonte, então strippar deixaria um contig de outra amostra colidir com os bins
+desta. Ganhou também um WARNING explícito para o caso "bins carregados mas
+nenhum contig casou como já binado", que é a assinatura exata do
+descasamento.
 
 - **`eggnog_viral` roda um Prodigal próprio** sobre o mesmo `mq_fasta`
   (`votu_catalog.smk`), duplicando o `votu_prodigal` que o (h) tornou global.

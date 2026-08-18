@@ -90,7 +90,6 @@ score_genomad_min:    0.5
 votu_ani: 95.0   # % ANI threshold (ICTV standard)
 votu_af:  85.0   # % aligned fraction
 
-votu_catalog_enabled:       true    # global vOTU catalog (replaces per-sample clustering)
 votu_presence_min_coverage: 75.0    # % of the representative covered to count as present (Roux 2017)
 votu_recruit_min_identity:  null    # min. read identity %; null = 95 (SR/HiFi) or 85 (ONT)
 

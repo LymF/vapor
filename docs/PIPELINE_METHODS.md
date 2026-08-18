@@ -426,7 +426,6 @@ viral + prok tracks + short reads).
 | `viral_consensus_mode` / `min_viral_tools` | consensus rule / N tools | hybrid / 2 |
 | `score_vs2_min` / `score_genomad_min` | detector score thresholds | 0.5 / 0.5 |
 | `votu_ani` / `votu_af` | vOTU ANI / aligned fraction (%), Roux et al. 2019 | 95 / 85 |
-| `votu_catalog_enabled` | build the global vOTU catalog (§5) | true |
 | `votu_presence_min_coverage` | % of representative covered by reads to count as `recruited` presence, Roux et al. 2017 | 75.0 |
 | `votu_recruit_min_identity` | min. read identity (%) for recruitment; `null` = 95 (SR/HiFi) or 85 (ONT) | null |
 | `viral_min_quality` | CheckV tier gate for viral annotation subset (`complete`…`not_determined`) | medium |
