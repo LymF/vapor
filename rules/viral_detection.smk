@@ -127,8 +127,12 @@ rule vibrant:
             -no_plot \
             -d {params.db_dir} \
             -m {params.files_dir} \
-            > {log} 2>&1 || true
-        touch {output.done}
+            > {log} 2>&1 && RC=0 || RC=$?
+        if [ "$RC" -ne 0 ]; then
+            echo "failed: VIBRANT_run.py exit $RC" > {output.done}
+        else
+            echo "ok" > {output.done}
+        fi
         """
 
 

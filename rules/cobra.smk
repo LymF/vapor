@@ -87,8 +87,12 @@ rule cobra_megahit:
             -maxk {params.maxk} \
             -t {threads} \
             -o {params.outdir} \
-            > {log} 2>&1 || true
-        touch {output.done}
+            > {log} 2>&1 && RC=0 || RC=$?
+        if [ "$RC" -ne 0 ]; then
+            echo "failed: cobra-meta exit $RC" > {output.done}
+        else
+            echo "ok" > {output.done}
+        fi
         """
 
 
@@ -131,8 +135,12 @@ rule cobra_spades:
             -maxk {params.maxk} \
             -t {threads} \
             -o {params.outdir} \
-            > {log} 2>&1 || true
-        touch {output.done}
+            > {log} 2>&1 && RC=0 || RC=$?
+        if [ "$RC" -ne 0 ]; then
+            echo "failed: cobra-meta exit $RC" > {output.done}
+        else
+            echo "ok" > {output.done}
+        fi
         """
 
 

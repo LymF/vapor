@@ -89,10 +89,11 @@ rule prodigal_viral:
         """
         mkdir -p $(dirname {output.faa})
         if [ ! -s {input.viral} ]; then
-            touch {output.faa} {output.done}; exit 0
+            touch {output.faa}
+            echo "skipped: no viral contigs" > {output.done}; exit 0
         fi
         prodigal -i {input.viral} -a {output.faa} -p meta -f gff > {log} 2>&1
-        touch {output.done}
+        echo "ok" > {output.done}
         """
 
 

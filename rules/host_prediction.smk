@@ -50,7 +50,7 @@ rule phist:
         if [ "$N_BINS" -eq 0 ] || [ ! -s {input.viral} ]; then
             echo "[phist] No MAGs or no viral sequences — skipping" | tee {log}
             printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
-            touch {output.done}; exit 0
+            echo "skipped: no MAGs or no viral sequences" > {output.done}; exit 0
         fi
 
         # Split viral sequences into individual FASTA files (per-genome kmer-db mode)
@@ -68,7 +68,7 @@ rule phist:
         if [ ! -s {params.outdir}/phage.list ]; then
             echo "[phist] No viral fastas found" | tee -a {log}
             printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
-            touch {output.done}; exit 0
+            echo "skipped: no viral fastas" > {output.done}; exit 0
         fi
 
         kmer-db build -k 25 -t {threads} \
@@ -88,9 +88,14 @@ rule phist:
            [ "$(wc -l < {params.outdir}/kmers.csv)" -lt 2 ]; then
             echo "[phist] No shared k-mers found" | tee -a {log}
             printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
+            echo "skipped: no shared k-mers" > {output.done}
         else
-            phist {params.outdir}/kmers.csv {output.results} >> {log} 2>&1 || \
+            phist {params.outdir}/kmers.csv {output.results} >> {log} 2>&1 && RC=0 || RC=$?
+            if [ "$RC" -ne 0 ]; then
                 printf "phage,host,#common-kmers,pvalue,adj-pvalue\n" > {output.results}
+                echo "failed: phist exit $RC" > {output.done}
+            else
+                echo "ok" > {output.done}
+            fi
         fi
-        touch {output.done}
         """

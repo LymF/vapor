@@ -212,11 +212,15 @@ if LONG_READS:
                 --threads {threads} \
                 --scaffold \
                 --iterations 2 \
-                >> {log} 2>&1 || true
+                >> {log} 2>&1 && RC=0 || RC=$?
             [ -f {params.outdir}/assembly.fasta ] && \
                 cp {params.outdir}/assembly.fasta {output.fasta} || \
                 touch {output.fasta}
-            touch {output.done}
+            if [ "$RC" -ne 0 ]; then
+                echo "failed: flye exit $RC" > {output.done}
+            else
+                echo "ok" > {output.done}
+            fi
             """
 
     rule hifiasm_lr:
@@ -428,13 +432,14 @@ if LONG_READS:
             """
             if [ "{LONG_READS}" != "True" ]; then
                 mkdir -p $(dirname {output.merged})
-                touch {output.merged} {output.done}; exit 0
+                touch {output.merged}
+                echo "skipped: short-read run" > {output.done}; exit 0
             fi
             mkdir -p $(dirname {output.merged})
             python3 {params.scripts_dir}/merge_lr_assemblies.py \
                 {input.flye_fa} {input.hifiasm_fa} {input.mdbg_fa} \
                 {output.merged} {wildcards.sample} \
                 >> {log} 2>&1
-            touch {output.done}
+            echo "ok" > {output.done}
             echo "[merge_lr] Done" | tee -a {log}
             """

@@ -339,7 +339,7 @@ rule dbapis_viral:
         if [ "{params.enabled}" != "True" ] || [ ! -s {input.faa} ]; then
             echo "[dbapis_viral] Disabled or no viral proteins -- skipping" | tee {log}
             printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
-            touch {output.done}
+            echo "skipped: disabled or no viral proteins" > {output.done}
             exit 0
         fi
 
@@ -370,11 +370,12 @@ rule dbapis_viral:
             printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
             cat {output.hits}.raw >> {output.hits}
             rm -f {output.hits}.raw
+            echo "ok" > {output.done}
         else
             echo "[dbapis_viral] No dbAPIS DB available -- writing empty hits" | tee -a {log}
             printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
+            echo "skipped: dbAPIS DB not configured" > {output.done}
         fi
-        touch {output.done}
         echo "[dbapis_viral] Done -- $(( $(wc -l < {output.hits}) - 1 )) hits" | tee -a {log}
         """
 

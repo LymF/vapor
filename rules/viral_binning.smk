@@ -94,9 +94,13 @@ rule vrhyme:
             -o {params.outdir} \
             -t {threads} \
             -l $VRHYME_MIN \
-            > {log} 2>&1 || true
+            > {log} 2>&1 && RC=0 || RC=$?
         mkdir -p {params.outdir}
-        touch {output.done}
+        if [ "$RC" -ne 0 ]; then
+            echo "failed: vRhyme exit $RC" > {output.done}
+        else
+            echo "ok" > {output.done}
+        fi
         """
 
 

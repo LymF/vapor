@@ -174,7 +174,7 @@ rule metabat2:
         mkdir -p {params.outdir}
         if [ "{params.low_depth}" = "True" ]; then
             echo "[MetaBAT2] Skipped -- low_depth_mode enabled" | tee {log}
-            touch {output.done}; exit 0
+            echo "skipped: low_depth_mode" > {output.done}; exit 0
         fi
         METABAT_MIN=$(( {MIN_CONTIG} > 1500 ? {MIN_CONTIG} : 1500 ))
         metabat2 \
@@ -185,7 +185,7 @@ rule metabat2:
             --minContig $METABAT_MIN \
             --unbinned \
             > {log} 2>&1
-        touch {output.done}
+        echo "ok" > {output.done}
         """
 
 
@@ -218,7 +218,7 @@ rule semibin2:
         mkdir -p {params.outdir}
         if [ "{params.low_depth}" = "True" ]; then
             echo "[SemiBin2] Skipped -- low_depth_mode enabled" | tee {log}
-            touch {output.done}; exit 0
+            echo "skipped: low_depth_mode" > {output.done}; exit 0
         fi
         ENGINE="cpu"
         if [ "{USE_GPU}" = "True" ]; then ENGINE="gpu"; fi
@@ -229,8 +229,13 @@ rule semibin2:
             --environment {SEMIBIN_ENV} \
             --engine $ENGINE \
             -t {threads} \
-            > {log} 2>&1 || echo "[SemiBin2] WARNING: binning failed (e.g. too few long contigs) — skipping" | tee -a {log}
-        touch {output.done}
+            > {log} 2>&1 && RC=0 || RC=$?
+        if [ "$RC" -ne 0 ]; then
+            echo "[SemiBin2] WARNING: binning failed (e.g. too few long contigs) — skipping" | tee -a {log}
+            echo "failed: SemiBin2 exit $RC" > {output.done}
+        else
+            echo "ok" > {output.done}
+        fi
         """
 
 

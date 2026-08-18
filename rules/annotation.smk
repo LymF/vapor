@@ -206,12 +206,16 @@ rule phold:
             --hyps \
             --force \
             $DB_FLAG \
-            > {log} 2>&1 || true
+            > {log} 2>&1 && RC=0 || RC=$?
         # phold outputs phold.gbk in the output dir
         [ -f {params.outdir}/phold.gbk ] && \
             cp {params.outdir}/phold.gbk {output.gbk} || \
             touch {output.gbk}
-        touch {output.done}
+        if [ "$RC" -ne 0 ]; then
+            echo "failed: phold exit $RC" > {output.done}
+        else
+            echo "ok" > {output.done}
+        fi
         """
 
 
@@ -500,8 +504,12 @@ rule genome_map_phage:
             --outdir {params.outdir} \
             --min-completeness {params.min_comp} \
             --top-n {params.top_n} \
-            > {log} 2>&1 || true
-        touch {output.done}
+            > {log} 2>&1 && RC=0 || RC=$?
+        if [ "$RC" -ne 0 ]; then
+            echo "failed: genome_map_universal.py exit $RC" > {output.done}
+        else
+            echo "ok" > {output.done}
+        fi
         """
 
 
@@ -630,6 +638,10 @@ rule genome_map_prok:
             --max-contamination {params.max_cont} \
             --max-contigs {params.max_contigs} \
             --top-n {params.top_n} \
-            > {log} 2>&1 || true
-        touch {output.done}
+            > {log} 2>&1 && RC=0 || RC=$?
+        if [ "$RC" -ne 0 ]; then
+            echo "failed: genome_map_universal.py exit $RC" > {output.done}
+        else
+            echo "ok" > {output.done}
+        fi
         """
