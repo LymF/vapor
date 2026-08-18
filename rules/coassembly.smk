@@ -583,14 +583,7 @@ PYEOF
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/eggnog_prok.tsv"
 
 
-    rule coassembly_extract_kegg_kos:
-        """
-        Extrai KO numbers por MAG a partir do output do EggNOG-mapper
-        (co-assembly group level). Mirrors `rule extract_kegg_kos`
-        (rules/annotation.smk). Produz ko_per_mag.tsv (gene_id TAB KO) pronto
-        para KEGG-Decoder, IPATH3, ou qualquer análise downstream de vias
-        metabólicas. Skipped if eggnog annotations are empty.
-        """
+    use rule extract_kegg_kos as coassembly_extract_kegg_kos with:
         input:
             eggnog_done = rules.coassembly_eggnog_prok.output.done,
             annot_tsv   = rules.coassembly_eggnog_prok.output.annot_tsv,
@@ -601,56 +594,6 @@ PYEOF
             f"{OUTDIR}/coassembly/{{group}}/logs/extract_kegg_kos.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/extract_kegg_kos.tsv"
-        conda: "../envs/env_annotation.yaml"
-        threads: 1
-        params:
-            outdir = f"{OUTDIR}/coassembly/{{group}}/annotation/kegg_decoder",
-        run:
-            import re, os, sys
-            from pathlib import Path
-
-            os.makedirs(params.outdir, exist_ok=True)
-            log_path = str(log[0])
-
-            if not os.path.exists(str(input.annot_tsv)) or \
-               os.path.getsize(str(input.annot_tsv)) == 0:
-                with open(log_path, "w") as lf:
-                    lf.write("[extract_kegg_kos] EggNOG annotations empty — skipping\n")
-                Path(str(output.ko_table)).touch()
-                Path(str(output.done)).touch()
-                return
-
-            records = []
-            with open(str(input.annot_tsv)) as f:
-                for line in f:
-                    if line.startswith("#") or not line.strip():
-                        continue
-                    cols = line.rstrip("\n").split("\t")
-                    if len(cols) < 12:
-                        continue
-                    query   = cols[0]
-                    kegg_ko = cols[11]
-                    if kegg_ko == "-" or not kegg_ko.strip():
-                        continue
-                    mag = re.sub(r"_CDS_\d+$", "", query)
-                    mag = re.sub(r"_\d+$", "", mag)
-                    for ko_entry in kegg_ko.split(","):
-                        ko = ko_entry.strip().replace("ko:", "")
-                        if re.match(r"K\d{5}", ko):
-                            records.append((mag, ko))
-
-            with open(str(output.ko_table), "w") as f:
-                f.write("mag\tko\n")
-                for mag, ko in records:
-                    f.write(f"{mag}\t{ko}\n")
-
-            n_mags = len({r[0] for r in records})
-            with open(log_path, "w") as lf:
-                lf.write(f"[extract_kegg_kos] {len(records)} KO entries, {n_mags} MAGs\n")
-                lf.write(f"[extract_kegg_kos] Output: {output.ko_table}\n")
-
-            Path(str(output.done)).touch()
-
 
 if LONG_READS:
 
@@ -1636,14 +1579,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             """
 
 
-    rule coassembly_mmseqs_taxonomy_viral:
-        """
-        Real per-query LCA against INPHARED-derived seqTaxDB on the group
-        vOTU proteins. Mirrors `rule mmseqs_taxonomy_viral` (rules/taxonomy.smk)
-        exactly -- same seqTaxDB path, same skip guards. vConTACT3 and
-        custom-MMseqs sources are out of scope for the co-assembly viral
-        taxonomy core; only GeNomad + this rule feed coassembly_viral_taxonomy.
-        """
+    use rule mmseqs_taxonomy_viral as coassembly_mmseqs_taxonomy_viral with:
         input:
             faa  = rules.coassembly_prodigal_viral.output.faa,
             done = rules.coassembly_prodigal_viral.output.done,
@@ -1652,57 +1588,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared_done.txt",
         log:   f"{OUTDIR}/coassembly/{{group}}/logs/mmseqs_taxonomy_viral.log"
         benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/mmseqs_taxonomy_viral.tsv"
-        conda: "../envs/env_assembly.yaml"
-        container:  CONTAINERS.get("mmseqs2")
-        threads: THREADS
-        params:
-            seqtaxdb = f"{INPHARED_DB}/inphared_mmseqs_taxdb/seqTaxDB",
-            outdir   = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared",
-            querydb  = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared/queryDB",
-            result   = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared/result",
-            tmp      = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_inphared/tmp",
-        run:
-            import os
-            from pathlib import Path
-
-            os.makedirs(params.outdir, exist_ok=True)
-            header = "qseqid\ttaxid\trank\tname\tlineage\n"
-
-            def write_empty(msg):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(msg + "\n")
-                Path(str(output.hits)).write_text(header)
-                Path(str(output.done)).touch()
-
-            if not os.path.exists(str(params.seqtaxdb) + ".dbtype"):
-                write_empty(
-                    "[coassembly_mmseqs_taxonomy_viral] No seqTaxDB at " + str(params.seqtaxdb) +
-                    " -- run scripts/prepare_mmseqs_taxdb.py --format inphared once first (see INSTALL.md). Skipping."
-                )
-                return
-
-            if not os.path.exists(str(input.faa)) or os.path.getsize(str(input.faa)) == 0:
-                write_empty("[coassembly_mmseqs_taxonomy_viral] No viral proteins -- skipping")
-                return
-
-            # mmseqs taxonomy refuses to run if its output DB already exists
-            # ("result.dbtype exists already!") -- same fix as mmseqs_taxonomy_viral.
-            shell("rm -rf {params.tmp} {params.result}*; mkdir -p {params.tmp}")
-            shell("mmseqs createdb {input.faa} {params.querydb} >> {log} 2>&1")
-            shell(
-                "mmseqs taxonomy {params.querydb} {params.seqtaxdb} {params.result} {params.tmp} "
-                "--threads {threads} --tax-lineage 1 >> {log} 2>&1"
-            )
-            shell(
-                "mmseqs createtsv {params.querydb} {params.result} {output.hits}.raw >> {log} 2>&1"
-            )
-            Path(str(output.hits)).write_text(header)
-            if os.path.exists(str(output.hits) + ".raw"):
-                with open(str(output.hits) + ".raw") as f, open(str(output.hits), "a") as out:
-                    out.writelines(f)
-                os.remove(str(output.hits) + ".raw")
-            Path(str(output.done)).touch()
-
 
     rule coassembly_viral_taxonomy:
         """
@@ -1880,15 +1765,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             Path(str(output.done)).write_text("ok\n")
 
 
-    rule coassembly_pharokka:
-        """
-        Bacteriophage genome annotation with Pharokka (PHROGS database) on
-        the group vOTU MQ+ representatives. Mirrors `rule pharokka`
-        (rules/annotation.smk): same env/container/flags, same
-        completeness-only selection criteria (no quality-tier requirement),
-        same --meta/--meta_hmm single-vs-multi-genome handling.
-        Skipped if PHAROKKA_DB is not configured (empty string).
-        """
+    use rule pharokka as coassembly_pharokka with:
         input:
             viral_nr = rules.coassembly_viral_votu_reps.output.mq_fasta,
             checkv   = rules.coassembly_checkv.output.summary,
@@ -1900,130 +1777,8 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             f"{OUTDIR}/coassembly/{{group}}/logs/pharokka.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/pharokka.tsv"
-        conda: "../envs/env_annotation.yaml"
-        container:  CONTAINERS.get("pharokka")
-        threads: THREADS
-        params:
-            outdir   = f"{OUTDIR}/coassembly/{{group}}/annotation/pharokka",
-            db       = PHAROKKA_DB,
-            min_comp = PHAROKKA_MIN_COMPLETENESS,
-            # NOT inside outdir: pharokka.py --force deletes/recreates its own
-            # -o directory on startup, which would delete this -i input too if
-            # it lived underneath it.
-            hq_fa    = f"{OUTDIR}/coassembly/{{group}}/annotation/pharokka_hq_phages.fasta",
-        run:
-            import csv, os
-            from pathlib import Path
 
-            os.makedirs(params.outdir, exist_ok=True)
-            log_path = str(log[0])
-
-            def touch_empty(path):
-                Path(path).touch()
-
-            if not params.db or not os.path.isdir(str(params.db)):
-                with open(log_path, "w") as lf:
-                    lf.write("[coassembly_pharokka] PHAROKKA_DB not configured — skipping\n")
-                touch_empty(output.done)
-                touch_empty(output.gbk)
-                touch_empty(output.tsv)
-                return
-
-            # Filter CheckV by completeness only.
-            # Novel phages (Caudovirales, etc.) often receive "Not-determined" quality
-            # from CheckV even when completeness is high, because CheckV cannot assign
-            # a quality tier without a close reference cluster.  Filtering by quality
-            # tier would silently drop these bona-fide phages from Pharokka annotation.
-            hq_ids = []
-            with open(str(input.checkv)) as f:
-                for row in csv.DictReader(f, delimiter="\t"):
-                    try:
-                        comp = float(row.get("completeness", "0") or 0)
-                    except ValueError:
-                        # CheckV writes "NA" for completeness on some
-                        # "Not-determined" quality contigs -- treat as 0.
-                        comp = 0.0
-                    if comp >= float(params.min_comp):
-                        hq_ids.append((row["contig_id"], comp))
-            hq_ids.sort(key=lambda x: x[1], reverse=True)
-            hq_set = {cid for cid, _ in hq_ids}
-
-            # Extract sequences
-            with open(str(params.hq_fa), "w") as out_fa, \
-                 open(str(input.viral_nr)) as in_fa, \
-                 open(log_path, "w") as lf:
-                lf.write(f"[coassembly_pharokka] Phages selected (completeness >= {params.min_comp}%): {len(hq_set)}\n")
-                write = False
-                for line in in_fa:
-                    if line.startswith(">"):
-                        name = line[1:].split()[0]
-                        write = name in hq_set
-                    if write:
-                        out_fa.write(line)
-
-            if not hq_set or os.path.getsize(str(params.hq_fa)) == 0:
-                with open(log_path, "a") as lf:
-                    lf.write("[coassembly_pharokka] No HQ phages found — skipping\n")
-                touch_empty(output.done)
-                touch_empty(output.gbk)
-                touch_empty(output.tsv)
-                return
-
-            # --meta/--meta_hmm are multi-FASTA only; pharokka.py refuses to run
-            # with --meta on a single-contig input ("ERROR: -m meta mode
-            # specified when the input file only contains 1 contig").
-            with open(str(params.hq_fa)) as f:
-                n_seqs = sum(1 for line in f if line.startswith(">"))
-            meta_flags = "--meta --meta_hmm" if n_seqs > 1 else ""
-            with open(log_path, "a") as lf:
-                lf.write(f"[coassembly_pharokka] {n_seqs} sequence(s) in input — "
-                          f"{'meta' if n_seqs > 1 else 'single-genome'} mode\n")
-
-            shell(
-                "pharokka.py"
-                " -i {params.hq_fa}"
-                " -o {params.outdir}"
-                " -d {params.db}"
-                " -t {threads}"
-                " {meta_flags}"
-                " --dnaapler"
-                " --force"
-                " >> {log} 2>&1"
-            )
-
-            # Standardize output filenames — Pharokka may name them differently in meta mode
-            for candidate in [
-                f"{params.outdir}/pharokka.gbk",
-                f"{params.outdir}/pharokka_meta.gbk",
-            ]:
-                if os.path.exists(candidate):
-                    if candidate != str(output.gbk):
-                        os.rename(candidate, str(output.gbk))
-                    break
-            else:
-                touch_empty(output.gbk)
-
-            for candidate in [
-                f"{params.outdir}/pharokka_cds_final_merged_output.tsv",
-                f"{params.outdir}/pharokka_annotations.tsv",
-            ]:
-                if os.path.exists(candidate):
-                    if candidate != str(output.tsv):
-                        os.rename(candidate, str(output.tsv))
-                    break
-            else:
-                touch_empty(output.tsv)
-
-            shell("touch {output.done}")
-
-
-    rule coassembly_phold:
-        """
-        Phold — structure-based annotation of viral hypothetical proteins on
-        the group vOTU set. Mirrors `rule phold` (rules/annotation.smk): same
-        env/container/flags. Takes coassembly_pharokka's GBK as input; skipped
-        if Pharokka found no HQ phages (gbk is empty).
-        """
+    use rule phold as coassembly_phold with:
         input:
             pharokka_done = rules.coassembly_pharokka.output.done,
             pharokka_gbk  = rules.coassembly_pharokka.output.gbk,
@@ -2034,46 +1789,8 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             f"{OUTDIR}/coassembly/{{group}}/logs/phold.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/phold.tsv"
-        conda: "../envs/env_annotation.yaml"
-        container:  CONTAINERS.get("phold")
-        threads: THREADS
-        params:
-            outdir = f"{OUTDIR}/coassembly/{{group}}/annotation/phold",
-            db     = PHOLD_DB,
-        shell:
-            """
-            mkdir -p {params.outdir}
-            if [ ! -s {input.pharokka_gbk} ]; then
-                echo "[coassembly_phold] Pharokka GBK empty — skipping" | tee {log}
-                touch {output.gbk} {output.done}; exit 0
-            fi
-            DB_FLAG=""
-            [ -n "{params.db}" ] && [ -d "{params.db}" ] && DB_FLAG="-d {params.db}"
-            phold run \
-                -i {input.pharokka_gbk} \
-                -o {params.outdir} \
-                -t {threads} \
-                --cpu \
-                --hyps \
-                --force \
-                $DB_FLAG \
-                > {log} 2>&1 || true
-            # phold outputs phold.gbk in the output dir
-            [ -f {params.outdir}/phold.gbk ] && \
-                cp {params.outdir}/phold.gbk {output.gbk} || \
-                touch {output.gbk}
-            touch {output.done}
-            """
 
-
-    rule coassembly_defensefinder_viral:
-        """
-        Anti-defense systems on the group vOTU viral proteins. Mirrors
-        `rule defensefinder_viral` (rules/defense_amr.smk): same
-        env/container/flags (DefenseFinder --antidefensefinder), one call
-        across the group's whole viral protein set (coassembly_prodigal_viral
-        ran prodigal in meta mode on the MQ+ vOTU representative FASTA).
-        """
+    use rule defensefinder_viral as coassembly_defensefinder_viral with:
         input:
             faa  = rules.coassembly_prodigal_viral.output.faa,
             done = rules.coassembly_prodigal_viral.output.done,
@@ -2085,92 +1802,8 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             f"{OUTDIR}/coassembly/{{group}}/logs/defensefinder_viral.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/defensefinder_viral.tsv"
-        conda: "../envs/env_defense.yaml"
-        container:  CONTAINERS.get("defense_finder")
-        threads: THREADS
-        params:
-            outdir     = f"{OUTDIR}/coassembly/{{group}}/viral/defensefinder",
-            models_dir = DEFENSE_FINDER_MODELS_DB,
-            enabled    = DEFENSE_AMR_VIRAL_ENABLED,
-        run:
-            import csv, glob, os
-            from pathlib import Path
 
-            os.makedirs(params.outdir, exist_ok=True)
-
-            def write_empty(msg):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(msg + "\n")
-                Path(str(output.systems)).write_text("genome\n")
-                Path(str(output.antisystems)).write_text("genome\n")
-                Path(str(output.done)).touch()
-
-            if (not params.enabled or not os.path.exists(str(input.faa))
-                    or os.path.getsize(str(input.faa)) == 0):
-                write_empty("[coassembly_defensefinder_viral] Disabled or no viral proteins -- skipping")
-                return
-
-            models_dir = params.models_dir or os.path.join(params.outdir, "models")
-            os.makedirs(models_dir, exist_ok=True)
-            if os.listdir(models_dir):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(f"[coassembly_defensefinder_viral] Models already cached in {models_dir}\n")
-            else:
-                shell("defense-finder update --models-dir {models_dir} >> {log} 2>&1 || "
-                      "echo '[coassembly_defensefinder_viral] WARNING: model update failed' >> {log}")
-
-            run_out = os.path.join(params.outdir, "run")
-            os.makedirs(run_out, exist_ok=True)
-            shell(
-                "defense-finder run -o {run_out} --models-dir {models_dir} "
-                "--antidefensefinder {input.faa} "
-                ">> {log} 2>&1 || echo '[coassembly_defensefinder_viral] WARNING: run failed' >> {log}"
-            )
-
-            # Same split-by-"activity" logic as the per-sample rule (3.0.0
-            # writes one consolidated *_defense_finder_systems.tsv, Defense and
-            # Anti-defense rows distinguished by the "activity" column).
-            def_rows, anti_rows, header = [], [], None
-            for tsv in sorted(glob.glob(os.path.join(run_out, "*_defense_finder_systems.tsv"))):
-                with open(tsv) as f:
-                    r = csv.reader(f, delimiter="\t")
-                    h = next(r, None)
-                    if h is None:
-                        continue
-                    if header is None:
-                        header = h
-                    activity_idx = h.index("activity") if "activity" in h else None
-                    for row in r:
-                        is_anti = (activity_idx is not None and len(row) > activity_idx
-                                   and "anti" in row[activity_idx].lower())
-                        # "genome" column here is the group (single viral protein
-                        # set), not a per-bin name -- the protein_in_syst column
-                        # (already part of `header`) carries the actual viral
-                        # contig/ORF IDs needed to attribute hits downstream.
-                        (anti_rows if is_anti else def_rows).append([wildcards.group] + row)
-
-            def write(path, rows):
-                with open(path, "w", newline="") as f:
-                    w = csv.writer(f, delimiter="\t")
-                    w.writerow(["genome"] + (header or []))
-                    w.writerows(rows)
-
-            write(str(output.systems), def_rows)
-            write(str(output.antisystems), anti_rows)
-
-            with open(str(log[0]), "a") as lf:
-                lf.write(f"[coassembly_defensefinder_viral] Done -- {len(def_rows)} defense, "
-                          f"{len(anti_rows)} antidefense system rows\n")
-            Path(str(output.done)).touch()
-
-
-    rule coassembly_dbapis_viral:
-        """
-        Anti-defense systems on the group vOTU viral proteins via dbAPIS.
-        Mirrors `rule dbapis_viral` (rules/defense_amr.smk): same
-        env/container/flags, DIAMOND blastp only, same shared-cache DB
-        auto-populate pattern (APIS_DB).
-        """
+    use rule dbapis_viral as coassembly_dbapis_viral with:
         input:
             faa  = rules.coassembly_prodigal_viral.output.faa,
             done = rules.coassembly_prodigal_viral.output.done,
@@ -2181,56 +1814,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             f"{OUTDIR}/coassembly/{{group}}/logs/dbapis_viral.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/dbapis_viral.tsv"
-        conda: "../envs/env_viral.yaml"
-        container:  CONTAINERS.get("diamond")
-        threads: THREADS
-        params:
-            outdir   = f"{OUTDIR}/coassembly/{{group}}/viral/dbapis",
-            apis_dir = APIS_DB or f"{OUTDIR}/dbapis_db",
-            enabled  = DEFENSE_AMR_VIRAL_ENABLED,
-        shell:
-            """
-            set -euo pipefail
-            mkdir -p {params.outdir}
-            if [ "{params.enabled}" != "True" ] || [ ! -s {input.faa} ]; then
-                echo "[coassembly_dbapis_viral] Disabled or no viral proteins -- skipping" | tee {log}
-                printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
-                touch {output.done}
-                exit 0
-            fi
-
-            APIS_DIR="{params.apis_dir}"
-            mkdir -p "$APIS_DIR"
-
-            if [ ! -s "$APIS_DIR/APIS_db.dmnd" ]; then
-                echo "[coassembly_dbapis_viral] Building dbAPIS Diamond DB in $APIS_DIR" | tee -a {log}
-                wget -q -O "$APIS_DIR/anti_defense.pep" \
-                    "https://pro.unl.edu/dbAPIS/download_file.php?file=anti_defense.pep" \
-                    >> {log} 2>&1 || echo "[coassembly_dbapis_viral] WARNING: wget anti_defense.pep failed" >> {log}
-                wget -q -O "$APIS_DIR/seed_and_familyrep_all_infor.tsv" \
-                    "https://pro.unl.edu/dbAPIS/download_file.php?file=seed_and_familyrep_all_infor.tsv" \
-                    >> {log} 2>&1 || echo "[coassembly_dbapis_viral] WARNING: wget seed_and_familyrep_all_infor.tsv failed (mapping disabled, family IDs still reported)" >> {log}
-                if [ -s "$APIS_DIR/anti_defense.pep" ]; then
-                    diamond makedb --in "$APIS_DIR/anti_defense.pep" -d "$APIS_DIR/APIS_db" >> {log} 2>&1
-                fi
-            fi
-
-            if [ -s "$APIS_DIR/APIS_db.dmnd" ]; then
-                diamond blastp --db "$APIS_DIR/APIS_db" -q {input.faa} \
-                    -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen \
-                    --max-target-seqs 25 --evalue 1e-10 --id 30 \
-                    -o {output.hits}.raw --threads {threads} >> {log} 2>&1
-                printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
-                cat {output.hits}.raw >> {output.hits}
-                rm -f {output.hits}.raw
-            else
-                echo "[coassembly_dbapis_viral] No dbAPIS DB available -- writing empty hits" | tee -a {log}
-                printf "qseqid\\tsseqid\\tpident\\tlength\\tmismatch\\tgapopen\\tqstart\\tqend\\tsstart\\tsend\\tevalue\\tbitscore\\tqlen\\tslen\\n" > {output.hits}
-            fi
-            touch {output.done}
-            echo "[coassembly_dbapis_viral] Done -- $(( $(wc -l < {output.hits}) - 1 )) hits" | tee -a {log}
-            """
-
 
 # ── Group vRhyme (viral vMAGs) — short reads only (needs coverage) ──────────────
 # Mirrors rule vrhyme / checkv_vrhyme (rules/viral_binning.smk) but bins the group's
@@ -2497,16 +2080,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
     # the per-sample prok_bin_proteins one. Logic/env/container/flags are
     # identical -- only paths and the manifest input change.
 
-    rule coassembly_defensefinder:
-        """
-        DefenseFinder -- systematic detection of anti-phage defense systems
-        (MacSyFinder + HMM models), with built-in AntiDefenseFinder
-        (--antidefensefinder flag) for anti-defense proteins in the same pass.
-        Runs once per genome unit (manifest from coassembly_prok_bin_proteins):
-        MacSyFinder needs gene order within a replicon, so genomes cannot be
-        concatenated (unlike the gene-level AMR tools below).
-        Mirrors `rule defensefinder` (rules/defense_amr.smk) for the group.
-        """
+    use rule defensefinder as coassembly_defensefinder with:
         input:
             manifest = rules.coassembly_prok_bin_proteins.output.manifest,
             done     = rules.coassembly_prok_bin_proteins.output.done,
@@ -2518,83 +2092,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/defensefinder.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/defensefinder.tsv"
-        conda: "../envs/env_defense.yaml"
-        container:  CONTAINERS.get("defense_finder")
-        threads: THREADS
-        params:
-            outdir     = f"{OUTDIR}/coassembly/{{group}}/bins/defensefinder",
-            models_dir = DEFENSE_FINDER_MODELS_DB,
-            enabled    = DEFENSE_AMR_ENABLED,
-        run:
-            import csv, glob, os
-            from pathlib import Path
-
-            os.makedirs(params.outdir, exist_ok=True)
-
-            def write_empty(msg):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(msg + "\n")
-                Path(str(output.systems)).write_text("genome\n")
-                Path(str(output.antisystems)).write_text("genome\n")
-                Path(str(output.done)).touch()
-
-            if (not params.enabled or not os.path.exists(str(input.manifest))
-                    or os.path.getsize(str(input.manifest)) == 0):
-                write_empty("[coassembly_defensefinder] Disabled or no genome units -- skipping")
-                return
-
-            models_dir = params.models_dir or os.path.join(params.outdir, "models")
-            os.makedirs(models_dir, exist_ok=True)
-
-            if os.listdir(models_dir):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(f"[coassembly_defensefinder] Models already cached in {models_dir} -- skipping update\n")
-            else:
-                shell("defense-finder update --models-dir {models_dir} >> {log} 2>&1 || "
-                      "echo '[coassembly_defensefinder] WARNING: model update failed -- "
-                      "GitHub rate limit? set GITHUB_TOKEN or retry later' >> {log}")
-
-            for name, mode, fna, faa, gff in _read_manifest(str(input.manifest)):
-                if not os.path.exists(faa) or os.path.getsize(faa) == 0:
-                    continue
-                genome_out = os.path.join(params.outdir, name)
-                os.makedirs(genome_out, exist_ok=True)
-                shell(
-                    "defense-finder run -o {genome_out} --models-dir {models_dir} "
-                    "--antidefensefinder {faa} "
-                    ">> {log} 2>&1 || echo '[coassembly_defensefinder] WARNING: failed on {name}' >> {log}"
-                )
-
-            def_rows, anti_rows, header = [], [], None
-            for tsv in sorted(glob.glob(os.path.join(params.outdir, "*", "*_defense_finder_systems.tsv"))):
-                genome = os.path.basename(os.path.dirname(tsv))
-                with open(tsv) as f:
-                    r = csv.reader(f, delimiter="\t")
-                    h = next(r, None)
-                    if h is None:
-                        continue
-                    if header is None:
-                        header = h
-                    activity_idx = h.index("activity") if "activity" in h else None
-                    for row in r:
-                        is_anti = (activity_idx is not None and len(row) > activity_idx
-                                   and "anti" in row[activity_idx].lower())
-                        (anti_rows if is_anti else def_rows).append([genome] + row)
-
-            def write(path, rows):
-                with open(path, "w", newline="") as f:
-                    w = csv.writer(f, delimiter="\t")
-                    w.writerow(["genome"] + (header or []))
-                    w.writerows(rows)
-
-            write(str(output.systems), def_rows)
-            write(str(output.antisystems), anti_rows)
-
-            with open(str(log[0]), "a") as lf:
-                lf.write(f"[coassembly_defensefinder] Done -- {len(def_rows)} defense, "
-                          f"{len(anti_rows)} antidefense system rows\n")
-            Path(str(output.done)).touch()
-
 
     rule coassembly_amrfinderplus:
         """
@@ -2796,14 +2293,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             Path(str(output.done)).touch()
 
 
-    rule coassembly_abricate:
-        """
-        ABRicate -- BLASTN mass screening of group MAGs for gene presence.
-        Used here only for VFDB (virulence factors) and PlasmidFinder
-        (plasmid replicons) -- NOT for AMR gene calling. Runs per genome
-        unit (manifest from coassembly_prok_bin_proteins) on the nucleotide
-        sequence. Mirrors `rule abricate` (rules/defense_amr.smk) for the group.
-        """
+    use rule abricate as coassembly_abricate with:
         input:
             manifest = rules.coassembly_prok_bin_proteins.output.manifest,
             done     = rules.coassembly_prok_bin_proteins.output.done,
@@ -2815,75 +2305,8 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/abricate.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/abricate.tsv"
-        conda: "../envs/env_abricate.yaml"
-        container:  CONTAINERS.get("abricate")
-        threads: THREADS
-        params:
-            outdir  = f"{OUTDIR}/coassembly/{{group}}/bins/abricate",
-            dbs     = ["vfdb", "plasmidfinder"],
-            enabled = ABRICATE_ENABLED,
-        run:
-            import csv, os
-            from pathlib import Path
 
-            os.makedirs(params.outdir, exist_ok=True)
-            out_paths = {"vfdb": str(output.vfdb), "plasmidfinder": str(output.plasmidfinder)}
-
-            def write_empty(msg):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(msg + "\n")
-                for db in params.dbs:
-                    Path(out_paths[db]).write_text("genome\n")
-                Path(str(output.done)).touch()
-
-            if (not params.enabled or not os.path.exists(str(input.manifest))
-                    or os.path.getsize(str(input.manifest)) == 0):
-                write_empty("[coassembly_abricate] Disabled or no genome units -- skipping")
-                return
-
-            shell("abricate --setupdb >> {log} 2>&1 || "
-                  "echo '[coassembly_abricate] WARNING: setupdb failed (may already be set up)' >> {log}")
-
-            for db in params.dbs:
-                rows, header = [], None
-                for name, mode, fna, faa, gff in _read_manifest(str(input.manifest)):
-                    if not os.path.exists(fna) or os.path.getsize(fna) == 0:
-                        continue
-                    genome_tsv = os.path.join(params.outdir, f"{name}.{db}.tsv")
-                    shell(
-                        "abricate --db {db} --quiet {fna} > {genome_tsv} "
-                        "2>> {log} || echo '[coassembly_abricate] WARNING: failed on {name} ({db})' >> {log}"
-                    )
-                    if os.path.exists(genome_tsv) and os.path.getsize(genome_tsv) > 0:
-                        with open(genome_tsv) as f:
-                            r = csv.reader(f, delimiter="\t")
-                            h = next(r, None)
-                            if h is None:
-                                continue
-                            if header is None:
-                                header = h
-                            for row in r:
-                                rows.append([name] + row)
-
-                with open(out_paths[db], "w", newline="") as f:
-                    w = csv.writer(f, delimiter="\t")
-                    w.writerow(["genome"] + (header or []))
-                    w.writerows(rows)
-
-            with open(str(log[0]), "a") as lf:
-                lf.write(f"[coassembly_abricate] Done -- {len(params.dbs)} database(s) screened\n")
-            Path(str(output.done)).touch()
-
-
-    rule coassembly_argnorm_normalize:
-        """
-        argNorm -- maps coassembly_amrfinderplus/coassembly_deeparg gene calls
-        onto the Antibiotic Resistance Ontology (ARO), so the same gene
-        reported under different names by the two tools can be compared with
-        each other and with RGI. RGI is deliberately NOT routed through
-        argNorm (see `rule argnorm_normalize` docstring, rules/defense_amr.smk,
-        for the full rationale). Mirrors that rule for the group.
-        """
+    use rule argnorm_normalize as coassembly_argnorm_normalize with:
         input:
             amrfinder      = rules.coassembly_amrfinderplus.output.results,
             amrfinder_done = rules.coassembly_amrfinderplus.output.done,
@@ -2897,51 +2320,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/argnorm.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/argnorm.tsv"
-        conda: "../envs/env_argnorm.yaml"
-        container:  CONTAINERS.get("argnorm")
-        threads: 1
-        params:
-            enabled = ARGNORM_ENABLED,
-        run:
-            import os
-            from pathlib import Path
-
-            os.makedirs(os.path.dirname(str(output.done)), exist_ok=True)
-
-            def stub(path):
-                Path(path).write_text("ARO\n")
-
-            def write_empty(msg):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(msg + "\n")
-                stub(output.amrfinder_normed)
-                stub(output.deeparg_normed)
-                Path(str(output.done)).touch()
-
-            if not params.enabled:
-                write_empty("[coassembly_argnorm] argnorm_enabled=False -- skipping")
-                return
-
-            if _has_data_rows(str(input.amrfinder)):
-                shell(
-                    "argnorm amrfinderplus -i {input.amrfinder} -o {output.amrfinder_normed} "
-                    ">> {log} 2>&1 || echo '[coassembly_argnorm] WARNING: amrfinderplus normalization failed' >> {log}"
-                )
-            if not os.path.exists(str(output.amrfinder_normed)) or os.path.getsize(str(output.amrfinder_normed)) == 0:
-                stub(output.amrfinder_normed)
-
-            if _has_data_rows(str(input.deeparg)):
-                shell(
-                    "argnorm deeparg -i {input.deeparg} -o {output.deeparg_normed} "
-                    ">> {log} 2>&1 || echo '[coassembly_argnorm] WARNING: deeparg normalization failed' >> {log}"
-                )
-            if not os.path.exists(str(output.deeparg_normed)) or os.path.getsize(str(output.deeparg_normed)) == 0:
-                stub(output.deeparg_normed)
-
-            with open(str(log[0]), "a") as lf:
-                lf.write("[coassembly_argnorm] Done\n")
-            Path(str(output.done)).touch()
-
 
     rule coassembly_amr_consensus:
         """

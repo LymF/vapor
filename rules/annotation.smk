@@ -46,13 +46,16 @@ rule pharokka:
     container:  CONTAINERS.get("pharokka")
     threads: THREADS
     params:
-        outdir   = f"{OUTDIR}/{{sample}}/annotation/pharokka",
+        # derivado do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir   = lambda wc, output: os.path.dirname(output.done),
         db       = PHAROKKA_DB,
         min_comp = PHAROKKA_MIN_COMPLETENESS,
         # NOT inside outdir: pharokka.py --force deletes/recreates its own
         # -o directory on startup, which would delete this -i input too if
         # it lived underneath it.
-        hq_fa    = f"{OUTDIR}/{{sample}}/annotation/pharokka_hq_phages.fasta",
+        hq_fa    = lambda wc, output: os.path.join(
+            os.path.dirname(os.path.dirname(output.done)), "pharokka_hq_phages.fasta"),
     run:
         import csv, os
         from pathlib import Path
@@ -182,7 +185,9 @@ rule phold:
     container:  CONTAINERS.get("phold")
     threads: THREADS
     params:
-        outdir = f"{OUTDIR}/{{sample}}/annotation/phold",
+        # derivado do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir = lambda wc, output: os.path.dirname(output.done),
         db     = PHOLD_DB,
     shell:
         """
@@ -394,7 +399,9 @@ rule extract_kegg_kos:
     conda: "../envs/env_annotation.yaml"
     threads: 1
     params:
-        outdir = f"{OUTDIR}/{{sample}}/annotation/kegg_decoder",
+        # derivado do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir = lambda wc, output: os.path.dirname(output.done),
     run:
         import re, os, sys
         from pathlib import Path

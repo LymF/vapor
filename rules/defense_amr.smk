@@ -68,7 +68,9 @@ rule defensefinder:
     container:  CONTAINERS.get("defense_finder")
     threads: THREADS
     params:
-        outdir     = f"{OUTDIR}/{{sample}}/bins/defensefinder",
+        # derivado do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir     = lambda wc, output: os.path.dirname(output.done),
         models_dir = DEFENSE_FINDER_MODELS_DB,
         enabled    = DEFENSE_AMR_ENABLED,
     run:
@@ -205,7 +207,11 @@ rule defensefinder_viral:
     container:  CONTAINERS.get("defense_finder")
     threads: THREADS
     params:
-        outdir     = f"{OUTDIR}/{{sample}}/viral/defensefinder",
+        # derivados do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir     = lambda wc, output: os.path.dirname(output.done),
+        unit_label = lambda wc, output: os.path.basename(
+            os.path.dirname(os.path.dirname(os.path.dirname(output.done)))),
         models_dir = DEFENSE_FINDER_MODELS_DB,
         enabled    = DEFENSE_AMR_VIRAL_ENABLED,
     run:
@@ -263,7 +269,7 @@ rule defensefinder_viral:
                     # set), not a per-bin name -- the protein_in_syst column
                     # (already part of `header`) carries the actual viral
                     # contig/ORF IDs needed to attribute hits downstream.
-                    (anti_rows if is_anti else def_rows).append([wildcards.sample] + row)
+                    (anti_rows if is_anti else def_rows).append([params.unit_label] + row)
 
         def write(path, rows):
             with open(path, "w", newline="") as f:
@@ -321,7 +327,9 @@ rule dbapis_viral:
     container:  CONTAINERS.get("diamond")
     threads: THREADS
     params:
-        outdir   = f"{OUTDIR}/{{sample}}/viral/dbapis",
+        # derivado do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir   = lambda wc, output: os.path.dirname(output.done),
         apis_dir = APIS_DB or f"{OUTDIR}/dbapis_db",
         enabled  = DEFENSE_AMR_VIRAL_ENABLED,
     shell:
@@ -664,7 +672,9 @@ rule abricate:
     container:  CONTAINERS.get("abricate")
     threads: THREADS
     params:
-        outdir  = f"{OUTDIR}/{{sample}}/bins/abricate",
+        # derivado do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir  = lambda wc, output: os.path.dirname(output.done),
         dbs     = ["vfdb", "plasmidfinder"],
         enabled = ABRICATE_ENABLED,
     run:

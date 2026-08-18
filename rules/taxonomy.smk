@@ -133,10 +133,12 @@ rule mmseqs_taxonomy_viral:
     threads: THREADS
     params:
         seqtaxdb = f"{INPHARED_DB}/inphared_mmseqs_taxdb/seqTaxDB",
-        outdir   = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_inphared",
-        querydb  = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_inphared/queryDB",
-        result   = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_inphared/result",
-        tmp      = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_inphared/tmp",
+        # derivado do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir   = lambda wc, output: os.path.dirname(output.done),
+        querydb  = lambda wc, output: os.path.join(os.path.dirname(output.done), "queryDB"),
+        result   = lambda wc, output: os.path.join(os.path.dirname(output.done), "result"),
+        tmp      = lambda wc, output: os.path.join(os.path.dirname(output.done), "tmp"),
     run:
         import os
         from pathlib import Path
