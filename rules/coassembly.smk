@@ -475,17 +475,9 @@ if not LONG_READS:
             """
 
 
-    rule coassembly_bakta:
-        """
-        Bakta — prokaryotic MAG annotation (group-level, short reads).
-        Mirrors `rule bakta` (rules/annotation.smk): same env/container/flags,
-        same completeness/contamination thresholds. Annotates HQ/MQ MAGs from
-        CheckM2 (checkm2_group) that pass quality thresholds. Loops over all
-        qualifying MAGs within a single rule execution.
-        NOTE: unlike the per-sample rule (Binette bins, `.fa`), VAMB v5 writes
-        bin FASTAs as `.fna` — BIN_FA extension differs accordingly.
-        Skipped if BAKTA_DB is not configured (empty string).
-        """
+    # Bakta nos MAGs do grupo. Herda `rule bakta` (rules/annotation.smk);
+    # bins do VAMB sao *.fna (bin_ext sobrescrito).
+    use rule bakta as coassembly_bakta with:
         input:
             checkm2 = rules.checkm2_group.output.report,
             binette = rules.vamb_cobinning.output.done,
@@ -496,78 +488,12 @@ if not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/bakta.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/bakta.tsv"
-        conda: "../envs/env_annotation.yaml"
-        container:  CONTAINERS.get("bakta")
-        threads: THREADS
         params:
-            outdir    = f"{OUTDIR}/coassembly/{{group}}/annotation/bakta",
+            outdir    = lambda wc, output: os.path.dirname(output.done),
             bins_dir  = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
+            bin_ext   = ".fna",
             min_comp  = BAKTA_MIN_COMPLETENESS,
             max_cont  = BAKTA_MAX_CONTAMINATION,
-        shell:
-            """
-            mkdir -p {params.outdir}
-            export BAKTA_DB="{BAKTA_DB}"
-
-            if [ -z "{BAKTA_DB}" ] || [ ! -d "{BAKTA_DB}" ]; then
-                echo "[bakta] BAKTA_DB not configured — skipping" | tee {log}
-                echo -e "bin\tstatus" > {output.summary}
-                touch {output.done}; exit 0
-            fi
-
-            # Identify qualifying MAGs from CheckM2 report
-            python3 - <<'PYEOF'
-import csv, sys
-qualifying = []
-with open("{input.checkm2}") as f:
-    for row in csv.DictReader(f, delimiter="\\t"):
-        name = row.get("Name", "").strip()
-        comp = float(row.get("Completeness", 0) or 0)
-        cont = float(row.get("Contamination", 100) or 100)
-        if comp >= {params.min_comp} and cont <= {params.max_cont}:
-            qualifying.append(name)
-with open("{params.outdir}/qualifying_bins.txt", "w") as f:
-    f.write("\\n".join(qualifying) + "\\n")
-print(f"[bakta] Qualifying MAGs: {{len(qualifying)}}", file=sys.stderr)
-PYEOF
-
-            N_QUAL=$(wc -l < {params.outdir}/qualifying_bins.txt 2>/dev/null || echo 0)
-            echo "[bakta] $N_QUAL qualifying MAGs (>={params.min_comp}% comp, <={params.max_cont}% cont)" \
-                | tee -a {log}
-
-            if [ "$N_QUAL" -eq 0 ]; then
-                echo "[bakta] No qualifying MAGs — skipping" | tee -a {log}
-                echo -e "bin\tstatus" > {output.summary}
-                touch {output.done}; exit 0
-            fi
-
-            echo -e "bin\tstatus" > {output.summary}
-
-            while IFS= read -r BIN_NAME || [ -n "$BIN_NAME" ]; do
-                [ -z "$BIN_NAME" ] && continue
-                BIN_FA="{params.bins_dir}/$BIN_NAME.fna"
-                [ -f "$BIN_FA" ] || {{ printf "%s\tmissing\n" "$BIN_NAME" >> {output.summary}; continue; }}
-
-                BIN_OUT="{params.outdir}/$BIN_NAME"
-                mkdir -p "$BIN_OUT"
-                bakta \
-                    --db {BAKTA_DB} \
-                    --output "$BIN_OUT" \
-                    --prefix "$BIN_NAME" \
-                    --threads {threads} \
-                    --meta \
-                    --force \
-                    --skip-plot \
-                    "$BIN_FA" \
-                    >> {log} 2>&1 && \
-                    echo "$BIN_NAME\tok" >> {output.summary} || \
-                    echo "$BIN_NAME\tfailed" >> {output.summary}
-            done < {params.outdir}/qualifying_bins.txt
-
-            touch {output.done}
-            echo "[bakta] Done — $(grep -c 'ok' {output.summary}) MAGs annotated" | tee -a {log}
-            """
-
 
     # EggNOG-mapper nos MAGs do grupo. Herda `rule eggnog_prok`
     # (rules/annotation.smk) — a copia anterior divergia apenas no docstring.
@@ -1928,13 +1854,10 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             Path(str(output.done)).touch()
 
 
-    rule coassembly_gunc:
-        """
-        GUNC on group VAMB co-binning MAGs (mirrors `rule gunc`,
-        rules/prok_binning.smk). Same env/container/flags; VAMB bins are
-        `.fna` (not `.fa` like per-sample Binette), so the bin-count guard
-        and `--file_suffix` differ accordingly.
-        """
+    # GUNC nos MAGs do co-binning VAMB do grupo. Herda `rule gunc`
+    # (rules/prok_binning.smk); os bins do VAMB sao *.fna, entao bin_ext e
+    # sobrescrito -- e a unica diferenca real de corpo entre as duas.
+    use rule gunc as coassembly_gunc with:
         input:
             done = rules.vamb_cobinning.output.done,
         output:
@@ -1943,50 +1866,12 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/gunc.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/gunc.tsv"
-        conda: "../envs/env_gunc.yaml"
-        container: CONTAINERS.get("gunc")
-        threads: THREADS
         params:
             bins_dir = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
-            outdir   = f"{OUTDIR}/coassembly/{{group}}/bins/gunc",
+            bin_ext  = ".fna",
+            outdir   = lambda wc, output: os.path.dirname(output.merged),
             db       = GUNC_DB,
             enabled  = GUNC_ENABLED,
-        shell:
-            """
-            mkdir -p $(dirname {log})
-            mkdir -p {params.outdir}
-            if [ "{params.enabled}" != "True" ]; then
-                echo "[coassembly_gunc] Disabled via config (gunc_enabled: false)" | tee {log}
-                printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
-                exit 0
-            fi
-            if [ -z "{params.db}" ] || [ ! -e "{params.db}" ]; then
-                echo "[coassembly_gunc] WARNING: gunc_db not set or missing — skipping" | tee {log}
-                printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
-                exit 0
-            fi
-            N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fna" 2>/dev/null | wc -l)
-            if [ "$N_BINS" -eq 0 ]; then
-                echo "[coassembly_gunc] No bins to evaluate" | tee {log}
-                printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
-                exit 0
-            fi
-            gunc run \
-                --input_dir {params.bins_dir} \
-                --out_dir   {params.outdir} \
-                --db_file   {params.db} \
-                --threads   {threads} \
-                --file_suffix .fna \
-                > {log} 2>&1 || echo "[coassembly_gunc] WARNING: gunc run failed" | tee -a {log}
-            # Locate produced TSV (filename includes DB version)
-            for cand in {params.outdir}/GUNC.progenomes_2.1.maxCSS_level.tsv \
-                        {params.outdir}/GUNC.*.maxCSS_level.tsv; do
-                [ -f "$cand" ] && cp "$cand" {output.merged} && break
-            done
-            [ -f {output.merged} ] || \
-                printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
-            """
-
 
     rule coassembly_galah_derep:
         """

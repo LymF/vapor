@@ -559,8 +559,14 @@ rule gunc:
     container: CONTAINERS.get("gunc")
     threads: THREADS
     params:
+        # bins_dir/bin_ext sao os dois pontos onde a trilha de grupo difere:
+        # per-sample usa bins do Binette (*.fa), co-assembly usa VAMB (*.fna).
+        # Parametrizados para coassembly.smk poder herdar esta regra via
+        # `use rule ... as ... with:` em vez de manter uma segunda copia.
         bins_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
-        outdir   = f"{OUTDIR}/{{sample}}/bins/gunc",
+        bin_ext  = ".fa",
+        # derivado do output, nao de {{sample}} (requisito da heranca).
+        outdir   = lambda wc, output: os.path.dirname(output.merged),
         db       = GUNC_DB,
         enabled  = GUNC_ENABLED,
     shell:
@@ -576,7 +582,7 @@ rule gunc:
             printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
             exit 0
         fi
-        N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fa" 2>/dev/null | wc -l)
+        N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*{params.bin_ext}" 2>/dev/null | wc -l)
         if [ "$N_BINS" -eq 0 ]; then
             echo "[gunc] No bins to evaluate" | tee {log}
             printf "genome\tpass.GUNC\tn_genes_called\n" > {output.merged}
@@ -587,7 +593,7 @@ rule gunc:
             --out_dir   {params.outdir} \
             --db_file   {params.db} \
             --threads   {threads} \
-            --file_suffix .fa \
+            --file_suffix {params.bin_ext} \
             > {log} 2>&1 || echo "[gunc] WARNING: gunc run failed" | tee -a {log}
         # Locate produced TSV (filename includes DB version)
         for cand in {params.outdir}/GUNC.progenomes_2.1.maxCSS_level.tsv \

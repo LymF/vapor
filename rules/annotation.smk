@@ -241,8 +241,14 @@ rule bakta:
     container:  CONTAINERS.get("bakta")
     threads: THREADS
     params:
-        outdir    = f"{OUTDIR}/{{sample}}/annotation/bakta",
+        # derivado do output, nao de {{sample}} (requisito da heranca).
+        outdir    = lambda wc, output: os.path.dirname(output.done),
+        # bins_dir/bin_ext sao os dois pontos onde a trilha de grupo difere:
+        # per-sample usa bins do Binette (*.fa), co-assembly usa VAMB (*.fna).
+        # Parametrizados para coassembly.smk poder herdar esta regra via
+        # `use rule ... as ... with:` em vez de manter uma segunda copia.
         bins_dir  = f"{OUTDIR}/{{sample}}/bins/binette/final_bins",
+        bin_ext   = ".fa",
         min_comp  = BAKTA_MIN_COMPLETENESS,
         max_cont  = BAKTA_MAX_CONTAMINATION,
     shell:
@@ -286,7 +292,7 @@ PYEOF
 
         while IFS= read -r BIN_NAME || [ -n "$BIN_NAME" ]; do
             [ -z "$BIN_NAME" ] && continue
-            BIN_FA="{params.bins_dir}/$BIN_NAME.fa"
+            BIN_FA="{params.bins_dir}/$BIN_NAME{params.bin_ext}"
             [ -f "$BIN_FA" ] || {{ printf "%s\tmissing\n" "$BIN_NAME" >> {output.summary}; continue; }}
 
             BIN_OUT="{params.outdir}/$BIN_NAME"
