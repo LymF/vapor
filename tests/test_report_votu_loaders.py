@@ -111,3 +111,46 @@ def test_load_tool_status_global_rule_does_not_corrupt_per_sample_counts(tmp_pat
 def test_load_tool_status_rejects_colliding_sample_name(tmp_path):
     with pytest.raises(ValueError):
         load_tool_status(str(tmp_path), ["S1", GLOBAL_STATUS_LABEL])
+
+
+def test_load_tool_status_reads_coassembly_groups(tmp_path):
+    """Group-scoped done.txt files must be read and keyed separately.
+
+    Before this, load_tool_status only iterated over samples, so a tool that
+    failed on the co-assembly track appeared neither as a gap nor as an error.
+    """
+    from report.data_loaders import (
+        load_tool_status, tool_failed, GROUP_STATUS_PREFIX,
+    )
+
+    outdir = tmp_path / "results"
+    grp = outdir / "coassembly" / "G1" / "bins"
+    (grp / "amrfinderplus").mkdir(parents=True)
+    (grp / "amrfinderplus" / "done.txt").write_text("failed: amrfinder exit 1\n")
+    (grp / "rgi").mkdir(parents=True)
+    (grp / "rgi" / "done.txt").write_text("ok\n")
+
+    status = load_tool_status(str(outdir), ["S1"], ["G1"])
+
+    key = f"{GROUP_STATUS_PREFIX}G1"
+    assert key in status
+    assert status[key]["amrfinderplus"]["state"] == "failed"
+    assert status[key]["amrfinderplus"]["reason"] == "amrfinder exit 1"
+    assert status[key]["rgi"]["state"] == "ok"
+    # a real failure must render as a gap, never as a zero
+    assert tool_failed(status, key, "amrfinderplus")
+    assert not tool_failed(status, key, "rgi")
+    # an absent group done.txt stays 'unknown', which also counts as a gap
+    assert status[key]["gtdbtk"]["state"] == "unknown"
+    assert tool_failed(status, key, "gtdbtk")
+    # samples are unaffected
+    assert set(status["S1"]) == set(status[key])
+
+
+def test_load_tool_status_group_key_cannot_collide_with_sample(tmp_path):
+    from report.data_loaders import load_tool_status, GROUP_STATUS_PREFIX
+    outdir = tmp_path / "results"
+    outdir.mkdir()
+    colliding = f"{GROUP_STATUS_PREFIX}G1"
+    with pytest.raises(ValueError):
+        load_tool_status(str(outdir), [colliding], ["G1"])

@@ -2075,14 +2075,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/defensefinder.tsv"
 
-    rule coassembly_amrfinderplus:
-        """
-        AMRFinderPlus -- curated, alignment-based AMR gene + point-mutation
-        detection (NCBI Reference Gene/Point Mutation databases). Gene-level:
-        runs once on the concatenated protein set (all group MAGs from
-        coassembly_prok_bin_proteins). Mirrors `rule amrfinderplus`
-        (rules/defense_amr.smk) for the group.
-        """
+    use rule amrfinderplus as coassembly_amrfinderplus with:
         input:
             manifest = rules.coassembly_prok_bin_proteins.output.manifest,
             done     = rules.coassembly_prok_bin_proteins.output.done,
@@ -2093,53 +2086,8 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/amrfinderplus.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/amrfinderplus.tsv"
-        conda: "../envs/env_annotation.yaml"
-        container:  CONTAINERS.get("ncbi-amrfinderplus")
-        threads: THREADS
-        params:
-            outdir  = f"{OUTDIR}/coassembly/{{group}}/bins/amrfinderplus",
-            enabled = DEFENSE_AMR_ENABLED,
-        run:
-            import os
-            from pathlib import Path
 
-            os.makedirs(params.outdir, exist_ok=True)
-            all_faa = os.path.join(params.outdir, "all_genomes.faa")
-
-            def write_empty(msg):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(msg + "\n")
-                Path(str(output.results)).write_text("Protein identifier\tGene symbol\n")
-                Path(str(output.done)).touch()
-
-            if (not params.enabled or not os.path.exists(str(input.manifest))
-                    or os.path.getsize(str(input.manifest)) == 0):
-                write_empty("[coassembly_amrfinderplus] Disabled or no genome units -- skipping")
-                return
-
-            if not _concat_proteins(str(input.manifest), all_faa):
-                write_empty("[coassembly_amrfinderplus] No proteins -- skipping")
-                return
-
-            shell("amrfinder -u >> {log} 2>&1 || "
-                  "echo '[coassembly_amrfinderplus] WARNING: database update failed (may already be current)' >> {log}")
-            shell(
-                "amrfinder -p {all_faa} --plus -o {output.results} --threads {threads} "
-                ">> {log} 2>&1 || echo '[coassembly_amrfinderplus] WARNING: amrfinder failed' >> {log}"
-            )
-
-            if not os.path.exists(str(output.results)) or os.path.getsize(str(output.results)) == 0:
-                Path(str(output.results)).write_text("Protein identifier\tGene symbol\n")
-            Path(str(output.done)).touch()
-
-
-    rule coassembly_rgi_card:
-        """
-        RGI (CARD) -- curated AMR detection via the Comprehensive Antibiotic
-        Resistance Database (homology + SNP models). Same concatenated batch
-        input as coassembly_amrfinderplus; reported alongside it as "curated"
-        AMR. Mirrors `rule rgi_card` (rules/defense_amr.smk) for the group.
-        """
+    use rule rgi_card as coassembly_rgi_card with:
         input:
             manifest = rules.coassembly_prok_bin_proteins.output.manifest,
             done     = rules.coassembly_prok_bin_proteins.output.done,
@@ -2150,61 +2098,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/rgi.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/rgi.tsv"
-        conda: "../envs/env_rgi.yaml"
-        container:  CONTAINERS.get("rgi")
-        threads: THREADS
-        params:
-            outdir  = f"{OUTDIR}/coassembly/{{group}}/bins/rgi",
-            card_db = CARD_DB,
-            enabled = DEFENSE_AMR_ENABLED,
-        run:
-            import os
-            from pathlib import Path
-
-            os.makedirs(params.outdir, exist_ok=True)
-            all_faa = os.path.join(params.outdir, "all_genomes.faa")
-
-            def write_empty(msg):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(msg + "\n")
-                Path(str(output.results)).write_text("ORF_ID\tBest_Hit_ARO\n")
-                Path(str(output.done)).touch()
-
-            if (not params.enabled or not os.path.exists(str(input.manifest))
-                    or os.path.getsize(str(input.manifest)) == 0):
-                write_empty("[coassembly_rgi_card] Disabled or no genome units -- skipping")
-                return
-
-            if not _concat_proteins(str(input.manifest), all_faa):
-                write_empty("[coassembly_rgi_card] No proteins -- skipping")
-                return
-
-            card_dir = params.card_db or os.path.join(params.outdir, "card_db")
-            os.makedirs(card_dir, exist_ok=True)
-            card_json = os.path.join(card_dir, "card.json")
-            if not os.path.exists(card_json) or os.path.getsize(card_json) == 0:
-                shell(
-                    "curl -sL https://card.mcmaster.ca/latest/data -o {card_dir}/card_data.tar.bz2 "
-                    ">> {log} 2>&1 && tar -xjf {card_dir}/card_data.tar.bz2 -C {card_dir} "
-                    ">> {log} 2>&1 || true"
-                )
-
-            if not os.path.exists(card_json) or os.path.getsize(card_json) == 0:
-                write_empty("[coassembly_rgi_card] WARNING: CARD database unavailable -- skipping")
-                return
-
-            shell("cd {params.outdir} && rgi load --card_json {card_json} --local >> {log} 2>&1")
-            shell(
-                "cd {params.outdir} && rgi main -i {all_faa} -t protein --include_loose --local "
-                "-o rgi_results -n {threads} >> {log} 2>&1 || "
-                "echo '[coassembly_rgi_card] WARNING: rgi main failed' >> {log}"
-            )
-
-            produced = os.path.join(params.outdir, "rgi_results.txt")
-            if not os.path.exists(produced) or os.path.getsize(produced) == 0:
-                Path(str(output.results)).write_text("ORF_ID\tBest_Hit_ARO\n")
-            Path(str(output.done)).touch()
-
 
     rule coassembly_deeparg:
         """

@@ -150,7 +150,7 @@ def _build(snakemake):
     coassembly_rich = load_coassembly_rich(outdir, _coas_groups)
     votu_accum      = load_votu_accumulation(outdir, _coas_groups)
     # Real per-rule outcome, so a crashed tool renders as a gap, not a zero.
-    tool_status     = load_tool_status(outdir, samples)
+    tool_status     = load_tool_status(outdir, samples, _coas_groups)
     tool_status_issues = summarize_tool_status(tool_status)
     votu_catalog  = load_votu_catalog(outdir)
     votu_presence = load_votu_presence(outdir, samples)

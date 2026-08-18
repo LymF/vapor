@@ -401,7 +401,9 @@ rule amrfinderplus:
     container:  CONTAINERS.get("ncbi-amrfinderplus")
     threads: THREADS
     params:
-        outdir  = f"{OUTDIR}/{{sample}}/bins/amrfinderplus",
+        # derivado do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir  = lambda wc, output: os.path.dirname(output.done),
         enabled = DEFENSE_AMR_ENABLED,
     run:
         import os
@@ -472,7 +474,9 @@ rule rgi_card:
     container:  CONTAINERS.get("rgi")
     threads: THREADS
     params:
-        outdir  = f"{OUTDIR}/{{sample}}/bins/rgi",
+        # derivado do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir  = lambda wc, output: os.path.dirname(output.done),
         card_db = CARD_DB,
         enabled = DEFENSE_AMR_ENABLED,
     run:

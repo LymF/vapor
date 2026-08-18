@@ -35,6 +35,8 @@ STATUS_TRACKED_GLOBAL_TOOLS = {
 }
 
 GLOBAL_STATUS_LABEL = "(global)"
+# prefixo das chaves de grupo em load_tool_status; evita colisao com sample
+GROUP_STATUS_PREFIX = "(coassembly) "
 
 
 def _read_status_file(path):
@@ -57,7 +59,7 @@ def _read_status_file(path):
     return {"state": state, "reason": reason, "raw": raw}
 
 
-def load_tool_status(outdir, samples):
+def load_tool_status(outdir, samples, groups=()):
     """
     Read done.txt for every status-tracked tool, per sample, plus every
     status-tracked global (non-per-sample) rule under GLOBAL_STATUS_LABEL.
@@ -80,6 +82,15 @@ def load_tool_status(outdir, samples):
         for tool, rel in STATUS_TRACKED_TOOLS.items():
             path = os.path.join(outdir, sample, rel)
             status[sample][tool] = _read_status_file(path)
+
+    for group in (groups or ()):
+        key = f"{GROUP_STATUS_PREFIX}{group}"
+        if key in status:
+            raise ValueError(f"co-assembly group key {key!r} collides with a sample name")
+        status[key] = {}
+        for tool, rel in STATUS_TRACKED_TOOLS.items():
+            path = os.path.join(outdir, "coassembly", group, rel)
+            status[key][tool] = _read_status_file(path)
 
     if STATUS_TRACKED_GLOBAL_TOOLS:
         status[GLOBAL_STATUS_LABEL] = {}
