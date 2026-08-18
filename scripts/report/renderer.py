@@ -15,7 +15,7 @@ from .data_loaders import (
     collect_depth_data, parse_fasta_lengths,
     collect_viral_tool_counts, collect_vrhyme_stats, collect_binner_counts,
     parse_checkm2_phyla,
-    load_vibrant, load_vcontact3, load_viral_taxonomy, load_viral_source_distribution, load_gtdbtk,
+    load_vibrant, load_viral_taxonomy, load_viral_source_distribution, load_gtdbtk,
     load_mmseqs_taxonomy_prok, load_phist,
     load_defensefinder, load_antidefensefinder,
     load_antidefensefinder_viral, load_dbapis_viral, compute_defense_islands,
@@ -103,18 +103,6 @@ def _build(snakemake):
     prok_protein_manifest_l   = [path_dict(_inp('prok_protein_manifest'), samples).get(s, '') for s in samples]
     amr_consensus_paths_l     = [path_dict(_inp('amr_consensus'), samples).get(s, '') for s in samples]
 
-    # vConTACT3: prefer exports/final_assignments.csv
-    vc3_raw = path_dict(_inp('vcontact3'), samples)
-    vcontact3_paths = {}
-    for s in samples:
-        raw = vc3_raw.get(s, '')
-        if raw:
-            exports_csv = os.path.join(os.path.dirname(raw),
-                                       'vConTACT3_results', 'exports', 'final_assignments.csv')
-            vcontact3_paths[s] = exports_csv if os.path.exists(exports_csv) else raw
-        else:
-            vcontact3_paths[s] = raw
-
     # ── Load per-sample data ──────────────────────────────────────────────────
     checkm2_data   = {s: parse_tsv(checkm2_paths[s])     for s in samples}
     quast_data     = {s: parse_quast_all(quast_paths[s]) for s in samples}
@@ -137,7 +125,6 @@ def _build(snakemake):
     tax_data     = load_viral_taxonomy([taxonomy_paths.get(s, '') for s in samples], samples)
     viral_source_dist = load_viral_source_distribution(
         [taxonomy_paths.get(s, '') for s in samples], samples)
-    vc3_data     = load_vcontact3(vcontact3_paths, samples)
     gtdb_data    = load_gtdbtk(gtdbtk_bac_l, gtdbtk_arc_l, samples)
     phist_data   = load_phist(phist_paths_l, samples)
     defensefinder_data     = load_defensefinder(defensefinder_paths_l, samples)
@@ -167,29 +154,6 @@ def _build(snakemake):
     tool_status_issues = summarize_tool_status(tool_status)
     votu_catalog  = load_votu_catalog(outdir)
     votu_presence = load_votu_presence(outdir, samples)
-
-    # ── Merge vConTACT3 into tax_data ─────────────────────────────────────────
-    tax_genome_keys = {(r.get('sample', ''), r.get('Genome', '')) for r in tax_data}
-    for vc_row in vc3_data:
-        if not vc_row.get('Family') and not vc_row.get('Genus'): continue
-        key = (vc_row.get('sample', ''), vc_row.get('Genome', ''))
-        if key not in tax_genome_keys:
-            tax_data.append({
-                'sample':        vc_row['sample'],
-                'Genome':        vc_row['Genome'],
-                'final_family':  vc_row.get('Family', ''),
-                'final_genus':   vc_row.get('Genus', ''),
-                'final_order':   vc_row.get('Order', ''),
-                'Family':        vc_row.get('Family', ''),
-                'Genus':         vc_row.get('Genus', ''),
-                'Order':         vc_row.get('Order', ''),
-                'Best_taxonomy': vc_row.get('Best_taxonomy', ''),
-                'Source':        'vcontact3',
-                'Confidence':    '', 'Lineage':        '',
-                'Completeness':  '', 'Genome_length':  '',
-                'CheckV_quality':'',
-            })
-            tax_genome_keys.add(key)
 
     tax_data = enrich_taxonomy_with_checkv(tax_data, checkv_data)
     # Collapse rep_seq-level (MMseqs2, 95% identity) rows down to one per
@@ -420,7 +384,6 @@ def _build(snakemake):
         "PROK_ABUND":   prok_abund,
         "TAX_DATA":     tax_data,
         "VIRAL_SOURCE_DIST": viral_source_dist,
-        "VC3_DATA":     vc3_data,
         "GTDB_DATA":    gtdb_data,
         "MERGED_PROK":  merged_prok,
         "PHIST_DATA":   phist_data,

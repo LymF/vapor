@@ -21,7 +21,6 @@ rule generate_report:
             "checkv_vrhyme":      expand(f"{OUTDIR}/{{sample}}/viral/checkv_vrhyme/quality_summary.tsv",         sample=SAMPLES),
             "support":            expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_tool_support.tsv",     sample=SAMPLES),
             "taxonomy":           expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",        sample=SAMPLES),
-            "vcontact3":          expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/genome_clusters.tsv",             sample=SAMPLES),
             "antidefense_viral":  expand(f"{OUTDIR}/{{sample}}/viral/defensefinder/viral_antidefense_systems.tsv", sample=SAMPLES),
             "dbapis_viral":       expand(f"{OUTDIR}/{{sample}}/viral/dbapis/dbapis_hits.tsv",                     sample=SAMPLES),
         } if TRACK_VIRAL else {}),

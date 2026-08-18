@@ -142,14 +142,15 @@ rather than once per vOTU.
   before but applied once over the global catalog instead of per sample:
   `catalog_all_reps.fasta` (all vOTUs), `catalog_mq_reps.fasta` (the **annotation
   subset** feeding taxonomy / PHIST / pharokka / genome maps), `catalog_hq_10kb_reps.fasta`
-  (HQ+/Complete and ≥ 10 kb, for vConTACT3).
+  (HQ+/Complete and ≥ 10 kb — tier de exportação; era a entrada do vConTACT3,
+  removido em 2026-08-17).
 - **`catalog_mq_reps` quality gate is configurable** via `viral_min_quality`
   (`complete | high | medium | low | not_determined`, default **medium** =
   Complete/HQ/MQ or completeness ≥ 50%). Lower it for high-novelty / short-fragment data
   (e.g. IonTorrent viromes) where most contigs are Low-quality/Not-determined and the
   default would leave taxonomy/host/annotation empty. Implemented in
   `pipeline_config.py::viral_keep_tiers`; the completeness ≥ 50% fallback applies only
-  at the `medium` threshold. **vConTACT3 keeps its own HQ+/≥10 kb gate regardless**
+  at the `medium` threshold.
   (genome-network clustering needs near-complete genomes).
 
 ### 5.2 Presence: two independent signals
@@ -247,14 +248,13 @@ differential coverage in its variational autoencoder.
 ### 9.1 Viral taxonomy merge (`taxonomy.smk::viral_taxonomy`)
 Sources, combined by **deepest-recognized-rank-wins** over the 8-level ICTV scheme
 (realm→kingdom→phylum→class→order→family→subfamily→genus):
-- **vConTACT3** (genome clustering; family/genus/order predictions; Novel/Shared/Assigned).
 - **MMseqs2/INPHARED** — real per-query LCA against an INPHARED seqTaxDB (`_mmseqs_lca_rollup`:
   per-protein LCA rolled up to per-contig by taking the longest/most-specific).
 - **MMseqs2/custom** (optional, e.g. IMG/VR).
 - **GeNomad** taxonomy.
-- Source priority (tie-break at equal depth): **vConTACT3 > mmseqs_inphared >
+- Source priority (tie-break at equal depth): **mmseqs_inphared >
   mmseqs_custom > genomad**. Output: `viral_taxonomy_merged.tsv` (`final_family` etc.).
-- **Co-assembly core** uses **GeNomad + MMseqs2/INPHARED only** (vConTACT3/custom deferred);
+- **Co-assembly core** uses **GeNomad + MMseqs2/INPHARED only** (MMseqs2/custom deferred);
   priority collapses to mmseqs_inphared > genomad.
 
 ### 9.2 Prokaryotic taxonomy

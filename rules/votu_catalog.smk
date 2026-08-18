@@ -201,7 +201,9 @@ rule votu_catalog_reps:
       all      — one per vOTU; recruitment reference and report base
       mq       — MQ+ (Complete/HQ/MQ or completeness >= 50%); taxonomy,
                  PHIST, annotation
-      hq_10kb  — HQ+/Complete and >= 10 kb; vConTACT3
+      hq_10kb  — HQ+/Complete and >= 10 kb. Tier de exportacao: era a
+                 entrada do vConTACT3, removido em 2026-08-17, e hoje nao
+                 tem consumidor interno na pipeline.
     """
     input:
         pool     = rules.votu_catalog_pool.output.pool,
@@ -268,7 +270,7 @@ rule votu_catalog_reps:
         with open(str(log[0]), "w") as lf:
             lf.write(f"[votu_catalog_reps] all: {n_all}\n")
             lf.write(f"[votu_catalog_reps] MQ+ (taxonomy/PHIST/annotation): {n_mq}\n")
-            lf.write(f"[votu_catalog_reps] HQ+/>=10kb (vConTACT3): {n_hq}\n")
+            lf.write(f"[votu_catalog_reps] HQ+/>=10kb: {n_hq}\n")
         if n_all == 0:
             write_status(str(output.done), "skipped: empty catalog")
         else:

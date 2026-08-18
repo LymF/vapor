@@ -4,7 +4,6 @@
 # No fixed source priority -- rule viral_taxonomy compares the rank DEPTH
 # each source resolves to and takes the deepest, ties broken by trust order.
 # Sources:
-#   vConTACT3       — protein-sharing network (genus-level, most specific)
 #   MMseqs2/INPHARED — real per-query LCA against INPHARED (rule
 #                      mmseqs_taxonomy_viral), contig-level LCA-of-LCAs
 #                      across that contig's proteins. Replaced an earlier
@@ -116,7 +115,7 @@ rule mmseqs_taxonomy_viral:
     a per-sample Snakemake output, so auto-building on first sight would
     race across samples under --cores >1.
 
-    viral_taxonomy compares this against vConTACT3/Diamond-custom/GeNomad by
+    viral_taxonomy compares this against MMseqs2-custom/GeNomad by
     resolved rank depth, not a fixed priority order, so this can win, lose,
     or tie per contig.
     """
@@ -334,92 +333,14 @@ rule mmseqs_taxonomy_prok:
         Path(str(output.done)).touch()
 
 
-rule vcontact3:
-    """
-    vConTACT3: protein-sharing network clustering, genus-level.
-    Generally the most specific source when it resolves (compared by rank
-    depth against other sources in viral_taxonomy, not a fixed priority).
-    Runs on HQ+/Complete vOTU representatives >= 10 kb only (votu_catalog_reps
-    hq_10kb_fasta) — shorter or lower-quality sequences add noise to the
-    protein-sharing network without meaningful genus-level signal.
-    Options: SqRoot metric, 10 iterations, --reduce-memory, family+genus ranks.
-    """
-    input:
-        viral = rules.votu_catalog_reps.output.hq_10kb_fasta,
-    output:
-        done    = f"{OUTDIR}/{{sample}}/viral/vcontact3/done.txt",
-        network = f"{OUTDIR}/{{sample}}/viral/vcontact3/genome_clusters.tsv",
-    log:   f"{OUTDIR}/{{sample}}/logs/vcontact3.log"
-    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/vcontact3.tsv"
-    conda: "../envs/env_vcontact3.yaml"
-    container:  CONTAINERS.get("vcontact3")
-    threads: THREADS
-    params:
-        outdir  = f"{OUTDIR}/{{sample}}/viral/vcontact3",
-        vc3_db  = VCONTACT3_DB,
-        vc3_ver = VCONTACT3_VER,
-    shell:
-        """
-        set -euo pipefail
-        mkdir -p {params.outdir}
-
-        if [ ! -s {input.viral} ]; then
-            echo "[vcontact3] No HQ+/>=10kb genomes — skipping" | tee -a {log}
-            mkdir -p {params.outdir}/vConTACT3_results
-            printf "genome\tVC\tVC_status\tgenus\tfamily\torder\n" > {output.network}
-            printf "skipped: no HQ+/>=10kb genomes\n" > {output.done}; exit 0
-        fi
-
-        N=$(grep -c "^>" {input.viral} || echo 0)
-        echo "[vcontact3] Running on $N genomes (HQ+/>=10kb)" | tee -a {log}
-
-        VC3_EXIT=0
-        vcontact3 run \
-            --nucleotide      {input.viral} \
-            --output          {params.outdir}/vConTACT3_results \
-            --threads         {threads} \
-            --db-path         {params.vc3_db} \
-            --db-version      {params.vc3_ver} \
-            --db-domain       prokaryotes \
-            --distance-metric SqRoot \
-            --max-iterations  10 \
-            --reduce-memory \
-            --target-rank family genus \
-            --exports profiles completeness \
-            --no-progress \
-            --force-overwrite \
-            >> {log} 2>&1 || VC3_EXIT=$?
-        if [ $VC3_EXIT -ne 0 ]; then
-            echo "[vcontact3] WARNING: vConTACT3 exited with code $VC3_EXIT — check log" | tee -a {log}
-        fi
-
-        # vConTACT3 v3 writes final_assignments.csv in exports/
-        VC3_OUT="{params.outdir}/vConTACT3_results/exports/final_assignments.csv"
-
-        if [ -f "$VC3_OUT" ]; then
-            cp "$VC3_OUT" {output.network}
-            echo "[vcontact3] Output: $VC3_OUT ($(wc -l < $VC3_OUT) lines)" | tee -a {log}
-        else
-            echo "[vcontact3] final_assignments.csv not found — listing:" | tee -a {log}
-            find {params.outdir}/vConTACT3_results -type f | tee -a {log}
-            printf "Genome,family_prediction,genus_prediction,realm_prediction,order_prediction\n" > {output.network}
-        fi
-        if [ $VC3_EXIT -ne 0 ]; then
-            printf "failed: vcontact3 run exit %s\n" "$VC3_EXIT" > {output.done}
-        else
-            printf "ok\n" > {output.done}
-        fi
-        """
-
-
 rule viral_taxonomy:
     """
     Merge taxonomy from all sources into one table per contig.
-    Sources: vConTACT3, MMseqs2/INPHARED (LCA), MMseqs2/Custom (LCA), GeNomad.
+    Sources: MMseqs2/INPHARED (LCA), MMseqs2/Custom (LCA), GeNomad.
     No fixed source priority -- each source proposes a (family, genus, order)
     call, and whichever resolves the DEEPEST rank wins per contig (genus >
     family > order > unclassified). Ties are broken by trust order:
-    vConTACT3 > mmseqs_inphared > mmseqs_custom > genomad.
+    mmseqs_inphared > mmseqs_custom > genomad.
     Why: with a fixed priority, an upstream tier's *shallow* hit would always
     beat a downstream tier's deeper, better-supported call (e.g. GeNomad
     resolving to genus) -- see [[project_viral_taxonomy_merge]] memory for
@@ -435,8 +356,6 @@ rule viral_taxonomy:
         mmseqs_done     = rules.mmseqs_taxonomy_viral.output.done,
         custom_hits     = rules.mmseqs_taxonomy_custom_viral.output.hits,
         custom_done     = rules.mmseqs_taxonomy_custom_viral.output.done,
-        vcontact3_net   = rules.vcontact3.output.network,
-        vcontact3_done  = rules.vcontact3.output.done,
         viral           = rules.votu_catalog_reps.output.mq_fasta,
     output:
         tsv  = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",
@@ -459,44 +378,6 @@ rule viral_taxonomy:
                 for line in f:
                     if line.startswith(">"): contigs.append(line[1:].split()[0])
         lf.write(f"Total viral contigs: {len(contigs)}\n")
-
-        # ── vConTACT3 ─────────────────────────────────────────────────
-        vc3_tax = {}
-        vc3_path = str(input.vcontact3_net)
-        if os.path.exists(vc3_path) and os.path.getsize(vc3_path) > 100:
-            with open(vc3_path) as f:
-                first = f.readline(); f.seek(0)
-                delim = ',' if first.count(',') > first.count('\t') else '\t'
-            with open(vc3_path) as f:
-                for row in csv.DictReader(f, delimiter=delim):
-                    g = row.get("Genome", row.get("genome","")).strip()
-                    if not g: continue
-                    if row.get("Reference","").lower() in ("true","1","yes"): continue
-                    fam  = row.get("family_prediction", row.get("family", row.get("Family","")))
-                    gen  = row.get("genus_prediction",  row.get("genus",  row.get("Genus","")))
-                    ord_ = row.get("order_prediction",  row.get("order",  row.get("Order","")))
-                    # Reconstruct VC_status: vConTACT3 v3 encodes novelty in prediction names.
-                    # "singleton" is output literally for genomes with no network neighbours.
-                    _NOVEL_VALS = {"singleton", "unclassified", "nd", "none", ""}
-                    if not fam or fam.lower().startswith("novel_") or fam.lower() in _NOVEL_VALS:
-                        status = "Novel"
-                    elif gen and "|" in gen:
-                        status = "Shared"
-                    else:
-                        status = "Assigned"
-                    # Extract best-known parent anchor for Novel genomes
-                    # e.g. "novel_family_13_of_novel_order_64_of_Caudoviricetes" → "Caudoviricetes"
-                    novel_anchor = ""
-                    if status == "Novel" and fam and "of_" in fam:
-                        novel_anchor = fam.rsplit("of_", 1)[-1].strip()
-                    vc3_tax[g] = {
-                        "status":       status,
-                        "genus":        gen.split("|")[0].strip() if gen else "",
-                        "family":       fam if status != "Novel" else "",
-                        "order":        ord_ if ord_ and not ord_.lower().startswith("novel_") and ord_.lower() not in _NOVEL_VALS else "",
-                        "novel_anchor": novel_anchor,
-                    }
-        lf.write(f"vConTACT3: {len(vc3_tax)} genomes\n")
 
         # ── MMseqs2/INPHARED + MMseqs2/Custom (real per-query LCA) ──────
         # Both rules produce the same (qseqid, taxid, rank, name, lineage)
@@ -553,9 +434,8 @@ rule viral_taxonomy:
         # ── Build final table ─────────────────────────────────────────
         # No fixed tier priority: each source proposes (family, genus, order);
         # whichever resolves the deepest rank wins. Ties broken by trust order
-        # (vcontact3 > mmseqs_inphared > mmseqs_custom > genomad).
-        _PRIORITY = {"vcontact3": 0, "mmseqs_inphared": 1,
-                     "mmseqs_custom": 2, "genomad": 3}
+        # (mmseqs_inphared > mmseqs_custom > genomad).
+        _PRIORITY = {"mmseqs_inphared": 1, "mmseqs_custom": 2, "genomad": 3}
 
         def _depth(genus, family, order):
             if genus:  return 3
@@ -565,21 +445,12 @@ rule viral_taxonomy:
 
         rows = []; stats = collections.Counter()
         for contig in contigs:
-            vc3 = vc3_tax.get(contig, {})
             mms = mmseqs_tax.get(contig, {})
             gmd = genomad_tax.get(contig, {})
             cms = custom_tax.get(contig, {})
 
             candidates = []  # (source, ff, fg, fo, lin, conf, best)
 
-            vc3_status = vc3.get("status","").strip()
-            if (vc3 and vc3_status in ("Assigned", "Shared") and
-                    (vc3.get("family") or vc3.get("genus"))):
-                ff, fg = vc3.get("family",""), vc3.get("genus","")
-                fo     = vc3.get("order","")
-                candidates.append(("vcontact3", ff, fg, fo,
-                                    ";".join(filter(None, [fo, ff, fg])),
-                                    vc3_status, fg or ff or fo))
 
             if mms and (mms.get("family") or mms.get("genus") or mms.get("order")):
                 ff, fg, fo = mms.get("family",""), mms.get("genus",""), mms.get("order","")
@@ -622,8 +493,6 @@ rule viral_taxonomy:
                 "source":        source,
                 "confidence":    conf,
                 "lineage":       lin,
-                "vc3_status":    vc3.get("status",""),
-                "vc3_novel_anchor": vc3.get("novel_anchor",""),
                 "genomad_best":  gmd.get("best",""),
                 "genomad_class": gmd.get("class",""),
                 "genomad_score": gmd.get("score",""),
@@ -645,7 +514,6 @@ rule viral_taxonomy:
 
         fields = ["seq_name","final_family","final_genus","final_order","best_taxonomy",
                   "source","confidence","lineage",
-                  "vc3_status","vc3_novel_anchor",
                   "genomad_best","genomad_class","genomad_score",
                   "mmseqs_rank","mmseqs_lineage","mmseqs_n_proteins",
                   "custom_rank","custom_lineage","custom_n_proteins"]

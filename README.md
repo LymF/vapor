@@ -32,7 +32,7 @@ vapor/
 │   │                            #            SemiBin2, Binette, GUNC,
 │   │                            #            CheckM2, galah derep, GTDB-Tk
 │   ├── taxonomy.smk             # BLOCK 9  — Prodigal, MMseqs2/INPHARED (LCA),
-│   │                            #            Diamond/Custom, vConTACT3
+│   │                            #            MMseqs2/INPHARED, MMseqs2/Custom
 │   ├── host_prediction.smk      # BLOCK 10 — PHIST
 │   ├── defense_amr.smk          # BLOCK 10.5 — DefenseFinder/AMRFinderPlus/RGI/DeepARG/
 │   │                            #              ABRicate/argNorm (bins) + DefenseFinder/
@@ -44,7 +44,6 @@ vapor/
 │   └── reads_classify.smk       # BLOCK 15 — reads-only classification (Sylph + sylph-tax)
 │
 ├── scripts/                     ← auxiliary Python scripts
-│   ├── filter_checkv_hq.py      # filter viral FASTA for vConTACT3 input
 │   ├── merge_lr_assemblies.py   # merge Flye + hifiasm + metaMDBG assemblies
 │   ├── prepare_diamond_db.py    # build Diamond DB + metadata TSV
 │   ├── prepare_mmseqs_taxdb.py   # build MMseqs2 seqTaxDB (--format img/ncbi/inphared)
@@ -88,7 +87,6 @@ vapor/
     ├── env_gtdbtk.yaml
     ├── env_phist.yaml
     ├── env_annotation.yaml      # includes circular genome maps (pycirclize)
-    ├── env_vcontact3.yaml
     ├── env_coverm.yaml          # includes diversity (numpy + scipy)
     ├── env_gunc.yaml            # GUNC (MAG chimera detection)
     ├── env_derep.yaml           # skani + galah (vOTU clustering + MAG dereplication)
@@ -214,7 +212,6 @@ genomad_db:   "/path/to/genomad_db"
 vibrant_base: "/path/to/vibrant-1.0.1"
 checkm2_db:   "/path/to/uniref100.KO.1.dmnd"
 inphared_db:  "/path/to/inphared"
-vcontact3_db: "/path/to/vcontact3"
 gtdbtk_db:    "/path/to/gtdbtk/release226"
 pharokka_db:  "/path/to/pharokka"
 phold_db:     "/path/to/phold_db"
@@ -256,7 +253,6 @@ snakemake --snakefile Snakefile --use-conda --cores 1 --create-envs-only
 | `env_gtdbtk` | gtdb-tk |
 | `env_phist` | phist, kmer-db |
 | `env_annotation` | pharokka, phold, bakta, eggnog-mapper, pycirclize |
-| `env_vcontact3` | vcontact3 |
 | `env_coverm` | coverm, numpy, scipy |
 | `env_gunc` | gunc, diamond, prodigal (MAG chimera detection) |
 | `env_derep` | skani, galah (vOTU clustering + MAG dereplication) |

@@ -21,7 +21,6 @@ STATUS_TRACKED_TOOLS = {
     "rgi":           "bins/rgi/done.txt",
     "galah_derep":   "bins/derep/done.txt",
     "gtdbtk":        "bins/gtdbtk/done.txt",
-    "vcontact3":     "viral/vcontact3/done.txt",
 }
 
 # Global (non-per-sample) rules tracked the same way, except their done.txt
@@ -464,70 +463,11 @@ def load_vibrant(outdir_base, samples):
     return scaffold_records, amg_records
 
 
-# ── vConTACT3 ─────────────────────────────────────────────────────────────────
-
-def load_vcontact3(paths_d, samples):
-    """Load vConTACT3 final_assignments.csv (v3 output format)."""
-    _VC3_NULL = {"singleton", "unclassified", "nd", "none", ""}
-    records = []
-    for s in samples:
-        p = paths_d.get(s, '')
-        rows = load_csv(p) if p.endswith('.csv') else load_tsv(p)
-        for row in rows:
-            genome = row.get('Genome', row.get('genome', ''))
-            if not genome: continue
-            ref_val = row.get('Reference', row.get('reference', ''))
-            if str(ref_val).lower() in ('true', '1', 'yes'): continue
-            fam_raw = row.get('family_prediction', row.get('Family', ''))
-            gen_raw = row.get('genus_prediction',  row.get('Genus', ''))
-            rlm     = row.get('realm_prediction',  row.get('realm_reference', ''))
-            cls     = row.get('class_prediction',  '')
-            ord_raw = row.get('order_prediction', '')
-            fam  = fam_raw  if fam_raw  and fam_raw.lower()  not in _VC3_NULL else ''
-            gen  = gen_raw  if gen_raw  and gen_raw.lower()  not in _VC3_NULL else ''
-            ord_ = ord_raw  if ord_raw  and ord_raw.lower()  not in _VC3_NULL else ''
-            is_novel = any(str(v).lower().startswith('novel_')
-                           for v in [fam_raw, gen_raw, ord_raw] if v)
-            novel_anchor = ''
-            if is_novel:
-                cls_clean = (cls if cls and not cls.lower().startswith('novel_')
-                             and cls.lower() not in _VC3_NULL else '')
-                if cls_clean:
-                    novel_anchor = cls_clean
-                else:
-                    for v in [fam_raw, gen_raw, ord_raw]:
-                        if v and 'of_' in v:
-                            cand = v.rsplit('of_', 1)[-1].strip()
-                            if not cand.lower().startswith('novel_') and cand.lower() not in _VC3_NULL:
-                                novel_anchor = cand
-                                break
-                fam = ''
-                gen = ''
-                ord_ = ''
-            is_singleton = not fam and not gen and not ord_
-            best = novel_anchor if is_novel else (gen or fam or ord_ or cls or rlm or '')
-            vc_status = ('novel' if is_novel
-                         else 'singleton' if is_singleton
-                         else 'classified')
-            records.append({'sample':   s,
-                'Genome':       genome,
-                'VC':           row.get('VC', ''),
-                'VC_status':    vc_status,
-                'Family':       fam,
-                'Genus':        gen,
-                'Order':        ord_,
-                'Realm':        rlm,
-                'Best_taxonomy': best,
-                'Novel_anchor': novel_anchor,
-                'Is_novel':     str(is_novel),
-            })
-    return records
-
-
 # ── Viral taxonomy ────────────────────────────────────────────────────────────
 
 def load_viral_taxonomy(paths, samples):
-    _VC3_NULL = {"singleton", "unclassified", "nd", "none"}
+    # valores nulos que qualquer fonte de taxonomia pode emitir
+    _NULL_TAX = {"singleton", "unclassified", "nd", "none"}
     records = []
     for p, s in zip(paths, samples):
         for row in load_tsv(p):
@@ -538,11 +478,9 @@ def load_viral_taxonomy(paths, samples):
             final_order  = row.get('final_order', '')
             lineage      = row.get('lineage', '')
             source       = row.get('source', '')
-            if final_family.lower() in _VC3_NULL: final_family = ''
-            if final_genus.lower()  in _VC3_NULL: final_genus  = ''
-            if final_order.lower()  in _VC3_NULL: final_order  = ''
-            if source == 'vcontact3' and not final_family and not final_genus:
-                source = 'unclassified'
+            if final_family.lower() in _NULL_TAX: final_family = ''
+            if final_genus.lower()  in _NULL_TAX: final_genus  = ''
+            if final_order.lower()  in _NULL_TAX: final_order  = ''
             if source in ('unclassified', ''):
                 continue
             if not final_family or not final_genus:
@@ -552,7 +490,7 @@ def load_viral_taxonomy(paths, samples):
                 if not final_order:  final_order  = lo
             if source == 'genomad' and not final_family and not final_genus and not final_order:
                 gc = row.get('genomad_class', '') or row.get('genomad_best', '')
-                if gc and gc.lower() not in _VC3_NULL:
+                if gc and gc.lower() not in _NULL_TAX:
                     final_order = gc
             if not final_family and not final_genus and not final_order:
                 continue
@@ -579,7 +517,7 @@ def load_viral_source_distribution(paths, samples):
     """Per-sample distribution of classification sources for ALL viral contigs
     (including ones dropped from load_viral_taxonomy because they have no
     family/genus/order). Buckets: genomad, mmseqs_inphared, mmseqs_custom
-    (IMG/VR or other user-supplied seqTaxDB), vcontact3, unknown (no hit)."""
+    (IMG/VR or other user-supplied seqTaxDB), unknown (no hit)."""
     _NULL = {"singleton", "unclassified", "nd", "none", ""}
     dist = {}
     for p, s in zip(paths, samples):
@@ -1623,7 +1561,6 @@ def collect_tool_versions():
         "VIBRANT":       _ver(f"{C} env_viral VIBRANT_run.py 2>&1 | head -3"),
         "CheckV":        _ver(f"{C} env_viral checkv 2>&1 | head -1"),
         "vRhyme":        _ver(f"{C} env_vrhyme vRhyme --version"),
-        "vConTACT3":     _ver(f"{C} env_vcontact3 vcontact3 --version"),
         "Diamond":       _ver(f"{C} env_viral diamond version"),
         "Prodigal":      _ver(f"{C} env_viral prodigal -v 2>&1 | head -2"),
         "MetaBAT2":      _ver(f"{C} env_binning metabat2 2>&1 | head -3"),

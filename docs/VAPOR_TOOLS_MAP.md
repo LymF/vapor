@@ -55,7 +55,6 @@ flowchart TD
 
     subgraph VTAX["8 · Taxonomia viral"]
         PRD[prodigal-gv] --> MM["MMseqs2 taxonomy<br/>INPHARED + custom"]
-        VC3[vConTACT3]
     end
 
     subgraph VANN["9 · Anotação viral"]
@@ -93,7 +92,7 @@ flowchart TD
 | **filtlong** | filtro por comprimento/qualidade em LR | `env_lr_utils` |
 | **MultiQC** | agregação (em `report.smk`) | `env_qc` |
 
-> ⚠️ O `CLAUDE.md` do repo diz "FastQC, Trim Galore" — **está desatualizado**. Não existe regra FastQC nem Trim Galore em `rules/`; é tudo fastp.
+> Nota: o `CLAUDE.md` dizia "FastQC, Trim Galore" aqui — corrigido em 2026-08-17. Não existe regra FastQC nem Trim Galore em `rules/`; é tudo fastp.
 
 ### 2 · Remoção de hospedeiro — `rules/host_removal.smk`
 Opcional, ativa com `host_genome` no config. SR: `bwa-mem2 mem` → `samtools -f 12 -F 256` (mantém pares com ambas as mates não mapeadas). LR: `minimap2 -ax` → `samtools -f 4`. Índice construído por `bwa-mem2 index`.
@@ -137,7 +136,6 @@ Combinação em `viral_consensus` com três modos (`VIRAL_CONSENSUS_MODE`): `cou
 |---|---|
 | **prodigal-gv** | ORFs virais |
 | **MMseqs2 taxonomy** | vs. INPHARED + DBs custom (viral e procarioto) |
-| **vConTACT3** | clusters/taxonomia viral por rede |
 
 Merge final em `viral_taxonomy` → `viral_taxonomy_merged.tsv`.
 
@@ -176,7 +174,7 @@ Trilha independente da montagem: **sylph** (profile) → **sylph-tax** → merge
 
 ## 3. Infraestrutura
 
-- **26 envs conda** em `envs/` (`env_qc`, `env_assembly`, `env_viral`, `env_genomad`, `env_binning`, `env_binette`, `env_checkm2`, `env_gunc`, `env_derep`, `env_gtdbtk`, `env_annotation`, `env_defense`, `env_rgi`, `env_deeparg`, `env_abricate`, `env_argnorm`, `env_vcontact3`, `env_vrhyme`, `env_phist`, `env_coverm`, `env_mapping`, `env_cobra`, `env_reads_classify`, `env_flye`, `env_medaka`, `env_lr_utils`, `phage_vibrant`).
+- **26 envs conda** (era 27 antes da remocao do `env_vcontact3`) em `envs/` (`env_qc`, `env_assembly`, `env_viral`, `env_genomad`, `env_binning`, `env_binette`, `env_checkm2`, `env_gunc`, `env_derep`, `env_gtdbtk`, `env_annotation`, `env_defense`, `env_rgi`, `env_deeparg`, `env_abricate`, `env_argnorm`, `env_vrhyme`, `env_phist`, `env_coverm`, `env_mapping`, `env_cobra`, `env_reads_classify`, `env_flye`, `env_medaka`, `env_lr_utils`, `phage_vibrant`).
 - **`container:` por regra** apontando para `CONTAINERS.get(<nome>)`, resolvido a partir de `containers.yaml` / `containers.lock.yaml` — uma imagem **por ferramenta**.
 - **Não há** `containerized:` global no `Snakefile` (ver `docs/BENCHMARK_VOMIX_METAFUN.md` §4 — é a mudança de melhor razão esforço/benefício identificada).
 
@@ -184,7 +182,7 @@ Trilha independente da montagem: **sylph** (profile) → **sylph-tax** → merge
 | Pacote | Onde está | Onde poderia ser usado |
 |---|---|---|
 | `pyhmmer=0.12.0` | `env_annotation` | substituir hmmsearch no CheckV (padrão CheckV-PyHMMER) |
-| `pyrodigal=3.7.1`, `pyrodigal-gv=0.3.2` | `env_annotation`, `env_genomad`, `env_vcontact3` | predição de ORF paralela em vez de `prodigal-gv` serial |
+| `pyrodigal=3.7.1`, `pyrodigal-gv=0.3.2` | `env_annotation`, `env_genomad` | predição de ORF paralela em vez de `prodigal-gv` serial |
 | `pyrodigal-rv=0.1.0` | `env_annotation` | vírus de RNA |
 
 ---

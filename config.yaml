@@ -107,7 +107,7 @@ votu_recruit_min_identity:  null    # min. read identity %; null = 95 (SR/HiFi) 
 # host prediction, pharokka/phold annotation, genome maps). Lower it for
 # high-novelty / short-fragment data (e.g. IonTorrent viromes) where most
 # contigs are Low-quality/Not-determined and the default would leave those
-# analyses empty. vConTACT3 keeps its own HQ+/>=10kb gate regardless.
+# analyses empty.
 #   complete | high | medium | low | not_determined
 viral_min_quality: not_determined
 
@@ -162,8 +162,6 @@ vibrant_base: "/media/nas1/LITRP.DBs/metagenDBs/vibrant-1.0.1"
 genomad_db:   "/media/nas1/LITRP.DBs/metagenDBs/genomad/genomad_db"
 checkm2_db:   "/media/nas1/LITRP.DBs/metagenDBs/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
 inphared_db:  "/media/nas1/LITRP.DBs/metagenDBs/inphared"
-vcontact3_db: "/media/nas1/LITRP.DBs/metagenDBs/vcontact3"
-vcontact3_ver: "230"
 gtdbtk_db:    "/media/nas1/LITRP.DBs/metagenDBs/gtdbtk/release226"
 
 # Optional — leave "" to skip the corresponding rule

@@ -1457,7 +1457,8 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
           all_fasta      — all representatives (one per vOTU cluster), for reporting
           mq_fasta       — MQ+ (Complete/HQ/MQ or completeness>=50%) representatives,
                            for prodigal_viral, PHIST, Pharokka, genome maps
-          hq_10kb_fasta  — HQ+/Complete AND >= 10 kb representatives, for vConTACT3
+          hq_10kb_fasta  — HQ+/Complete AND >= 10 kb representatives (tier de
+                           exportacao; o vConTACT3 que o consumia foi removido)
 
         Why only representatives?
           skani_cluster picks the highest-completeness member per cluster as the
@@ -1490,7 +1491,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
 
             # CheckV quality sets for filtering — see `rule viral_votu_reps`
             # (rules/viral_binning.smk). keep_mq is gated by config
-            # `viral_min_quality` (VIRAL_KEEP_TIERS); hq_plus (vConTACT3) is
+            # `viral_min_quality` (VIRAL_KEEP_TIERS); hq_plus is
             # config-independent (Complete/HQ only, + >=10kb below).
             keep_mq = set()
             hq_plus = set()
@@ -1550,7 +1551,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 lf.write(f'[viral_votu_reps] min quality gate: {VIRAL_MIN_QUALITY} '
                          f'(tiers kept: {sorted(VIRAL_KEEP_TIERS)})\n')
                 lf.write(f'[viral_votu_reps] annotation subset (taxonomy/PHIST/Pharokka): {n_mq}\n')
-                lf.write(f'[viral_votu_reps] HQ+/>=10kb reps (vConTACT3): {n_hq_10kb}\n')
+                lf.write(f'[viral_votu_reps] HQ+/>=10kb reps: {n_hq_10kb}\n')
 
 
     rule coassembly_prodigal_viral:
@@ -1595,7 +1596,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
         contig, on the group co-assembly vOTU representatives. Mirrors
         `rule viral_taxonomy` (rules/taxonomy.smk), but scoped to only the
         two sources that are in-scope for co-assembly viral taxonomy --
-        vConTACT3 and custom-MMseqs are NOT wired here. With those two
+        custom-MMseqs nao esta ligado aqui. Com essa
         sources absent, the effective priority becomes
         mmseqs_inphared > genomad (still resolved by deepest-rank-wins,
         same as the per-sample rule; ties just have fewer contenders here).
@@ -1627,9 +1628,9 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                         if line.startswith(">"): contigs.append(line[1:].split()[0])
             lf.write(f"Total viral contigs: {len(contigs)}\n")
 
-            # vConTACT3 and custom-MMseqs are out of scope for co-assembly
-            # viral taxonomy -- these sources are always empty here.
-            vc3_tax = {}
+            # custom-MMseqs esta fora de escopo na trilha de co-assembly:
+            # esta fonte fica sempre vazia aqui. (vConTACT3 foi removido da
+            # pipeline em 2026-08-17.)
             custom_tax = {}
 
             # ── MMseqs2/INPHARED (real per-query LCA) ───────────────────
@@ -1678,9 +1679,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
 
             # ── Build final table ─────────────────────────────────────────
             # Priority order retained for parity with the per-sample rule,
-            # but vcontact3/mmseqs_custom never appear as candidates here.
-            _PRIORITY = {"vcontact3": 0, "mmseqs_inphared": 1,
-                         "mmseqs_custom": 2, "genomad": 3}
+            _PRIORITY = {"mmseqs_inphared": 1, "mmseqs_custom": 2, "genomad": 3}
 
             def _depth(genus, family, order):
                 if genus:  return 3
@@ -1690,7 +1689,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
 
             rows = []; stats = collections.Counter()
             for contig in contigs:
-                vc3 = vc3_tax.get(contig, {})
                 mms = mmseqs_tax.get(contig, {})
                 gmd = genomad_tax.get(contig, {})
                 cms = custom_tax.get(contig, {})
@@ -1732,8 +1730,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                     "source":        source,
                     "confidence":    conf,
                     "lineage":       lin,
-                    "vc3_status":    vc3.get("status",""),
-                    "vc3_novel_anchor": vc3.get("novel_anchor",""),
                     "genomad_best":  gmd.get("best",""),
                     "genomad_class": gmd.get("class",""),
                     "genomad_score": gmd.get("score",""),
@@ -1755,7 +1751,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
 
             fields = ["seq_name","final_family","final_genus","final_order","best_taxonomy",
                       "source","confidence","lineage",
-                      "vc3_status","vc3_novel_anchor",
                       "genomad_best","genomad_class","genomad_score",
                       "mmseqs_rank","mmseqs_lineage","mmseqs_n_proteins",
                       "custom_rank","custom_lineage","custom_n_proteins"]

@@ -13,7 +13,6 @@
 #     viral_bins/                   — vMAGs do vRhyme
 #     taxonomy/
 #       viral_taxonomy_merged.tsv   — taxonomia 3-tier (MMseqs2/GeNomad/INPHARED)
-#       vcontact3_clusters.tsv      — clusters vConTACT3
 #     host_prediction/
 #       phist_results.tsv           — predição hospedeiro (PHIST)
 #     defense_amr/
@@ -125,7 +124,6 @@ rule organize_outputs:
             "viral_nr":   rules.viral_nonredundant.output.fasta,
             "vrhyme":     rules.vrhyme.output.done,
             "taxonomy":   rules.viral_taxonomy.output.tsv,
-            "vcontact3":  rules.vcontact3.output.network,
             "vdef":       rules.defensefinder_viral.output.systems,
             "vantidef":   rules.defensefinder_viral.output.antisystems,
             "dbapis":     rules.dbapis_viral.output.hits,
@@ -203,7 +201,6 @@ rule organize_outputs:
 
             # ── Viral taxonomy + host ─────────────────────────────────
             cp(g('taxonomy'),  f"{final}/viral/taxonomy/viral_taxonomy_merged.tsv")
-            cp(g('vcontact3'), f"{final}/viral/taxonomy/vcontact3_clusters.tsv")
             cp(g('phist'),     f"{final}/viral/host_prediction/phist_results.tsv")
 
             # ── Viral defense / anti-defense ──────────────────────────

@@ -92,7 +92,7 @@ def test_load_tool_status_global_rule_does_not_corrupt_per_sample_counts(tmp_pat
     # Per-sample entries are untouched by the global rules: only the
     # sample-scoped tools appear under each real sample key.
     assert set(status["S1"].keys()) == {
-        "amrfinderplus", "rgi", "galah_derep", "gtdbtk", "vcontact3",
+        "amrfinderplus", "rgi", "galah_derep", "gtdbtk",
     }
     assert set(status["S2"].keys()) == set(status["S1"].keys())
     assert set(status.keys()) == {"S1", "S2", GLOBAL_STATUS_LABEL}
@@ -100,9 +100,9 @@ def test_load_tool_status_global_rule_does_not_corrupt_per_sample_counts(tmp_pat
     rows = summarize_tool_status(status)
     per_sample_rows = [r for r in rows if r["sample"] != GLOBAL_STATUS_LABEL]
     # None of the sample-scoped done.txt files exist on disk -> every
-    # sample-scoped tool is 'unknown', exactly 5 per sample, unaffected by
+    # sample-scoped tool is 'unknown', exactly 4 per sample, unaffected by
     # the global rule's separate failure.
-    assert len(per_sample_rows) == 10
+    assert len(per_sample_rows) == 8
     assert {(r["sample"], r["state"]) for r in per_sample_rows} == {
         ("S1", "unknown"), ("S2", "unknown"),
     }

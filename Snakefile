@@ -8,7 +8,7 @@
 #                 └─► MEGAHIT + metaSPAdes + metaviralSPAdes / Flye + hifiasm (assembly)
 #                 └─► Merge + filter + MMseqs2 (deduplication)
 #                       ├─► QUAST (assembly quality)
-#                       ├─► Viral detection ──► CheckV ──► vRhyme ──► vConTACT3
+#                       ├─► Viral detection ──► CheckV ──► vRhyme
 #                       │     VirSorter2, GeNomad, VIBRANT
 #                       │
 #                       └─► BWA-MEM2 / minimap2 (read mapping → contigs)
@@ -35,7 +35,7 @@
 #   cobra.smk           — BLOCK 5.5: COBRA contig extension (optional, SR PE only)
 #   viral_binning.smk   — BLOCK 7  : vRhyme, CheckV (×2)
 #   prok_binning.smk    — BLOCK 8  : MetaBAT2, SemiBin2, Binette, CheckM2, GTDB-Tk
-#   taxonomy.smk        — BLOCK 9  : Prodigal, Diamond, vConTACT3, viral_taxonomy
+#   taxonomy.smk        — BLOCK 9  : prodigal-gv, MMseqs2 taxonomy, viral_taxonomy
 #   host_prediction.smk — BLOCK 10 : PHIST
 #   defense_amr.smk     — BLOCK 10.5: DefenseFinder, AMRFinderPlus, RGI/CARD, DeepARG, ABRicate, argNorm
 #   finalize.smk        — BLOCK 11 : organize_outputs
@@ -124,8 +124,6 @@ _VIBRANT_BASE        = config["vibrant_base"]
 GENOMAD_DB           = config["genomad_db"]
 CHECKM2_DB           = config["checkm2_db"]
 INPHARED_DB          = config["inphared_db"]
-VCONTACT3_DB         = config["vcontact3_db"]
-VCONTACT3_VER        = config["vcontact3_ver"]
 GTDBTK_DB            = config["gtdbtk_db"]
 
 CUSTOM_PROK_MMSEQS_DB  = _expand(config.get("custom_prok_mmseqs_db",  "")) if config.get("custom_prok_mmseqs_db",  "") else ""
@@ -271,7 +269,7 @@ COBINNING_MULTISPLIT = _PCFG["cobinning_multisplit"]
 # Minimum CheckV quality tier kept for the viral subset that feeds taxonomy /
 # host prediction / annotation (votu_mq_reps.fasta). Default "medium". Lower to
 # "low"/"not_determined" for high-novelty datasets (e.g. IonTorrent viromes)
-# where most contigs are Low-quality/Not-determined. vConTACT3 is unaffected
+# where most contigs are Low-quality/Not-determined.
 # (it keeps its own HQ+/>=10kb gate).
 VIRAL_MIN_QUALITY      = _PCFG["viral_min_quality"]
 VIRAL_MIN_QUALITY_RANK = _PCFG["viral_min_quality_rank"]
@@ -457,7 +455,6 @@ def _t_viral():
     t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_table.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_abundance.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/taxonomy/taxonomy_done.txt", sample=SAMPLES)
-    t += expand(f"{OUTDIR}/{{sample}}/viral/vcontact3/done.txt", sample=SAMPLES)
     if DEFENSE_AMR_VIRAL_ENABLED:
         t += expand(f"{OUTDIR}/{{sample}}/viral/defensefinder/done.txt", sample=SAMPLES)
         t += expand(f"{OUTDIR}/{{sample}}/viral/dbapis/done.txt", sample=SAMPLES)

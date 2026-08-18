@@ -25,7 +25,7 @@ The repository is organized as follows:
   - `viral_binning.smk`: Viral binning with CheckV quality assessment and vRhyme clustering, followed by a second CheckV pass on the bins.
   - `votu_catalog.smk`: Global vOTU catalog — pools all viral sets with source-prefixed IDs, a single-pass `skani triangle --sparse`, ICTV-standard clustering (95% ANI + 85% AF), three representative tiers, and vOTU x sample presence/abundance matrices from read recruitment. Replaces the former per-sample clustering.
   - `prok_binning.smk`: Prokaryotic binning with MetaBAT2 + SemiBin2, consolidated by Binette, then CheckM2 (quality), GUNC (chimerism), galah (dereplication) and GTDB-Tk (taxonomy). MaxBin2 is not used; VAMB appears only in `coassembly.smk`.
-  - `taxonomy.smk`: prodigal-gv gene prediction, MMseqs2 taxonomy against INPHARED and optional custom DBs (viral and prokaryotic), and vConTACT3 network-based viral taxonomy. Diamond is not used here — it appears in `defense_amr.smk` (dbAPIS).
+  - `taxonomy.smk`: prodigal-gv gene prediction, MMseqs2 taxonomy against INPHARED and optional custom DBs (viral and prokaryotic), and the deepest-rank merge in `viral_taxonomy`. vConTACT3 was removed from the pipeline on 2026-08-17. Diamond is not used here — it appears in `defense_amr.smk` (dbAPIS).
   - `host_prediction.smk`: Phage-host prediction using PHIST.
   - `annotation.smk`: pharokka + phold on HQ phages, bakta + eggNOG-mapper on prokaryotic MAGs, and genome maps for the report.
   - `defense_amr.smk`: Defense systems (DefenseFinder with its built-in `--antidefensefinder` pass) and AMR (AMRFinderPlus, RGI/CARD, DeepARG) on prokaryotic bins, plus ABRicate (VFDB+PlasmidFinder) and argNorm. Also reuses DefenseFinder and adds dbAPIS (Diamond) for anti-defense detection on viral ORFs, and computes defense islands. There is no PADLOC rule.
@@ -116,7 +116,7 @@ All environments are created via `snakemake --use-conda --cores 1 --create-envs-
 ## Databases
 
 Requires ~500 GB of pre-downloaded databases:
-- CheckV, VirSorter2, geNomad, VIBRANT, INPHARED, vConTACT3, CheckM2, GTDB-Tk, pharokka, phold, bakta, eggNOG, CARD, DeepARG, DefenseFinder models, dbAPIS, sylph-tax.
+- CheckV, VirSorter2, geNomad, VIBRANT, INPHARED, CheckM2, GTDB-Tk, pharokka, phold, bakta, eggNOG, CARD, DeepARG, DefenseFinder models, dbAPIS, sylph-tax.
 - Optional custom MMseqs2 databases for improved taxonomy (`custom_prok_mmseqs_db`, `custom_viral_mmseqs_db`).
 
 Paths must be set in `config.yaml`.

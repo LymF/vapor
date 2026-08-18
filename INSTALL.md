@@ -30,7 +30,7 @@ Follow the steps in order — database downloads are the most time-consuming par
 | Disk (databases) | 400 GB | 600 GB |
 | Disk (results) | 200 GB / project | SSD preferred |
 
-> **Memory note:** metaSPAdes routinely uses 80–150 GB RAM for large metagenomes. vConTACT3 can use 30–60 GB. Plan accordingly.
+> **Memory note:** metaSPAdes routinely uses 80–150 GB RAM for large metagenomes. Plan accordingly.
 
 ---
 
@@ -159,10 +159,6 @@ mamba create -n env_deeparg -c conda-forge -c bioconda \
 # reuses this env instead of a dedicated one.
 mamba create -n env_annotation -c conda-forge -c bioconda \
     pharokka phold bakta eggnog-mapper ncbi-amrfinderplus pycirclize matplotlib biopython -y
-
-# vConTACT3
-mamba create -n env_vcontact3 -c conda-forge -c bioconda \
-    vcontact3 -y
 
 # CoverM + diversity (alpha, beta, Procrustes)
 mamba create -n env_coverm -c conda-forge -c bioconda \
@@ -389,28 +385,6 @@ conda deactivate
 
 Output: `$DB_BASE/inphared/inphared_mmseqs_taxdb/seqTaxDB` (the exact path the rule
 expects).
-
----
-
-### vConTACT3
-
-**Conda:**
-```bash
-mkdir -p "$DB_BASE/vcontact3"
-conda activate env_vcontact3
-vcontact3 prepare_database \
-    --output "$DB_BASE/vcontact3" \
-    --threads 32
-conda deactivate
-# Note the version string printed — set vcontact3_ver in config.yaml accordingly
-```
-
-**Docker:**
-```bash
-docker run --rm -v "$DB_BASE:/dbs" \
-    quay.io/biocontainers/vcontact3:3.1.6--pyhdfd78af_0 \
-    vcontact3 prepare_database --output /dbs/vcontact3 --threads 32
-```
 
 ---
 
@@ -1030,8 +1004,6 @@ vibrant_base:  "/path/to/vibrant-1.0.1"
 checkm2_db:    "/path/to/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
 gtdbtk_db:     "/path/to/gtdbtk/release226"
 inphared_db:   "/path/to/inphared"
-vcontact3_db:  "/path/to/vcontact3"
-vcontact3_ver: "230"
 pharokka_db:   "/path/to/pharokka"
 phold_db:      "/path/to/phold_db"
 bakta_db:      "/path/to/bakta/db"
@@ -1095,7 +1067,7 @@ rm fastqs/TEST_R1.fastq.gz fastqs/TEST_R2.fastq.gz
 for env in env_qc env_assembly env_flye env_medaka env_lr_utils \
            env_mapping env_viral env_genomad phage_vibrant env_vrhyme \
            env_cobra env_binning env_binette env_checkm2 \
-           env_gtdbtk env_phist env_annotation env_vcontact3 env_coverm \
+           env_gtdbtk env_phist env_annotation env_coverm \
            env_gunc env_derep env_defense env_rgi env_deeparg \
            env_reads_classify; do
     echo -n "$env: "
@@ -1114,7 +1086,6 @@ done
 | GeNomad | 3 GB |
 | VIBRANT v1.0.1 | 12 GB |
 | INPHARED | 2 GB |
-| vConTACT3 | 15 GB |
 | CheckM2 | 3 GB |
 | GTDB-Tk release 226 | 85 GB |
 | Pharokka (PHROGS) | 1 GB |
@@ -1144,9 +1115,6 @@ Reduce `spades_mem` in `config.yaml`. If RAM is the bottleneck, use MEGAHIT only
 
 **VIBRANT: `-f older` error**
 This pipeline uses `cd` to the output directory before running VIBRANT, passing only `-f nucl` explicitly. Ensure you are using the current version of the `Snakefile`.
-
-**vConTACT3 takes too long**
-vConTACT3 can take several hours for large viral datasets. Run with `--cores 32` and confirm that `vcontact3_ver` in `config.yaml` matches your installed database version.
 
 **GTDB-Tk: pplacer error**
 Confirm that `gtdbtk_db` points to the correct directory and that the database version is compatible with your installed GTDB-Tk (`gtdbtk check_install`).
