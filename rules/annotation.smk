@@ -326,9 +326,11 @@ rule eggnog_prok:
     container:  CONTAINERS.get("eggnog_mapper")
     threads: THREADS
     params:
-        outdir      = f"{OUTDIR}/{{sample}}/annotation/eggnog",
-        bakta_dir   = f"{OUTDIR}/{{sample}}/annotation/bakta",
-        all_faa     = f"{OUTDIR}/{{sample}}/annotation/eggnog/all_mags.faa",
+        # derivados do output, nao de {{sample}}: regra herdada por
+        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        outdir      = lambda wc, output: os.path.dirname(output.done),
+        bakta_dir   = lambda wc, output: os.path.join(os.path.dirname(os.path.dirname(output.done)), "bakta"),
+        all_faa     = lambda wc, output: os.path.join(os.path.dirname(output.done), "all_mags.faa"),
     shell:
         """
         mkdir -p {params.outdir}

@@ -569,14 +569,9 @@ PYEOF
             """
 
 
-    rule coassembly_eggnog_prok:
-        """
-        EggNOG-mapper v2 — COG/KEGG/CAZy/GO functional annotation of
-        group-level MAG proteins. Mirrors `rule eggnog_prok`
-        (rules/annotation.smk): same env/container/flags. Concatenates FAA
-        files from all coassembly_bakta-annotated MAGs, then runs emapper.py.
-        Skipped if EGGNOG_DB is not configured or no Bakta FAA files exist.
-        """
+    # EggNOG-mapper nos MAGs do grupo. Herda `rule eggnog_prok`
+    # (rules/annotation.smk) — a copia anterior divergia apenas no docstring.
+    use rule eggnog_prok as coassembly_eggnog_prok with:
         input:
             bakta_done = rules.coassembly_bakta.output.done,
         output:
@@ -586,54 +581,6 @@ PYEOF
             f"{OUTDIR}/coassembly/{{group}}/logs/eggnog_prok.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/eggnog_prok.tsv"
-        conda: "../envs/env_annotation.yaml"
-        container:  CONTAINERS.get("eggnog_mapper")
-        threads: THREADS
-        params:
-            outdir      = f"{OUTDIR}/coassembly/{{group}}/annotation/eggnog",
-            bakta_dir   = f"{OUTDIR}/coassembly/{{group}}/annotation/bakta",
-            all_faa     = f"{OUTDIR}/coassembly/{{group}}/annotation/eggnog/all_mags.faa",
-        shell:
-            """
-            mkdir -p {params.outdir}
-
-            if [ -z "{EGGNOG_DB}" ] || [ ! -d "{EGGNOG_DB}" ]; then
-                echo "[eggnog] EGGNOG_DB not configured — skipping" | tee {log}
-                touch {output.annot_tsv} {output.done}; exit 0
-            fi
-
-            # Concatenate Bakta FAA files (one per MAG subdirectory)
-            rm -f {params.all_faa}
-            for FAA in {params.bakta_dir}/*/*.faa; do
-                [ -f "$FAA" ] && [ -s "$FAA" ] && cat "$FAA" >> {params.all_faa}
-            done
-
-            if [ ! -s {params.all_faa} ]; then
-                echo "[eggnog] No Bakta FAA files found — skipping" | tee -a {log}
-                touch {output.annot_tsv} {output.done}; exit 0
-            fi
-
-            N_PROT=$(grep -c "^>" {params.all_faa} || echo 0)
-            echo "[eggnog] Running on $N_PROT proteins" | tee -a {log}
-
-            emapper.py \
-                -m diamond \
-                --itype proteins \
-                -i {params.all_faa} \
-                -o eggnog_annotations \
-                --output_dir {params.outdir} \
-                --cpu {threads} \
-                --data_dir {EGGNOG_DB} \
-                --override \
-                >> {log} 2>&1
-
-            [ -f {params.outdir}/eggnog_annotations.emapper.annotations ] && \
-                cp {params.outdir}/eggnog_annotations.emapper.annotations {output.annot_tsv} || \
-                touch {output.annot_tsv}
-
-            touch {output.done}
-            echo "[eggnog] Done" | tee -a {log}
-            """
 
 
     rule coassembly_extract_kegg_kos:
