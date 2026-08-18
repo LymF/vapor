@@ -1,100 +1,70 @@
 # Laudo — auditoria par a par: regras per-sample × gêmeas `coassembly_*`
 
-Levantado em 2026-08-17 na branch `refactor/unit-wildcard`. Método: extração de cada par, remoção de docstrings e comentários, normalização de caminhos e nomes de wildcard, diff do **código restante**. Script em `scratchpad/audit.py`.
-
-Objetivo: separar duplicação acidental (unificável) de divergência intencional (tem que ficar) e de *drift* (bug).
+Levantado em 2026-08-17 na branch `refactor/unit-wildcard`. **Revisado no mesmo dia** após a primeira versão se mostrar imprecisa — ver §0.
 
 ---
 
-## Resumo
+## 0. Correção da primeira versão deste laudo
 
-| Categoria | Pares | Ação |
-|---|---|---|
-| **A** — zero/quase-zero diferença de código | 9 | Unificar por herança. Risco nulo. |
-| **B** — divergência legítima de input/params | 6 | Unificar com override no `use rule`. |
-| **C** — **drift real (regressão)** | 2 | **Não unificar antes de corrigir.** Ver §3. |
-| **D** — divergência intencional de algoritmo | 3 | Manter separado, documentar o porquê. |
+A v1 classificou os pares com um comparador que normalizava caminhos e nomes de wildcard e diffava o resto. **Esse método subestimou as diferenças** e por pouco não causou um erro sério.
 
-Ou seja: dos 20 pares, **15 são unificáveis** — bem mais do que eu estimei quando vi só o diff bruto (o docstring inflava a contagem). E 2 escondem um bug ativo.
+Duas falhas do comparador:
+
+1. **Colapsava trechos do corpo executável.** Reportou `gunc` com "4 difs (input + bins_dir)", quando na verdade o `shell:` também diferia: `find -name "*.fa"` e `--file_suffix .fa` contra `*.fna`/`.fna`. Bins do Binette são `.fa`, os do VAMB são `.fna`. Converter no automático confiando nessa contagem teria feito a trilha de grupo **não encontrar bin nenhum** — e o resultado seria "0 bins", não um erro. Falha silenciosa, a pior categoria.
+2. **Atribuía helpers de módulo à regra anterior.** Reportou que `deeparg` perdia `_has_data_rows()`. Falso: essa função é definida em nível de módulo em `defense_amr.smk`, logo **depois** da regra. O corpo do `deeparg` era idêntico. O mesmo artefato inflou `phist`, `bakta`, `viral_taxonomy` e outros.
+
+**Método da v2, usado daqui em diante:** extrair o bloco `shell:`/`run:` de cada regra delimitando pela indentação, normalizar só os rótulos de log (`[nome]`), e diffar. Quando um par vai ser convertido, o diff é lido por inteiro antes — não por contagem.
+
+**Lição operacional:** contagem de diff normalizado serve para *priorizar*, nunca para *decidir*. A decisão exige ler os dois corpos.
 
 ---
 
-## 1. Categoria A — só docstring (unificar já)
+## 1. Resultado final
 
-Diferença de código medida = 0, exceto onde anotado.
+Dos 20 pares auditados, **15 foram unificados** por herança (`use rule ... as ... with:`), 2 continuam separados de propósito e 3 seguem pendentes.
 
-| Par | Difs de código | Observação |
+`rules/coassembly.smk`: **3605 → 2185 linhas (−39%)**. 23 regras herdadas, 16 gêmeas próprias restantes.
+
+### Unificados — diferença só de docstring/rótulo (9)
+`abricate`, `mmseqs_taxonomy_viral`, `defensefinder_viral`, `defensefinder`, `argnorm_normalize`, `phold`, `dbapis_viral`, `extract_kegg_kos`, `pharokka`.
+
+Mais, na segunda leva: `amr_consensus` e `deeparg` — a v1 os listou como divergentes, mas os corpos eram idênticos byte a byte fora o rótulo do log.
+
+### Unificados — divergência legítima de entrada, resolvida por override (4)
+| Par | O que difere | Como foi resolvido |
 |---|---|---|
-| `abricate` | 0 | |
-| `mmseqs_taxonomy_viral` | 0 | |
-| `defensefinder_viral` | 0 | |
-| `defensefinder` | 0 | |
-| `argnorm_normalize` | 0 | |
-| `phold` | 0 | |
-| `dbapis_viral` | 1 | só o guard `if` do bloco |
-| `extract_kegg_kos` | 1 | só o guard `if` do bloco |
-| `pharokka` | 2 | só a origem do input (`votu_catalog_reps` vs `viral_votu_reps`) |
+| `gunc` | bins `.fa` vs `.fna` | `params.bin_ext` na regra base, sobrescrito na herdada |
+| `bakta` | idem (`BIN_FA`) | idem |
+| `galah_derep` | idem, em 5 pontos | idem — **mais o §2** |
+| `filter_viral_for_prok` | entrada (rep_seq vs contigs), nome do output, `genomad_dir` | override de input/output; `genomad_dir` passou a derivar de `input.genomad` |
 
-São ~700 linhas de código idêntico mantidas em duplicata.
+### Já unificados antes desta auditoria (6)
+`virsorter2`, `genomad`, `vibrant`, `viral_consensus`, `checkv`, `eggnog_prok`, `amrfinderplus`, `rgi_card`.
 
-## 2. Categoria B — divergência legítima (unificar com override)
+---
 
-Todas têm a mesma causa: **a trilha de grupo usa VAMB, a per-sample usa Binette**, então mudam os diretórios de bin e a regra de origem. É uma diferença de *entrada*, não de lógica — exatamente o que o `use rule ... with:` sobrescreve.
+## 2. Drift real encontrado — correções que existiam só do lado per-sample
 
-| Par | Difs | Natureza |
-|---|---|---|
-| `gunc` | 4 | `bins/binette/final_bins` → `vamb/run/bins`; `rules.binette` → `rules.vamb_cobinning` |
-| `amr_consensus` | 5 | idem |
-| `bakta` | 6 | idem |
-| `galah_derep` | 6 | idem + `rules.checkm2` → `rules.checkm2_group` |
-| `deeparg` | 7 | idem |
-| `filter_viral_for_prok` | 14 | idem + nome do output (`_rep_seq_nonviral` vs `_contigs_nonviral`) |
+Três casos onde a cópia de grupo estava **atrás** da per-sample. Unificar não foi limpeza, foi correção de bug, e cada um saiu em commit próprio marcado como tal.
 
-## 3. Categoria C — DRIFT REAL: `amrfinderplus` e `rgi_card`
-
-**Este é o achado principal do laudo.**
-
-As duas versões per-sample foram corrigidas para registrar o desfecho real da execução; as gêmeas de coassembly **ficaram para trás**:
-
-```python
-# rules/defense_amr.smk (per-sample) — CORRIGIDO
-def write_empty(msg, status):
-    write_status(str(output.done), status)      # 'ok' | 'skipped: ...' | 'failed: ...'
-...
-try:
-    ...">> {log} 2>&1"
-except sp.CalledProcessError as exc:
-    amr_err = exc.returncode
-    write_status(str(output.done), f"failed: amrfinder exit {amr_err}")
-
-# rules/coassembly.smk (gêmea) — AINDA COM O PADRÃO ANTIGO
-def write_empty(msg):
-    Path(str(output.done)).touch()              # done.txt VAZIO
-...
-"...>> {log} 2>&1 || echo '[amrfinderplus] WARNING: amrfinder failed' >> {log}"
-```
-
-A gêmea engole o código de saída com `|| echo` e escreve um `done.txt` vazio. É **exatamente o bug que o próprio `write_status()` documenta** no `Snakefile`:
+### `amrfinderplus` e `rgi_card`
+As versões per-sample ganharam `write_status()` (`ok` / `skipped: <motivo>` / `failed: <motivo>`); as gêmeas continuavam engolindo o exit code com `|| echo WARNING` e escrevendo `done.txt` vazio. É o caso que o próprio docstring de `write_status()` descreve:
 
 > *"An empty done.txt makes 'the tool crashed' and 'the tool found nothing' indistinguishable downstream, which is how a disk-full AMRFinderPlus run was read as a biological zero."*
 
-O padrão é sistemático, não pontual:
+### `galah_derep` — três correções ausentes
+1. `rm -rf {params.repdir}` antes de rodar. Sem isso o galah aborta quando o diretório de representantes existe e não está vazio, ou seja **um `snakemake` retomado sobre execução anterior falhava sempre**.
+2. Captura do exit code (`GALAH_EXIT`) em vez de `|| echo`.
+3. `done.txt` com status real em vez de `touch` vazio. Um fallback para os bins originais significa que a dereplicação **não aconteceu** — agora fica registrado em vez de passar por sucesso.
 
-| Arquivo | `write_status` | `touch` vazio |
-|---|---|---|
-| `rules/coassembly.smk` | **0** | **46** |
-| `rules/defense_amr.smk` | 6 | 14 |
-| `rules/annotation.smk` | 0 | 13 |
-| `rules/prok_binning.smk` | 0 | 7 |
-| `rules/taxonomy.smk` | 0 | 7 |
+### O agravante comum: o relatório não lia nada disso
+`load_tool_status()` iterava só sobre `samples`. Grupos vivem em `coassembly/<grupo>/` e **nunca eram lidos**, então uma ferramenta que falhasse na trilha de grupo não aparecia nem como lacuna nem como erro. Corrigido: a função aceita `groups` e indexa por `GROUP_STATUS_PREFIX`, com `ValueError` em caso de colisão com nome de amostra. Dois testes cobrem isso.
 
-**Impacto real, delimitado:** `load_tool_status()` (`scripts/report/data_loaders.py:61`) itera sobre `samples` e sobre as regras globais. Grupos de co-assembly **não estão em `samples`**, então esses `done.txt` nunca chegam a ser lidos pelo relatório. Consequência: uma ferramenta que falha na trilha de co-assembly não aparece como lacuna nem como erro — **ela simplesmente não aparece**. O relatório está correto no que lê; o problema é que não lê nada de coassembly.
+Escopo do que **não** foi feito: `coassembly.smk` tinha 46 `touch` vazios. Só 2 eram regressão (as gêmeas de rules já corrigidas per-sample). Os outros espelham regras per-sample que também usam `touch` simples — `annotation.smk` (13), `prok_binning.smk` (7), `taxonomy.smk` (7). Estender `write_status` ao pipeline inteiro é uma mudança de convenção separada, e agora mais barata: a leitura por grupo já existe.
 
-Vale notar que o `_read_status_file()` já trata `done.txt` vazio como `unknown` (não como sucesso), e `tool_failed()` já converte `unknown` em lacuna. A infraestrutura da correção existe — só não foi ligada na trilha de grupo.
+---
 
-**Recomendação:** propagar `write_status` para as 46 chamadas de `coassembly.smk` **antes** de unificar esses dois pares, e estender `STATUS_TRACKED_TOOLS` para cobrir grupos. É correção de bug, não refatoração — e muda o que o relatório mostra.
-
-## 4. Categoria D — divergência intencional (manter separado)
+## 3. Mantidos separados de propósito
 
 ### `vrhyme`
 ```python
@@ -102,47 +72,38 @@ rule coassembly_vrhyme:
     input:
         bams = lambda wc: expand(..., sample=GROUPS[wc.group])   # TODOS os BAMs do grupo
 ```
-O per-sample usa **um** BAM; o de grupo usa **todos**, para cobertura diferencial — análogo ao co-binning do VAMB no lado procariótico. São algoritmos diferentes. Unificar seria bug.
+O per-sample usa **um** BAM; o de grupo usa **todos**, para cobertura diferencial — análogo ao co-binning do VAMB. São algoritmos diferentes. **Unificar seria bug.**
 
-### `phist`
-Mesma causa da categoria B (`bins_dir` VAMB vs Binette), mas o bloco vizinho `_coas_final_inputs` é lógica exclusiva de grupo. Unificável em parte; o entorno fica.
+### `viral_taxonomy`
+O algoritmo é idêntico: mesmo schema de saída, mesmo `_PRIORITY`, mesmo merge por rank mais profundo, mesmo fallback. O que difere é a **base de evidência**: a gêmea zera `custom_tax = {}`, então a trilha de grupo classifica com 2 fontes (MMseqs2/INPHARED + geNomad) contra 3 da per-sample.
 
-### `viral_taxonomy` — o mais grave depois da categoria C
-
-**Idêntico:** o schema de saída (mesmas 15 colunas, mesma ordem), o dicionário `_PRIORITY`, o algoritmo de merge (rank mais profundo vence, empate por confiança), o fallback para geNomad e o tratamento de `unclassified`.
-
-**Diferente:** a gêmea zera duas das quatro fontes, em código:
-
-```python
-# rules/taxonomy.smk (per-sample) — 4 fontes
-vc3_tax    = {...}                                     # vConTACT3, populado
-custom_tax = _mmseqs_lca_rollup(input.custom_hits, _RANKS)   # MMseqs2/custom, populado
-
-# rules/coassembly.smk (gêmea) — 2 fontes
-vc3_tax    = {}      # hardcoded vazio
-custom_tax = {}      # hardcoded vazio
-```
-
-Consequências:
-
-1. **A trilha de grupo classifica com metade da evidência.** O mesmo contig, analisado per-sample ou via co-assembly, pode receber táxons diferentes — e o de grupo é estritamente mais pobre.
-2. **As colunas `vc3_status`, `vc3_novel_anchor`, `custom_rank`, `custom_lineage`, `custom_n_proteins` saem sempre vazias** na saída de grupo, mas continuam no cabeçalho. Quem lê o TSV não distingue "não rodou" de "não teve hit" — a **mesma classe** de ambiguidade da categoria C, agora no nível de coluna.
-3. O `_PRIORITY` da gêmea ainda lista `vcontact3: 0` e `mmseqs_custom: 2`, fontes que ela nunca produz. Código morto que sugere um comportamento que não existe.
-
-**Nota de oportunidade:** com o vConTACT3 saindo da pipeline (decisão de 2026-08-17), a distância entre as duas versões cai de 2 fontes para 1 (só o MMseqs2/custom). Faz sentido **remover o vConTACT3 primeiro e reavaliar este par depois** — a unificação fica bem mais barata, e talvez trivial.
+Com a saída do vConTACT3 (2026-08-17) a distância caiu de 2 fontes para 1. Unificar exigiria ligar o `mmseqs_taxonomy_custom_viral` na trilha de grupo — isso **acrescenta** uma execução de ferramenta, não é refatoração. Decisão pendente.
 
 ---
 
-## 5. Ordem sugerida
+## 4. Pendentes
 
-1. **Categoria A** (9 pares) — herança direta, invariante do DAG preservado por construção. Ganho ~700 linhas.
-2. **Categoria B** (6 pares) — herança com override de input/params. Invariante preservado.
-3. **Remover vConTACT3** — decisão já tomada; encolhe o problema do `viral_taxonomy`.
-4. **Corrigir o `write_status` na trilha de coassembly** (46 pontos) + estender `STATUS_TRACKED_TOOLS` para grupos. **Muda o relatório** — é correção de bug, precisa ser um commit próprio e anunciado.
-5. **Categoria C** (2 pares) — unificar só depois de (4).
-6. **`viral_taxonomy`** — reavaliar depois de (3).
-7. **`vrhyme`** — não unificar. Adicionar um comentário explicando que a duplicação é deliberada, para ninguém "consertar" isso depois.
+| Par | Situação |
+|---|---|
+| `prodigal_viral` | corpo aparenta ser idêntico; falta confirmar e converter |
+| `checkv_vrhyme` | idem |
+| `phist` | `bins_dir` VAMB vs Binette (como categoria B), mas o bloco vizinho `_coas_final_inputs` é lógica exclusiva de grupo |
+| `viral_trimmed`, `skani_votu`, `skani_cluster`, `viral_votu_reps` | sem regra base per-sample equivalente (o per-sample usa o catálogo global de vOTU) |
+| `index`, `map`, `sort`, `mapback`, `abundance`, `prok_bin_proteins`, `organize_outputs` | específicos de grupo |
 
-## Verificação usada
+---
 
-Baseline com 32 amostras e 7 grupos (`coassembly.viral` e `coassembly.binning` ligados): **1641 jobs, 2683 arquivos de output**. Toda unificação feita até agora manteve o diff do invariante vazio. Os passos (3) e (4) são os primeiros que **vão** mudar comportamento — por isso ficam separados e sinalizados.
+## 5. Verificação
+
+Baseline: 32 amostras, 7 grupos, `coassembly.viral` e `coassembly.binning` ligados.
+
+O invariante é o **conjunto de arquivos de output do DAG**, extraído do dry-run e diffado a cada leva. Nomes de regra mudam na refatoração; os outputs não podem.
+
+| Etapa | Jobs | Outputs |
+|---|---|---|
+| Baseline | 1641 | 2683 |
+| Após todas as heranças | 1609 | 2611 |
+
+As duas reduções são explicadas e foram conferidas item a item: −32 jobs e −64 outputs da remoção do vConTACT3 (o diff continha **só** caminhos `.../vcontact3/`), −8 outputs da remoção do tier `hq_10kb` (só caminhos `*hq_10kb*`). **Nenhuma unificação por herança alterou o invariante.**
+
+As mudanças do §2 são de **conteúdo** do `done.txt` e de comportamento em resume — não alteram o conjunto de arquivos, por isso o invariante permanece válido como rede de segurança mas não as detecta. Elas são cobertas pelos testes (67, era 65).
