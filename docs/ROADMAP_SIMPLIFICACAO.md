@@ -18,8 +18,9 @@ descartadas com motivo.
 |---|---|
 | status real no `done.txt` (15 regras) | **feito** — commit `4ff4507`, já no master |
 | Remoção do VIBRANT | **feito** — commit `d8dbf7d` |
-| (f) `bacphlip_votu` + (g) `eggnog_viral` | **feito** — regras globais |
-| Restante abaixo | não iniciado |
+| (f) `bacphlip_votu` + (g) `eggnog_viral` | **feito** — commit `bf2d358`, regras globais |
+| Relatório religado (Lifestyle + Putative AMGs) | **feito** — commit `1c66c6c` |
+| Restante | **próximo passo: (b)** — ver "Ordem de execução" |
 
 Branch de trabalho: `master` (o `refactor/unit-wildcard` já foi mergeado por
 fast-forward e pode ser apagado).
@@ -28,8 +29,42 @@ fast-forward e pode ser apagado).
 
 ## Sequência acordada
 
-Executar **nesta ordem**. Cada passo é verificado antes do seguinte (ver
-"Como verificar").
+**As letras são identidade, não ordem.** Elas foram atribuídas na ordem em que
+os itens surgiram na discussão; a ordem de execução foi revisada depois e está
+abaixo. Não execute em ordem alfabética.
+
+### Ordem de execução
+
+```
+(a) VIBRANT ........................ FEITO  d8dbf7d
+(f) bacphlip_votu .................. FEITO  bf2d358
+(g) eggnog_viral ................... FEITO  bf2d358
+        ↓
+(b) remover metaSPAdes + metaviralSPAdes
+(c) um montador só para long reads
+        ↓
+(h) migrar regras para o representante   ← ANTES de (d)
+        ↓
+(d) remover merge_contigs / merge_lr / mmseqs2
+(e) mover o limiar de comprimento
+```
+
+**Por que (h) vem antes de (d).** As duas mexem em *quem consome o quê*, e
+incidem sobre o mesmo conjunto de pontos de referência — as 22 referências ao
+`rep_seq.fasta` e as 7 regras que consomem `votu_catalog_reps` se sobrepõem.
+Fazer as duas em sequência sobre os mesmos consumidores dobra a chance de erro
+silencioso, que é exatamente a classe de falha que já custou caro aqui (ver
+"Lição registrada sobre método").
+
+Fazendo (h) primeiro, as regras que rodam no representante global **saem do
+caminho** do hub `rep_seq.fasta` antes de ele ser desmontado. O (d) fica com um
+conjunto menor e mais homogêneo de consumidores para reapontar.
+
+(b) e (c) vêm antes das duas porque são pré-requisito de (d): o dedup só pode
+sair depois que sobrar **um montador por trilha**, que é o que remove a razão de
+existir dele.
+
+Cada passo é verificado antes do seguinte (ver "Como verificar").
 
 ### (a) Remover VIBRANT — FEITO (commit `d8dbf7d`)
 
@@ -68,6 +103,11 @@ Escolha por `lr_tech`: **Flye para ONT, metaMDBG para HiFi**. Sai o `hifiasm_lr`
 ou o `metaMDBG_lr` conforme a escolha, e o `merge_lr` morre.
 
 ### (d) Remover `merge_contigs`, `merge_lr` e `mmseqs2` (dedup)
+
+> **Pré-requisitos: (b), (c) e (h).** (b)/(c) porque o dedup só pode sair
+> depois de sobrar um montador por trilha. (h) porque as regras que rodam
+> no representante global precisam sair do caminho do hub `rep_seq.fasta`
+> antes dele ser desmontado — ver "Ordem de execução".
 
 **Esta é a mudança de maior risco.** O hub deixa de ser
 `{sample}_rep_seq.fasta` e passa a ser o contig do MEGAHIT — 22 referências a
@@ -147,6 +187,10 @@ trocando método curado por bruto, estamos trocando um não-curado por outro mai
 barato.
 
 ### (h) Princípio: computar no representante, herdar no membro
+
+> **Executar ANTES de (d).** As duas mexem nos mesmos consumidores; fazer
+> (h) primeiro reduz o conjunto que (d) precisa reapontar — ver
+> "Ordem de execução".
 
 **Esta é a mudança estruturalmente mais importante do roadmap.** Não é um
 conserto pontual — é o modelo que o resto das regras deveria seguir.
