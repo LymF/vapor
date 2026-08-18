@@ -1389,175 +1389,41 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
         log:   f"{OUTDIR}/coassembly/{{group}}/logs/mmseqs_taxonomy_viral.log"
         benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/mmseqs_taxonomy_viral.tsv"
 
-    rule coassembly_viral_taxonomy:
-        """
-        Merge taxonomy from GeNomad + MMseqs2/INPHARED into one table per
-        contig, on the group co-assembly vOTU representatives. Mirrors
-        `rule viral_taxonomy` (rules/taxonomy.smk), but scoped to only the
-        two sources that are in-scope for co-assembly viral taxonomy --
-        custom-MMseqs nao esta ligado aqui. Com essa
-        sources absent, the effective priority becomes
-        mmseqs_inphared > genomad (still resolved by deepest-rank-wins,
-        same as the per-sample rule; ties just have fewer contenders here).
-        """
+
+    # MMseqs2 contra o seqTaxDB custom (IMG/VR) para o grupo. Antes so a
+    # trilha per-sample tinha esta fonte, entao o mesmo contig recebia
+    # taxonomias diferentes conforme a trilha. Auto-skip se
+    # custom_viral_mmseqs_db nao estiver configurado.
+    use rule mmseqs_taxonomy_custom_viral as coassembly_mmseqs_taxonomy_custom_viral with:
+        input:
+            faa  = rules.coassembly_prodigal_viral.output.faa,
+            done = rules.coassembly_prodigal_viral.output.done,
+        output:
+            hits = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_vs_custom.tsv",
+            done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/mmseqs_custom_viral_done.txt",
+        log:   f"{OUTDIR}/coassembly/{{group}}/logs/mmseqs_taxonomy_custom_viral.log"
+        benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/mmseqs_taxonomy_custom_viral.tsv"
+
+    # Merge de taxonomia viral do grupo. Herda `rule viral_taxonomy`
+    # (rules/taxonomy.smk). Ate 2026-08-17 esta era uma copia de ~176 linhas
+    # que zerava `custom_tax = {}` em codigo, entao a trilha de grupo
+    # classificava com 2 fontes contra 3 da per-sample -- mesmo contig, base
+    # de evidencia diferente -- e ainda emitia as colunas custom_* sempre
+    # vazias. Com o MMseqs2/custom ligado acima, as duas trilhas passam a
+    # usar exatamente as mesmas fontes.
+    use rule viral_taxonomy as coassembly_viral_taxonomy with:
         input:
             genomad_done = rules.coassembly_genomad.output.done,
             mmseqs_hits  = rules.coassembly_mmseqs_taxonomy_viral.output.hits,
             mmseqs_done  = rules.coassembly_mmseqs_taxonomy_viral.output.done,
+            custom_hits  = rules.coassembly_mmseqs_taxonomy_custom_viral.output.hits,
+            custom_done  = rules.coassembly_mmseqs_taxonomy_custom_viral.output.done,
             viral        = rules.coassembly_viral_votu_reps.output.mq_fasta,
         output:
             tsv  = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/viral_taxonomy_merged.tsv",
             done = f"{OUTDIR}/coassembly/{{group}}/viral/taxonomy/taxonomy_done.txt",
         log:   f"{OUTDIR}/coassembly/{{group}}/logs/viral_taxonomy.log"
         benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/viral_taxonomy.tsv"
-        conda: "../envs/env_viral.yaml"
-        container:  CONTAINERS.get("diamond")
-        threads: 1
-        run:
-            import csv, os, glob, collections
-            from pathlib import Path
-
-            lf = open(str(log[0]), "w")
-
-            # All viral contigs
-            contigs = []
-            if os.path.exists(str(input.viral)):
-                with open(str(input.viral)) as f:
-                    for line in f:
-                        if line.startswith(">"): contigs.append(line[1:].split()[0])
-            lf.write(f"Total viral contigs: {len(contigs)}\n")
-
-            # custom-MMseqs esta fora de escopo na trilha de co-assembly:
-            # esta fonte fica sempre vazia aqui. (vConTACT3 foi removido da
-            # pipeline em 2026-08-17.)
-            custom_tax = {}
-
-            # ── MMseqs2/INPHARED (real per-query LCA) ───────────────────
-            _RANKS = ['realm', 'kingdom', 'phylum', 'class', 'order', 'family', 'subfamily', 'genus']
-            mmseqs_tax = _mmseqs_lca_rollup(str(input.mmseqs_hits), _RANKS)
-            lf.write(f"MMseqs2/INPHARED: {len(mmseqs_tax)} contigs\n")
-
-            # ── GeNomad ───────────────────────────────────────────────────
-            genomad_tax = {}
-            gdir   = os.path.dirname(str(input.genomad_done))
-            gfiles = glob.glob(os.path.join(gdir, "**", "*_virus_summary.tsv"), recursive=True)
-            gpath  = gfiles[0] if gfiles else ""
-            if gpath and os.path.getsize(gpath) > 0:
-                with open(gpath) as f:
-                    for row in csv.DictReader(f, delimiter="\t"):
-                        name  = row.get("seq_name","")
-                        tax   = row.get("taxonomy","")
-                        score = row.get("virus_score","0")
-                        if not name or not tax: continue
-                        parts = [p.strip() for p in tax.split(";")
-                                 if p.strip() and p.strip() not in ("Viruses", "")]
-                        family=""; genus=""; order=""; cls=""; best=""
-                        # High-rank names (phylum/kingdom) must not be used as fallback
-                        _high = set()
-                        for p in parts:
-                            if p.endswith("viridae") or p.endswith("virnae"):
-                                family = p
-                            elif p.endswith("virales"):
-                                order  = p
-                            elif p.endswith("viricetes"):
-                                cls    = p
-                            elif p.endswith("virus") or p.endswith("phage"):
-                                genus  = p
-                            elif any(p.endswith(s) for s in
-                                     ("viricota", "virae", "viria", "virites")):
-                                _high.add(p)  # phylum/kingdom — skip as taxonomy fallback
-                        _low = [p for p in parts if p not in _high]
-                        best = genus or family or order or cls or (
-                            _low[-1] if _low else (parts[-1] if parts else ""))
-                        genomad_tax[name] = {
-                            "family": family, "genus": genus, "order": order,
-                            "class": cls, "best": best, "lineage": tax,
-                            "score": float(score or 0),
-                        }
-            lf.write(f"GeNomad: {len(genomad_tax)} contigs\n")
-
-            # ── Build final table ─────────────────────────────────────────
-            # Priority order retained for parity with the per-sample rule,
-            _PRIORITY = {"mmseqs_inphared": 1, "mmseqs_custom": 2, "genomad": 3}
-
-            def _depth(genus, family, order):
-                if genus:  return 3
-                if family: return 2
-                if order:  return 1
-                return 0
-
-            rows = []; stats = collections.Counter()
-            for contig in contigs:
-                mms = mmseqs_tax.get(contig, {})
-                gmd = genomad_tax.get(contig, {})
-                cms = custom_tax.get(contig, {})
-
-                candidates = []  # (source, ff, fg, fo, lin, conf, best)
-
-                if mms and (mms.get("family") or mms.get("genus") or mms.get("order")):
-                    ff, fg, fo = mms.get("family",""), mms.get("genus",""), mms.get("order","")
-                    candidates.append(("mmseqs_inphared", ff, fg, fo, mms.get("lineage",""),
-                                        f"{mms.get('rank','')} ({mms.get('n_proteins',0)} proteins)",
-                                        fg or ff or fo))
-
-                if gmd and gmd.get("family"):  # only true family; no class/order via this candidate
-                    ff, fg, fo = gmd.get("family",""), gmd.get("genus",""), gmd.get("order","")
-                    candidates.append(("genomad", ff, fg, fo, gmd.get("lineage",""),
-                                        f"{gmd['score']:.3f}", gmd.get("best","")))
-
-                if candidates:
-                    candidates.sort(key=lambda c: (-_depth(c[2], c[1], c[3]), _PRIORITY[c[0]]))
-                    source, ff, fg, fo, lin, conf, best = candidates[0]
-                elif gmd:
-                    # GeNomad's only signal is class/order/higher -- still better than nothing
-                    source = "genomad"
-                    ff, fg, fo = "", "", gmd.get("order","")
-                    best   = gmd.get("best","")
-                    conf   = f"{gmd['score']:.3f}"
-                    lin    = gmd.get("lineage","")
-                else:
-                    source = "unclassified"
-                    ff = fg = fo = conf = lin = best = ""
-
-                stats[source] += 1
-                rows.append({
-                    "seq_name":      contig,
-                    "final_family":  ff,
-                    "final_genus":   fg,
-                    "final_order":   fo,
-                    "best_taxonomy": best,
-                    "source":        source,
-                    "confidence":    conf,
-                    "lineage":       lin,
-                    "genomad_best":  gmd.get("best",""),
-                    "genomad_class": gmd.get("class",""),
-                    "genomad_score": gmd.get("score",""),
-                    "mmseqs_rank":         mms.get("rank",""),
-                    "mmseqs_lineage":      mms.get("lineage",""),
-                    "mmseqs_n_proteins":   mms.get("n_proteins",""),
-                    "custom_rank":         cms.get("rank",""),
-                    "custom_lineage":      cms.get("lineage",""),
-                    "custom_n_proteins":   cms.get("n_proteins",""),
-                })
-
-            lf.write("\nSummary:\n")
-            for k, v in stats.most_common():
-                lf.write(f"  {k}: {v}\n")
-            total = len(rows)
-            unclass = stats.get("unclassified", 0)
-            lf.write(f"  Novel (unclassified): {unclass}/{total} = {100*unclass/total:.1f}%\n" if total else "")
-            lf.close()
-
-            fields = ["seq_name","final_family","final_genus","final_order","best_taxonomy",
-                      "source","confidence","lineage",
-                      "genomad_best","genomad_class","genomad_score",
-                      "mmseqs_rank","mmseqs_lineage","mmseqs_n_proteins",
-                      "custom_rank","custom_lineage","custom_n_proteins"]
-            with open(str(output.tsv), "w", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
-                w.writeheader(); w.writerows(rows)
-            Path(str(output.done)).write_text("ok\n")
-
 
     use rule pharokka as coassembly_pharokka with:
         input:

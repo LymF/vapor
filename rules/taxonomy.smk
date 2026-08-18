@@ -210,10 +210,11 @@ rule mmseqs_taxonomy_custom_viral:
     threads: THREADS
     params:
         seqtaxdb = CUSTOM_VIRAL_MMSEQS_DB,
-        outdir   = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_custom",
-        querydb  = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_custom/queryDB",
-        result   = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_custom/result",
-        tmp      = f"{OUTDIR}/{{sample}}/viral/taxonomy/mmseqs_custom/tmp",
+        # derivados do output (requisito da heranca por coassembly.smk).
+        outdir   = lambda wc, output: os.path.join(os.path.dirname(output.done), "mmseqs_custom"),
+        querydb  = lambda wc, output: os.path.join(os.path.dirname(output.done), "mmseqs_custom", "queryDB"),
+        result   = lambda wc, output: os.path.join(os.path.dirname(output.done), "mmseqs_custom", "result"),
+        tmp      = lambda wc, output: os.path.join(os.path.dirname(output.done), "mmseqs_custom", "tmp"),
     run:
         import os
         from pathlib import Path
