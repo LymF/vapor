@@ -146,9 +146,55 @@ manual do contexto genômico. Isso vale igual para DRAM-v e VIBRANT: não estamo
 trocando método curado por bruto, estamos trocando um não-curado por outro mais
 barato.
 
-### (h) Migração incompleta para o catálogo global
+### (h) Princípio: computar no representante, herdar no membro
 
-**Achado de 2026-08-18, ainda NÃO corrigido.**
+**Esta é a mudança estruturalmente mais importante do roadmap.** Não é um
+conserto pontual — é o modelo que o resto das regras deveria seguir.
+
+#### O princípio
+
+Um vOTU é um agrupamento a 95% ANI / 85% AF — nível de espécie pelo padrão ICTV.
+Todo membro de um vOTU é, por construção, a mesma entidade biológica que o
+representante. Logo:
+
+> **Toda análise que depende só da sequência roda UMA vez, no representante
+> global. O membro herda o resultado por join na provenance.**
+
+Só permanece por amostra o que depende de **dados daquela amostra** — não da
+sequência.
+
+| natureza da análise | onde roda | exemplos |
+|---|---|---|
+| depende só da sequência | **uma vez, no representante global** | predição de ORF, anotação funcional, taxonomia, lifestyle, AMG, qualidade |
+| depende de reads/bins da amostra | **por amostra** | recrutamento, cobertura, abundância, presença/ausência, predição de hospedeiro |
+
+A tabela por amostra deixa de ser um recálculo e passa a ser uma **visão**: junta
+a anotação global (via `provenance.tsv`) com a abundância local.
+
+#### Por que isso é possível hoje
+
+A parte difícil já está pronta. O `votu_catalog_pool` prefixa cada contig com sua
+origem (*"Contig IDs are only unique within an assembly, so they are prefixed
+with their source"*) e emite `provenance.tsv`. **Pool global com rastreio de
+origem já existe** — é exatamente o que essa arquitetura precisa.
+
+As regras `bacphlip_votu` e `eggnog_viral` (itens f e g) **já nasceram assim** e
+servem de molde: global, no representante, com o membro herdando no
+`make_votu_table.py`.
+
+#### O ganho
+
+Com 32 amostras, cada regra migrada deixa de rodar 32 vezes e passa a rodar 1.
+Para `pharokka`/`phold` isso é a diferença entre horas e minutos. E elimina uma
+classe inteira de inconsistência: hoje nada garante que duas amostras anotem o
+mesmo representante do mesmo jeito.
+
+#### Estado verificado (2026-08-18) — ainda NÃO corrigido
+
+Sete regras por amostra consomem `votu_catalog_reps`. Verificado input a input.
+**Cuidado com o método:** referências `rules.X.output` são por amostra sem conter
+a string `{sample}` — uma checagem por texto literal dá falso positivo. Foi assim
+que a primeira contagem desta análise saiu errada.
 
 O `CLAUDE.md` registra que o catálogo global de vOTU *"Replaces the former
 per-sample clustering"*. A parte difícil está pronta: o `votu_catalog_pool`

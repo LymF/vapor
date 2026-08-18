@@ -26,6 +26,7 @@ from .data_loaders import (
     load_genome_maps, load_reads_classify, load_coassembly, load_coassembly_rich,
     load_votu_accumulation,
     load_votu_catalog, load_votu_presence,
+    load_votu_lifestyle, load_putative_amgs,
     load_tool_status, summarize_tool_status,
     path_dict, collect_tool_versions,
 )
@@ -153,6 +154,8 @@ def _build(snakemake):
     tool_status_issues = summarize_tool_status(tool_status)
     votu_catalog  = load_votu_catalog(outdir)
     votu_presence = load_votu_presence(outdir, samples)
+    votu_lifestyle = load_votu_lifestyle(outdir)
+    putative_amgs  = load_putative_amgs(outdir)
 
     tax_data = enrich_taxonomy_with_checkv(tax_data, checkv_data)
     # Collapse rep_seq-level (MMseqs2, 95% identity) rows down to one per
@@ -417,6 +420,8 @@ def _build(snakemake):
         "TOOL_STATUS_ISSUES": tool_status_issues,
         "VOTU_CATALOG":  votu_catalog,
         "VOTU_PRESENCE": votu_presence,
+        "VOTU_LIFESTYLE": votu_lifestyle,
+        "PUTATIVE_AMGS":  putative_amgs,
     })
 
     # ── Assemble HTML ─────────────────────────────────────────────────────────

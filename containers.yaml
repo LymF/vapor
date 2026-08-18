@@ -92,6 +92,10 @@ virsorter:
   image: virsorter
   version: "2.2.4"
 
+bacphlip:
+  image: bacphlip
+  version: "0.9.6"
+
 checkv:
   image: checkv
   version: "1.0.3"

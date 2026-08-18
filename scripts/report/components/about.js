@@ -50,6 +50,14 @@
             VAPOR auto-detects the available runtime (<strong>Apptainer → Singularity → Conda</strong>)
             and derives container bind-mounts automatically from <code>config.yaml</code>.
           </p>
+          <p style="margin-top:.6rem">
+            Lytic/lysogenic lifestyle is predicted once, globally, by <strong>BACPHLIP</strong>
+            over the vOTU catalog's representative sequences. Auxiliary metabolic gene
+            candidates come from <strong>EggNOG-mapper</strong> run on the same representatives
+            and are reported as <em>putative</em> AMGs — annotation-based AMG calls are
+            known to be prone to mis-annotation and require genomic-context inspection the
+            pipeline does not perform.
+          </p>
         </div>
 
         <div class="about-section">

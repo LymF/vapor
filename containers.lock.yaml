@@ -4,6 +4,7 @@
 
 abricate: docker://quay.io/biocontainers/abricate:1.4.0--h05cac1d_0
 argnorm: docker://quay.io/biocontainers/argnorm:1.1.0--pyhdfd78af_0
+bacphlip: docker://quay.io/biocontainers/bacphlip:0.9.6--py_0
 bakta: docker://quay.io/biocontainers/bakta:1.12.0--pyhdfd78af_0
 binette: docker://quay.io/biocontainers/binette:1.2.1--pyh7e72e81_0
 bwa_mem2: docker://quay.io/biocontainers/bwa-mem2:2.3--he70b90d_0

@@ -288,6 +288,7 @@ rule bacphlip_votu:
     benchmark:
         f"{OUTDIR}/benchmarks/bacphlip_votu.tsv"
     conda: "../envs/env_reads_classify.yaml"
+    container: CONTAINERS.get("bacphlip")
     threads: 1
     params:
         min_quality         = BACPHLIP_MIN_QUALITY,

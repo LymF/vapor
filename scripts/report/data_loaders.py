@@ -32,6 +32,8 @@ STATUS_TRACKED_TOOLS = {
 STATUS_TRACKED_GLOBAL_TOOLS = {
     "votu_catalog_reps":     "votu_catalog/done.txt",
     "votu_catalog_matrices": "votu_catalog/matrices_done.txt",
+    "bacphlip_votu":         "votu_catalog/bacphlip/done.txt",
+    "eggnog_viral":          "votu_catalog/eggnog_viral/done.txt",
 }
 
 GLOBAL_STATUS_LABEL = "(global)"
@@ -1804,3 +1806,57 @@ def load_coassembly_rich(outdir, groups):
         "tax": tax, "source_dist": source_dist,
         "merged_prok": merged_prok, "mimag": mimag, "vlen": vlen,
     }
+
+
+def load_votu_lifestyle(outdir):
+    """Global BACPHLIP lifestyle call per vOTU representative (bacphlip_votu).
+
+    Reads votu_catalog/bacphlip/votu_lifestyle.tsv. Returns
+    {'rows', 'counts', 'quality_tier_used'}; degrades silently to empty/zero
+    when the file is absent or header-only -- a skipped/failed run must read
+    as a gap in the report, not as a biological zero.
+    """
+    path = os.path.join(outdir, "votu_catalog", "bacphlip", "votu_lifestyle.tsv")
+    rows = []
+    counts = {"lytic": 0, "lysogenic": 0}
+    tier_used = ""
+    for row in load_tsv(path):
+        lifestyle = (row.get("lifestyle", "") or "").strip()
+        rows.append({
+            "votu_id": row.get("votu_id", ""),
+            "lifestyle": lifestyle,
+            "virulent_score": row.get("virulent_score", ""),
+            "checkv_quality": row.get("checkv_quality", ""),
+        })
+        if lifestyle in counts:
+            counts[lifestyle] += 1
+        if not tier_used:
+            tier_used = (row.get("quality_tier_used", "") or "").strip()
+    return {"rows": rows, "counts": counts, "quality_tier_used": tier_used}
+
+
+def load_putative_amgs(outdir):
+    """Global putative AMG candidates from eggNOG on vOTU representatives
+    (eggnog_viral). Reads votu_catalog/eggnog_viral/putative_amgs.tsv.
+
+    Named "putative" throughout -- AMG calls from annotation alone are
+    recognized in the literature as prone to mis-annotation and require
+    genomic-context inspection the pipeline does not perform. Returns
+    {'rows', 'n_total', 'n_votus'}; degrades silently when absent.
+    """
+    path = os.path.join(outdir, "votu_catalog", "eggnog_viral", "putative_amgs.tsv")
+    rows = []
+    votus = set()
+    for row in load_tsv(path):
+        votu_id = row.get("votu_id", "")
+        rows.append({
+            "votu_id": votu_id,
+            "protein_id": row.get("protein_id", ""),
+            "KEGG_ko": row.get("KEGG_ko", ""),
+            "KEGG_Pathway": row.get("KEGG_Pathway", ""),
+            "COG_category": row.get("COG_category", ""),
+            "Description": row.get("Description", ""),
+        })
+        if votu_id:
+            votus.add(votu_id)
+    return {"rows": rows, "n_total": len(rows), "n_votus": len(votus)}

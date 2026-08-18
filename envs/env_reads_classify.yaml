@@ -12,4 +12,4 @@ dependencies:
   - pandas >=1.5
   - biopython >=1.80
   - pip:
-      - bacphlip  # lifestyle prediction — only used when reads_classify_genome_fasta is set
+      - bacphlip==0.9.6  # lifestyle prediction — only used when reads_classify_genome_fasta is set

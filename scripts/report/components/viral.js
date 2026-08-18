@@ -67,6 +67,7 @@
     _renderDetection(samples);
     _renderBinning(samples);
     makeSampleDropdown('sample-sel-viral-tax', _renderTaxonomy, { allSamples: true });
+    _renderLifestyle();
     makeSampleDropdown('sample-sel-votu-table', _renderVotuTable);
   };
 
@@ -403,6 +404,72 @@
     }
   }
 
+  // ── Lifestyle (BACPHLIP, global) + Putative AMGs (eggNOG, global) ──────────
+  function _renderLifestyle() {
+    const life = typeof VOTU_LIFESTYLE !== 'undefined' ? VOTU_LIFESTYLE : { rows: [], counts: {}, quality_tier_used: '' };
+    const dark = document.documentElement.dataset.theme === 'dark';
+    const ink  = dark ? '#94a3b8' : '#64748b';
+
+    if (!life.rows || !life.rows.length) {
+      mkChart('vir-lifestyle-chart', {
+        title: { text: 'vOTU Lifestyle — BACPHLIP' },
+        graphic: { type: 'text', left: 'center', top: 'middle',
+                   style: { text: 'No data', fill: ink, fontSize: 12 } },
+      });
+    } else {
+      const lytic = life.counts.lytic || 0;
+      const lysogenic = life.counts.lysogenic || 0;
+      const total = lytic + lysogenic || 1;
+      mkChart('vir-lifestyle-chart', {
+        title: { text: `vOTU Lifestyle — BACPHLIP (${life.rows.length.toLocaleString()} representatives)` },
+        tooltip: { trigger: 'item', formatter: p => `${p.seriesName}: ${p.value} (${(p.value / total * 100).toFixed(1)}%)` },
+        legend: { top: 26 },
+        grid: { top: 58, bottom: 20, left: 10, right: 10, containLabel: true },
+        xAxis: { type: 'value', show: false },
+        yAxis: { type: 'category', data: [''], axisLine: { show: false }, axisTick: { show: false } },
+        series: [
+          { name: 'Lytic', type: 'bar', stack: 'q', barWidth: 46, itemStyle: { color: '#0d9488' },
+            label: { show: true, formatter: p => p.value > 0 ? p.value : '', color: '#fff', fontSize: 11 },
+            data: [lytic] },
+          { name: 'Lysogenic', type: 'bar', stack: 'q', barWidth: 46, itemStyle: { color: '#d97706' },
+            label: { show: true, formatter: p => p.value > 0 ? p.value : '', color: '#fff', fontSize: 11 },
+            data: [lysogenic] },
+        ],
+      });
+    }
+
+    // Which CheckV quality tier BACPHLIP was restricted to -- lysogeny
+    // domains can be missing from an incomplete genome, so the caveat
+    // travels with the chart rather than being buried in About.
+    const chartCard = document.getElementById('vir-lifestyle-chart')?.closest('.chart-card');
+    let noteEl = chartCard?.querySelector('.lifestyle-tier-note');
+    if (chartCard) {
+      if (life.quality_tier_used) {
+        if (!noteEl) {
+          noteEl = document.createElement('p');
+          noteEl.className = 'lifestyle-tier-note';
+          noteEl.style.cssText = 'color:var(--text-muted);font-size:.8rem;margin-top:.5rem';
+          chartCard.appendChild(noteEl);
+        }
+        noteEl.textContent = `Lifestyle calculado apenas em vOTUs ${life.quality_tier_used} — o BACPHLIP depende de domínios de lisogenia que podem faltar em genoma incompleto.`;
+      } else if (noteEl) {
+        noteEl.remove();
+      }
+    }
+
+    const amg = typeof PUTATIVE_AMGS !== 'undefined' ? PUTATIVE_AMGS : { rows: [] };
+    makeTable('amg-table', amg.rows, [
+      { key: 'votu_id',       label: 'vOTU' },
+      { key: 'protein_id',    label: 'Protein' },
+      { key: 'KEGG_ko',       label: 'KEGG KO' },
+      { key: 'KEGG_Pathway',  label: 'KEGG Pathway' },
+      { key: 'COG_category',  label: 'COG' },
+      { key: 'Description',   label: 'Description' },
+    ], {
+      searchId: 'amg-search',
+    });
+  }
+
   // ── vOTU Table ───────────────────────────────────────────────────────────
   function _renderVotuTable(sample) {
     const all  = typeof VOTU_DATA !== 'undefined' ? VOTU_DATA : {};
@@ -414,7 +481,7 @@
       { key: 'checkv_quality',      label: 'CheckV' },
       { key: 'checkv_completeness', label: 'Completeness' },
       { key: 'lifestyle',           label: 'Lifestyle' },
-      { key: 'n_AMGs',              label: 'AMGs' },
+      { key: 'n_putative_AMGs',     label: 'Putative AMGs' },
       { key: 'breadth',             label: 'Breadth' },
       { key: 'rpmpm',               label: 'RPMPM' },
     ], {

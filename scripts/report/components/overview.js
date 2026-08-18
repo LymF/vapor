@@ -50,6 +50,8 @@
       { val: fmt(hqMqMags),     label: 'HQ+MQ MAGs',        sub: 'CheckM2 MIMAG' },
       { val: fmt(totalDefense), label: 'Defense systems',   sub: 'DefenseFinder' },
       { val: fmt(totalAmrHq),   label: 'AMR genes (3-tool)',sub: 'consensus' },
+      { val: fmt(typeof PUTATIVE_AMGS !== 'undefined' ? PUTATIVE_AMGS.n_total : 0),
+        label: 'Putative AMGs', sub: 'eggNOG · KEGG metabolism' },
     ];
 
     const grid = document.getElementById('kpi-grid');
