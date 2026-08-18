@@ -626,9 +626,13 @@ rule galah_derep:
     container: CONTAINERS.get("galah")
     threads: THREADS
     params:
+        # bin_ext: Binette produz .fa, VAMB (co-assembly) produz .fna.
+        # Parametrizado para coassembly.smk poder herdar esta regra.
         bins_dir = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
-        outdir   = f"{OUTDIR}/{{sample}}/bins/derep",
-        repdir   = f"{OUTDIR}/{{sample}}/bins/derep/derep_bins",
+        bin_ext  = ".fa",
+        # derivados do output (requisito da heranca).
+        outdir   = lambda wc, output: os.path.dirname(output.done),
+        repdir   = lambda wc, output: os.path.join(os.path.dirname(output.done), "derep_bins"),
         ani      = MAG_DEREP_ANI,
         enabled  = MAG_DEREP_ENABLED,
     shell:
@@ -641,14 +645,14 @@ rule galah_derep:
             echo "[galah] Disabled via config — symlinking original bins" | tee {log}
             # Mirror binette/final_bins into derep_bins for a uniform GTDB-Tk input
             shopt -s nullglob
-            for fa in {params.bins_dir}/*.fa; do
+            for fa in {params.bins_dir}/*{params.bin_ext}; do
                 ln -sf "$fa" {params.repdir}/
             done
             printf "representative\tmember\n" > {output.cluster}
             printf "skipped: disabled via config\n" > {output.done}; exit 0
         fi
         shopt -s nullglob
-        BINS=({params.bins_dir}/*.fa)
+        BINS=({params.bins_dir}/*{params.bin_ext})
         if [ ${{#BINS[@]}} -eq 0 ]; then
             echo "[galah] No bins to dereplicate" | tee {log}
             printf "representative\tmember\n" > {output.cluster}
@@ -667,8 +671,8 @@ rule galah_derep:
             echo "[galah] WARNING: cluster failed — falling back to original bins" | tee -a {log}
         fi
         # Fallback: if galah produced nothing usable, mirror original bins
-        if [ -z "$(ls {params.repdir}/*.fa 2>/dev/null)" ]; then
-            for fa in {params.bins_dir}/*.fa; do
+        if [ -z "$(ls {params.repdir}/*{params.bin_ext} 2>/dev/null)" ]; then
+            for fa in {params.bins_dir}/*{params.bin_ext}; do
                 ln -sf "$fa" {params.repdir}/
             done
             [ -s {output.cluster} ] || printf "representative\tmember\n" > {output.cluster}

@@ -1873,15 +1873,13 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             db       = GUNC_DB,
             enabled  = GUNC_ENABLED,
 
-    rule coassembly_galah_derep:
-        """
-        galah — CheckM2-aware MAG dereplication by ANI on group VAMB
-        co-binning MAGs (mirrors `rule galah_derep`, rules/prok_binning.smk).
-        Same env/container/flags. VAMB bins are `.fna` (not `.fa`).
-        Clusters at MAG_DEREP_ANI; keeps the bin with the highest CheckM2
-        quality score per cluster. Output feeds group GTDB-Tk so taxonomy
-        runs only on representatives.
-        """
+    # Dereplicacao dos MAGs do grupo. Herda `rule galah_derep`
+    # (rules/prok_binning.smk). A copia anterior nao tinha tres correcoes que
+    # so existiam do lado per-sample: o `rm -rf {params.repdir}` que permite
+    # resume (galah aborta se o diretorio existe e nao esta vazio), a captura
+    # do exit code do galah, e o done.txt com status real em vez de vazio.
+    # Herdando, a trilha de grupo passa a ter as tres.
+    use rule galah_derep as coassembly_galah_derep with:
         input:
             bins_done   = rules.vamb_cobinning.output.done,
             checkm2_tsv = rules.checkm2_group.output.report,
@@ -1892,54 +1890,13 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/galah_derep.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/galah_derep.tsv"
-        conda: "../envs/env_derep.yaml"
-        container: CONTAINERS.get("galah")
-        threads: THREADS
         params:
             bins_dir = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
-            outdir   = f"{OUTDIR}/coassembly/{{group}}/bins/derep",
-            repdir   = f"{OUTDIR}/coassembly/{{group}}/bins/derep/derep_bins",
+            bin_ext  = ".fna",
+            outdir   = lambda wc, output: os.path.dirname(output.done),
+            repdir   = lambda wc, output: os.path.join(os.path.dirname(output.done), "derep_bins"),
             ani      = MAG_DEREP_ANI,
             enabled  = MAG_DEREP_ENABLED,
-        shell:
-            """
-            mkdir -p $(dirname {log})
-            mkdir -p {params.outdir} {params.repdir}
-            if [ "{params.enabled}" != "True" ]; then
-                echo "[coassembly_galah_derep] Disabled via config — symlinking original bins" | tee {log}
-                # Mirror vamb/run/bins into derep_bins for a uniform GTDB-Tk input
-                shopt -s nullglob
-                for fa in {params.bins_dir}/*.fna; do
-                    ln -sf "$fa" {params.repdir}/
-                done
-                printf "representative\tmember\n" > {output.cluster}
-                touch {output.done}; exit 0
-            fi
-            shopt -s nullglob
-            BINS=({params.bins_dir}/*.fna)
-            if [ ${{#BINS[@]}} -eq 0 ]; then
-                echo "[coassembly_galah_derep] No bins to dereplicate" | tee {log}
-                printf "representative\tmember\n" > {output.cluster}
-                touch {output.done}; exit 0
-            fi
-            galah cluster \
-                --genome-fasta-files "${{BINS[@]}}" \
-                --ani {params.ani} \
-                --checkm2-quality-report {input.checkm2_tsv} \
-                --output-cluster-definition {output.cluster} \
-                --output-representative-fasta-directory {params.repdir} \
-                --threads {threads} \
-                > {log} 2>&1 || echo "[coassembly_galah_derep] WARNING: cluster failed — falling back to original bins" | tee -a {log}
-            # Fallback: if galah produced nothing usable, mirror original bins
-            if [ -z "$(ls {params.repdir}/*.fna 2>/dev/null)" ]; then
-                for fa in {params.bins_dir}/*.fna; do
-                    ln -sf "$fa" {params.repdir}/
-                done
-                [ -s {output.cluster} ] || printf "representative\tmember\n" > {output.cluster}
-            fi
-            touch {output.done}
-            """
-
 
     # ── Group AMR + defense systems (Plan 5, Tasks 3+4) ────────────────────
     # Mechanical mirrors of the per-sample rules in rules/defense_amr.smk,
@@ -1984,14 +1941,9 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/rgi.tsv"
 
-    rule coassembly_deeparg:
-        """
-        DeepARG -- deep-learning AMR gene prediction (CNN trained on
-        CARD/ARDB/UniProt-derived sequences). Exploratory/sensitivity-oriented
-        complement to coassembly_amrfinderplus+coassembly_rgi_card's curated
-        calls -- kept and reported separately, never merged into the curated
-        AMR count. Mirrors `rule deeparg` (rules/defense_amr.smk) for the group.
-        """
+    # DeepARG nos MAGs do grupo. Herda `rule deeparg` (rules/defense_amr.smk):
+    # os corpos eram identicos, mudavam so os rotulos de log.
+    use rule deeparg as coassembly_deeparg with:
         input:
             manifest = rules.coassembly_prok_bin_proteins.output.manifest,
             done     = rules.coassembly_prok_bin_proteins.output.done,
@@ -2002,56 +1954,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/deeparg.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/deeparg.tsv"
-        conda: "../envs/env_deeparg.yaml"
-        container:  CONTAINERS.get("deeparg")
-        threads: THREADS
-        params:
-            outdir   = f"{OUTDIR}/coassembly/{{group}}/bins/deeparg",
-            data_dir = DEEPARG_DB,
-            enabled  = DEFENSE_AMR_ENABLED,
-        run:
-            import os
-            from pathlib import Path
-
-            os.makedirs(params.outdir, exist_ok=True)
-            all_faa = os.path.join(params.outdir, "all_genomes.faa")
-
-            def write_empty(msg):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(msg + "\n")
-                Path(str(output.results)).write_text("#ARG\tquery-start\n")
-                Path(str(output.done)).touch()
-
-            if (not params.enabled or not os.path.exists(str(input.manifest))
-                    or os.path.getsize(str(input.manifest)) == 0):
-                write_empty("[coassembly_deeparg] Disabled or no genome units -- skipping")
-                return
-
-            if not _concat_proteins(str(input.manifest), all_faa):
-                write_empty("[coassembly_deeparg] No proteins -- skipping")
-                return
-
-            data_dir = params.data_dir or os.path.join(params.outdir, "deeparg_data")
-            os.makedirs(data_dir, exist_ok=True)
-            if not os.listdir(data_dir):
-                shell("deeparg download_data -o {data_dir} >> {log} 2>&1 || "
-                      "echo '[coassembly_deeparg] WARNING: download_data failed' >> {log}")
-
-            if not os.listdir(data_dir):
-                write_empty("[coassembly_deeparg] WARNING: deeparg data unavailable -- skipping")
-                return
-
-            out_prefix = os.path.join(params.outdir, "deeparg_results")
-            shell(
-                "deeparg predict --model LS --type prot -i {all_faa} -o {out_prefix} "
-                "-d {data_dir} >> {log} 2>&1 || "
-                "echo '[coassembly_deeparg] WARNING: deeparg predict failed' >> {log}"
-            )
-
-            if not os.path.exists(str(output.results)) or os.path.getsize(str(output.results)) == 0:
-                Path(str(output.results)).write_text("#ARG\tquery-start\n")
-            Path(str(output.done)).touch()
-
 
     use rule abricate as coassembly_abricate with:
         input:

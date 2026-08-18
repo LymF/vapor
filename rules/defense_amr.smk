@@ -589,7 +589,9 @@ rule deeparg:
     container:  CONTAINERS.get("deeparg")
     threads: THREADS
     params:
-        outdir   = f"{OUTDIR}/{{sample}}/bins/deeparg",
+        # derivado do output, nao de {{sample}} (requisito da heranca por
+        # coassembly.smk via `use rule ... as ... with:`).
+        outdir   = lambda wc, output: os.path.dirname(output.done),
         data_dir = DEEPARG_DB,
         enabled  = DEFENSE_AMR_ENABLED,
     run:
