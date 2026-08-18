@@ -141,13 +141,16 @@ if LONG_READS:
             """
 
     rule filtlong_lr:
-        """Quality/length filtering with Filtlong. Applies to both ONT and HiFi."""
+        """
+        Quality/length filtering with Filtlong. Applies to both ONT and HiFi.
+        Input is always the porechop_lr output: for HiFi that rule is a
+        pass-through (it only cats the raw reads), so both technologies
+        share one upstream path. It used to point at a
+        {sample}_placeholder.fastq.gz for HiFi -- a file no rule produces,
+        which killed every HiFi run with MissingInputException.
+        """
         input:
-            reads = (
-                f"{OUTDIR}/{{sample}}/lr_trimmed/{{sample}}_porechop.fastq.gz"
-                if LR_TECH == "ont" and LONG_READS
-                else f"{OUTDIR}/{{sample}}/lr_filtered/{{sample}}_placeholder.fastq.gz"
-            ),
+            reads = f"{OUTDIR}/{{sample}}/lr_trimmed/{{sample}}_porechop.fastq.gz",
         output:
             filtered = f"{OUTDIR}/{{sample}}/lr_filtered/{{sample}}_filtered.fastq.gz",
         log:   f"{OUTDIR}/{{sample}}/logs/filtlong_lr.log"
