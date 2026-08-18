@@ -38,6 +38,11 @@ rule phist:
         bins_dir    = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
         bin_ext     = ".fa",
         vrhyme_dir  = lambda wc: f"{OUTDIR}/{wc.sample}/bins/vrhyme",
+        # source_id: prefixo de namespace que o votu_catalog_pool aplicou aos
+        # headers do catalogo global. Derivado do output (nao de {{sample}})
+        # porque coassembly.smk herda esta regra com o wildcard {{group}}.
+        source_id   = lambda wc, output: os.path.basename(
+            os.path.dirname(os.path.dirname(os.path.dirname(output.done)))),
         # derivados do output (requisito da heranca por coassembly.smk).
         outdir      = lambda wc, output: os.path.dirname(output.done),
         scripts_dir = SCRIPTS_DIR,
@@ -58,7 +63,7 @@ rule phist:
         mkdir -p "$VFASTA_DIR"
         rm -f "$VFASTA_DIR"/*.fasta
         python3 {params.scripts_dir}/split_viral_fastas.py \
-            {input.viral} {params.vrhyme_dir} "$VFASTA_DIR" \
+            {input.viral} {params.vrhyme_dir} "$VFASTA_DIR" {params.source_id} \
             >> {log} 2>&1
         echo "[phist] Total viral genomes: $(find $VFASTA_DIR -maxdepth 1 -name "*.fasta" 2>/dev/null | wc -l)" \
             | tee -a {log}
