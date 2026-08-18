@@ -1000,17 +1000,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/genomad.tsv"
 
 
-    # VIBRANT no co-assembly do grupo. Herda de `rule vibrant`.
-    use rule vibrant as coassembly_vibrant with:
-        input:
-            contigs = f"{OUTDIR}/coassembly/{{group}}/contigs.fa",
-        output:
-            done = f"{OUTDIR}/coassembly/{{group}}/viral/vibrant/done.txt",
-        log:   f"{OUTDIR}/coassembly/{{group}}/logs/vibrant.log"
-        benchmark: f"{OUTDIR}/coassembly/{{group}}/benchmarks/vibrant.tsv"
-
-
-    # Consenso das 3 ferramentas no co-assembly. Herda `rule viral_consensus`
+    # Consenso das ferramentas no co-assembly. Herda `rule viral_consensus`
     # inteiro, incluindo o bloco run: de ~180 linhas que antes existia em
     # duplicata aqui.
     use rule viral_consensus as coassembly_viral_consensus with:
@@ -1018,7 +1008,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             contigs      = f"{OUTDIR}/coassembly/{{group}}/contigs.fa",
             vs2_done     = rules.coassembly_virsorter2.output.viral,
             genomad_done = rules.coassembly_genomad.output.done,
-            vibrant_done = rules.coassembly_vibrant.output.done,
         output:
             fasta   = f"{OUTDIR}/coassembly/{{group}}/viral/consensus/{{group}}_viral_consensus.fasta",
             support = f"{OUTDIR}/coassembly/{{group}}/viral/consensus/{{group}}_tool_support.tsv",

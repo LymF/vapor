@@ -20,7 +20,7 @@ The repository is organized as follows:
   - `cobra.smk`: Optional COBRA contig extension, run per assembler.
   - `merge_dedup.smk`: Merging assemblies and deduplication using MMseqs2 `easy-linclust` to create a central reference FASTA.
   - `quast.smk`: Assembly quality assessment with QUAST.
-  - `viral_detection.smk`: Viral sequence detection with VirSorter2, geNomad and VIBRANT, plus consensus generation. DeepVirFinder and CenoteTaker3 are NOT wired in.
+  - `viral_detection.smk`: Viral sequence detection with VirSorter2 and geNomad, plus consensus generation. DeepVirFinder and CenoteTaker3 are NOT wired in; VIBRANT was removed on 2026-08-18.
   - `mapping.smk`: Read mapping to contigs (BWA-MEM2 for short reads; minimap2 for long reads) and coverage via `jgi_summarize_bam_contig_depths`.
   - `viral_binning.smk`: Viral binning with CheckV quality assessment and vRhyme clustering, followed by a second CheckV pass on the bins.
   - `votu_catalog.smk`: Global vOTU catalog — pools all viral sets with source-prefixed IDs, a single-pass `skani triangle --sparse`, ICTV-standard clustering (95% ANI + 85% AF), two representative tiers (`all`, `mq`), and vOTU x sample presence/abundance matrices from read recruitment. Replaces the former per-sample clustering.
@@ -104,7 +104,7 @@ The deduplicated representative sequences (`{sample}_rep_seq.fasta`, generated v
 
 ## Dependencies and Environments
 
-The pipeline uses 27 isolated conda environment files in `envs/` (26 named `env_*.yaml` plus `phage_vibrant.yaml`). Rules also carry a per-rule `container:` resolved from `containers.yaml`; there is no global `containerized:` directive. Key environments include:
+The pipeline uses 25 isolated conda environment files in `envs/`, all named `env_*.yaml`. Rules also carry a per-rule `container:` resolved from `containers.yaml`; there is no global `containerized:` directive. Key environments include:
 - `env_qc`: Quality control tools.
 - `env_assembly`: Assemblers + MMseqs2 (dedup, plus the MMseqs2 taxonomy rules).
 - `env_mapping`: Mapping tools.
@@ -116,7 +116,7 @@ All environments are created via `snakemake --use-conda --cores 1 --create-envs-
 ## Databases
 
 Requires ~500 GB of pre-downloaded databases:
-- CheckV, VirSorter2, geNomad, VIBRANT, INPHARED, CheckM2, GTDB-Tk, pharokka, phold, bakta, eggNOG, CARD, DeepARG, DefenseFinder models, dbAPIS, sylph-tax.
+- CheckV, VirSorter2, geNomad, INPHARED, CheckM2, GTDB-Tk, pharokka, phold, bakta, eggNOG, CARD, DeepARG, DefenseFinder models, dbAPIS, sylph-tax.
 - Optional custom MMseqs2 databases for improved taxonomy (`custom_prok_mmseqs_db`, `custom_viral_mmseqs_db`).
 
 Paths must be set in `config.yaml`.

@@ -35,7 +35,6 @@ flowchart TD
     subgraph VD["5 · Detecção viral"]
         VS2[VirSorter2] --> CONS
         GN[geNomad] --> CONS
-        VB[VIBRANT] --> CONS
         CONS["viral_consensus<br/><b>count | score | hybrid</b>"]
     end
 
@@ -118,7 +117,6 @@ Opcional, ativa com `host_genome` no config. SR: `bwa-mem2 mem` → `samtools -f
 |---|---|
 | **VirSorter2** | `--min-score 0.5`, `SCORE_VS2_MIN` |
 | **geNomad** | `--min-score 0.7 --enable-score-calibration`, `SCORE_GENOMAD_MIN` |
-| **VIBRANT** | — |
 
 Combinação em `viral_consensus` com três modos (`VIRAL_CONSENSUS_MODE`): `count` (≥ `MIN_VIRAL_TOOLS` ferramentas), `score` (qualquer score ≥ limiar) e `hybrid` (count OU uma ferramenta de alta confiança). **Este é o ponto que o benchmark do vOMIX-MEGA questiona** — ver `docs/BENCHMARK_VOMIX_METAFUN.md` §3.4.
 
@@ -174,7 +172,7 @@ Trilha independente da montagem: **sylph** (profile) → **sylph-tax** → merge
 
 ## 3. Infraestrutura
 
-- **26 envs conda** (era 27 antes da remocao do `env_vcontact3`) em `envs/` (`env_qc`, `env_assembly`, `env_viral`, `env_genomad`, `env_binning`, `env_binette`, `env_checkm2`, `env_gunc`, `env_derep`, `env_gtdbtk`, `env_annotation`, `env_defense`, `env_rgi`, `env_deeparg`, `env_abricate`, `env_argnorm`, `env_vrhyme`, `env_phist`, `env_coverm`, `env_mapping`, `env_cobra`, `env_reads_classify`, `env_flye`, `env_medaka`, `env_lr_utils`, `phage_vibrant`).
+- **25 envs conda** (era 26 antes da remocao do `phage_vibrant`, que era 27 antes da remocao do `env_vcontact3`) em `envs/` (`env_qc`, `env_assembly`, `env_viral`, `env_genomad`, `env_binning`, `env_binette`, `env_checkm2`, `env_gunc`, `env_derep`, `env_gtdbtk`, `env_annotation`, `env_defense`, `env_rgi`, `env_deeparg`, `env_abricate`, `env_argnorm`, `env_vrhyme`, `env_phist`, `env_coverm`, `env_mapping`, `env_cobra`, `env_reads_classify`, `env_flye`, `env_medaka`, `env_lr_utils`).
 - **`container:` por regra** via `CONTAINERS.get(<nome>)`, resolvido de `containers.lock.yaml` — 48 URIs `quay.io/biocontainers` pinadas, geradas de `containers.yaml` por `scripts/pin_containers.py`. As imagens vêm do bioconda upstream; o repo mantém só a lista de versões. Duas imagens próprias (`genome-map`, `medaka-gpu`) são publicadas no GHCR pelo CI.
 - Rodar com `--sdm apptainer` usa as imagens; `--sdm conda --use-conda` usa os envs locais. Sem o lock, todo `container:` resolve para `None` e o Snakemake cai para conda **sem avisar** — por isso o CI roda `pin_containers.py --check`.
 - **Não há** `containerized:` global no `Snakefile`, e adotá-lo exigiria remover o esquema acima (as duas diretivas conflitam: `container:` por regra tem precedência).

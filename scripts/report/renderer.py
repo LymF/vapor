@@ -15,7 +15,7 @@ from .data_loaders import (
     collect_depth_data, parse_fasta_lengths,
     collect_viral_tool_counts, collect_vrhyme_stats, collect_binner_counts,
     parse_checkm2_phyla,
-    load_vibrant, load_viral_taxonomy, load_viral_source_distribution, load_gtdbtk,
+    load_viral_taxonomy, load_viral_source_distribution, load_gtdbtk,
     load_mmseqs_taxonomy_prok, load_phist,
     load_defensefinder, load_antidefensefinder,
     load_antidefensefinder_viral, load_dbapis_viral, compute_defense_islands,
@@ -138,7 +138,6 @@ def _build(snakemake):
     host_defense_links = build_host_defense_links(phist_data, gtdb_data)
     bin_annotations = build_bin_annotation_summary(
         defensefinder_data, antidefensefinder_data, amr_consensus_data)
-    vibrant_data, vibrant_amg = load_vibrant(outdir, samples)
     mmseqs_prok_data = load_mmseqs_taxonomy_prok(mmseqs_prok_paths, samples)
     reads_classify_data = load_reads_classify(
         getattr(snakemake.input, 'reads_classify_abundance', None) or '',
@@ -276,8 +275,6 @@ def _build(snakemake):
             "total_amr_hq":       sum(1 for r in amr_consensus_data
                                       if r.get("sample") == s
                                       and safe_int(r.get("n_tools", 0)) == 3),
-            "total_amgs":         sum(safe_int(r.get("Total_AMGs", 0))
-                                      for r in vibrant_amg if r.get("sample") == s),
         }
 
     # Back-fill Binette domain from GTDB-Tk
@@ -396,8 +393,6 @@ def _build(snakemake):
         "AMR_CONSENSUS": amr_consensus_data,
         "HOST_DEFENSE_LINKS": host_defense_links,
         "BIN_ANNOTATIONS": bin_annotations,
-        "VIBRANT_DATA": vibrant_data,
-        "VIBRANT_AMG":  vibrant_amg,
         "VOTU_DATA":    votu_data,
         "LIFESTYLE":    lifestyle_data,
         "NOVELTY":      novelty_data,

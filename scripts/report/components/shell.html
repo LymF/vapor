@@ -104,7 +104,6 @@
         <button class="sub-tab active" data-sub="vir-detection">Detection</button>
         <button class="sub-tab" data-sub="vir-binning">Binning &amp; Quality</button>
         <button class="sub-tab" data-sub="vir-taxonomy">Taxonomy</button>
-        <button class="sub-tab" data-sub="vir-lifestyle">Lifestyle</button>
         <button class="sub-tab" data-sub="vir-votu">vOTU Table</button>
       </div>
       <div id="sub-vir-detection" class="sub-panel active">
@@ -148,14 +147,6 @@
           <h3 class="section-title">Classified Viruses</h3>
           <div class="toolbar"><input id="vir-tax-search" type="search" placeholder="Filter…" class="search-input"></div>
           <div id="vir-tax-table" class="table-wrap"></div>
-        </div>
-      </div>
-      <div id="sub-vir-lifestyle" class="sub-panel" style="display:none">
-        <div class="chart-card"><div id="vir-lifestyle-chart" class="echarts-box"></div></div>
-        <div class="chart-card mt-md">
-          <h3 class="section-title">Auxiliary Metabolic Genes (VIBRANT AMG)</h3>
-          <div class="toolbar"><input id="amg-search" type="search" placeholder="Filter…" class="search-input"></div>
-          <div id="amg-table" class="table-wrap"></div>
         </div>
       </div>
       <div id="sub-vir-votu" class="sub-panel" style="display:none">
@@ -373,21 +364,11 @@
     <section id="tab-annotation" class="tab-panel" role="tabpanel" aria-labelledby="nav-annotation" hidden>
       <div class="sub-nav" role="tablist">
         <button class="sub-tab active" data-sub="ann-functional">Functional (COG/KEGG)</button>
-        <button class="sub-tab" data-sub="ann-phage">Phage Annotation</button>
         <button class="sub-tab" data-sub="ann-maps">Genome Maps</button>
       </div>
       <div id="sub-ann-functional" class="sub-panel active">
         <div class="chart-card"><div id="ann-cog-chart"  class="echarts-box"></div></div>
         <div class="chart-card mt-md"><div id="ann-phrogs-chart" class="echarts-box"></div></div>
-      </div>
-      <div id="sub-ann-phage" class="sub-panel" style="display:none">
-        <div class="toolbar">
-          <label>Sample: <select id="sample-sel-ann"></select></label>
-        </div>
-        <div class="chart-card mt-md">
-          <h3 class="section-title">VIBRANT Scaffolds</h3>
-          <div id="vibrant-table" class="table-wrap"></div>
-        </div>
       </div>
       <div id="sub-ann-maps" class="sub-panel" style="display:none">
         <div class="toolbar">

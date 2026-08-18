@@ -20,7 +20,7 @@
 
     // Aggregate
     let totalReads = 0, totalViral = 0, totalMAGs = 0;
-    let hqViral = 0, totalDefense = 0, totalAmrHq = 0, totalAmgs = 0, totalVmags = 0;
+    let hqViral = 0, totalDefense = 0, totalAmrHq = 0, totalVmags = 0;
     samples.forEach(s => {
       const d = ov[s] || {};
       totalReads   += Number(d.total_raw_reads)    || 0;
@@ -29,7 +29,6 @@
       hqViral      += Number(d.complete_viral)     || 0;
       totalDefense += Number(d.total_defense)      || 0;
       totalAmrHq   += Number(d.total_amr_hq)       || 0;
-      totalAmgs    += Number(d.total_amgs)         || 0;
       totalVmags   += Number(d.vmags)              || 0;
     });
 
@@ -51,7 +50,6 @@
       { val: fmt(hqMqMags),     label: 'HQ+MQ MAGs',        sub: 'CheckM2 MIMAG' },
       { val: fmt(totalDefense), label: 'Defense systems',   sub: 'DefenseFinder' },
       { val: fmt(totalAmrHq),   label: 'AMR genes (3-tool)',sub: 'consensus' },
-      { val: fmt(totalAmgs),    label: 'AMGs',              sub: 'VIBRANT' },
     ];
 
     const grid = document.getElementById('kpi-grid');
@@ -177,7 +175,6 @@
       { val: ov.lytic_ratio != null
               ? `${(ov.lytic_ratio * 100).toFixed(0)}% lytic`
               : 'N/A',              label: 'Lifestyle ratio' },
-      { val: fmt(ov.total_amgs),       label: 'AMGs (VIBRANT)' },
       // ── Taxonomy & Hosts ──────────────────────────────────────────────────
       { val: fmt(ov.taxonomy_classified), label: 'Viral taxa classified' },
       { val: fmt(ov.host_pred_total),  label: 'Host predictions (PHIST)' },

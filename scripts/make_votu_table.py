@@ -3,7 +3,7 @@
 make_votu_table.py — Build the vOTU membership table for one sample.
 
 One row per catalog vOTU that has at least one member from this sample.
-Per-member annotations (CheckV quality, taxonomy, lifestyle, host) come
+Per-member annotations (CheckV quality, taxonomy, host) come
 from this sample's own tables, keyed by that member's bare contig ID.
 
 vOTU identity (votu_id, representative) is GLOBAL: the catalog in
@@ -17,7 +17,7 @@ for. `vOTU_clusters.tsv` therefore namespaces every ID as
     belongs to this sample when it may not)
   - filters cluster members down to this sample's own contigs only
   - strips the "{sample}|" prefix off of SURVIVING members only, so the
-    resulting bare IDs match the per-sample CheckV/VIBRANT/taxonomy/
+    resulting bare IDs match the per-sample CheckV/taxonomy/
     PHIST tables, which were never namespaced
   - drops a vOTU entirely if it has no member in this sample
 
@@ -25,7 +25,6 @@ Inputs (wired via Snakemake):
   votu_clusters   votu_catalog/vOTU_clusters.tsv     (votu_id, representative, member — namespaced)
   votu_reps       votu_catalog/catalog_all_reps.fasta (FASTA of all representatives, namespaced headers)
   checkv_tsv      viral/checkv/quality_summary.tsv    (this sample, bare IDs)
-  vibrant_dir     viral/vibrant/                      (this sample, bare IDs)
   taxonomy_tsv    viral/taxonomy/viral_taxonomy_merged.tsv (this sample, bare IDs)
   phist_csv       viral/phist/phist_results.csv       (this sample, bare IDs)
 
@@ -161,39 +160,6 @@ def load_checkv(checkv_tsv):
     return data
 
 
-def load_vibrant_lifestyle(vibrant_dir):
-    """Returns ({contig: lifestyle}, {contig: n_amgs})."""
-    lysogenic   = set()
-    all_vibrant = set()
-    amg_counts  = defaultdict(int)
-
-    for tsv in glob.glob(os.path.join(vibrant_dir, "**",
-                                      "VIBRANT_integrated_prophage_*.tsv"), recursive=True):
-        for row in read_tsv(tsv, required=False):
-            s = row.get("scaffold", row.get("Scaffold", "")).strip()
-            if s:
-                lysogenic.add(s); all_vibrant.add(s)
-
-    for tsv in glob.glob(os.path.join(vibrant_dir, "**",
-                                      "VIBRANT_summary_results_*.tsv"), recursive=True):
-        for row in read_tsv(tsv, required=False):
-            s = row.get("scaffold", row.get("Scaffold", "")).strip()
-            if s:
-                all_vibrant.add(s)
-
-    for tsv in glob.glob(os.path.join(vibrant_dir, "**",
-                                      "VIBRANT_AMG_individuals_*.tsv"), recursive=True):
-        for row in read_tsv(tsv, required=False):
-            s = row.get("scaffold", row.get("Scaffold", "")).strip()
-            if s:
-                amg_counts[s] += 1
-
-    lifestyle = {s: ("lysogenic" if s in lysogenic else "lytic") for s in all_vibrant}
-    print(f"[make_votu_table] VIBRANT: {len(all_vibrant)} scaffolds "
-          f"({len(lysogenic)} lysogenic)", file=sys.stderr)
-    return lifestyle, dict(amg_counts)
-
-
 def load_taxonomy(taxonomy_tsv):
     """Returns {seq_name: {taxonomy_family, taxonomy_genus, taxonomy_order,
                            taxonomy_best, taxonomy_source}}."""
@@ -250,7 +216,6 @@ def main():
     clusters_tsv  = snakemake.input.votu_clusters
     votu_reps_fa  = snakemake.input.votu_reps
     checkv_tsv    = snakemake.input.checkv
-    vibrant_dir   = snakemake.params.vibrant_dir
     taxonomy_tsv  = snakemake.input.taxonomy
     phist_csv     = snakemake.params.phist_csv
     out_tsv       = snakemake.output.tsv
@@ -262,7 +227,9 @@ def main():
         clusters_tsv, sample)
     rep_lengths            = load_rep_lengths(votu_reps_fa)
     checkv                 = load_checkv(checkv_tsv)
-    lifestyle, amg_counts  = load_vibrant_lifestyle(vibrant_dir)
+    # Lifestyle/AMG source (VIBRANT) was removed from the pipeline; keep the
+    # columns in the schema, filled via the existing empty-lookup fallbacks.
+    lifestyle, amg_counts  = {}, {}
     taxonomy                = load_taxonomy(taxonomy_tsv)
     hosts                   = load_phist(phist_csv)
 

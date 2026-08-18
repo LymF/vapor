@@ -5,7 +5,6 @@
   window.renderAnnotation = function () {
     const samples = typeof SAMPLES !== 'undefined' ? SAMPLES : [];
     _renderFunctional(samples);
-    makeSampleDropdown('sample-sel-ann',  _renderPhageAnnotation);
     makeSampleDropdown('sample-sel-maps', _renderMaps);
     _updateMapsSampleLabels();
     // Map mode selector
@@ -82,19 +81,6 @@
       series: phrogsSeries.map(s => ({ name: s.name, data: s.data,
                                        color: s.color || (s.itemStyle || {}).color })),
     }));
-  }
-
-  // ── Phage annotation table (VIBRANT scaffolds) ────────────────────────────
-  function _renderPhageAnnotation(sample) {
-    const vibrant = (typeof VIBRANT_DATA !== 'undefined' ? VIBRANT_DATA : [])
-      .filter(r => r.sample === sample);
-    makeTable('vibrant-table', vibrant, [
-      { key: 'Scaffold',    label: 'Scaffold' },
-      { key: 'Total_genes', label: 'Total genes' },
-      { key: 'VOG_score',   label: 'VOG score' },
-      { key: 'Pfam_score',  label: 'Pfam score' },
-      { key: 'KEGG_score',  label: 'KEGG score' },
-    ]);
   }
 
   // ── Genome maps ───────────────────────────────────────────────────────────

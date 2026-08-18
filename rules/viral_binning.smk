@@ -265,7 +265,7 @@ rule make_votu_table:
     ("{source_id}|{contig_id}") since a vOTU's representative may belong to
     a different sample than the one this table is built for. Members are
     filtered to this sample's own contigs and their IDs are stripped back
-    to bare form so they match this sample's CheckV/VIBRANT/taxonomy/PHIST
+    to bare form so they match this sample's CheckV/taxonomy/PHIST
     tables; each member's annotations come from its own bare ID, not the
     representative's. A vOTU with no member in this sample produces no row.
 
@@ -273,7 +273,6 @@ rule make_votu_table:
       - vOTU_clusters.tsv        (global catalog votu_id/representative/member triples)
       - catalog_all_reps.fasta   (representative lengths)
       - CheckV quality_summary   (completeness, quality tier, genome type)
-      - VIBRANT output           (lifestyle: lytic/lysogenic; AMG count)
       - viral_taxonomy_merged    (family, genus, taxonomy source)
       - PHIST predictions        (host bin ID, soft-fail if absent)
 
@@ -283,7 +282,6 @@ rule make_votu_table:
         votu_clusters = rules.votu_catalog_cluster.output.clusters,
         votu_reps     = rules.votu_catalog_reps.output.all_fasta,
         checkv        = rules.checkv.output.summary,
-        vibrant       = rules.vibrant.output.done,
         taxonomy      = f"{OUTDIR}/{{sample}}/viral/taxonomy/viral_taxonomy_merged.tsv",
         # PHIST (host prediction) requires the prok bins/GTDB-Tk chain — only
         # pull it in when the integration between viral+prok tracks is on,
@@ -299,7 +297,6 @@ rule make_votu_table:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/make_votu_table.tsv"
     params:
-        vibrant_dir = f"{OUTDIR}/{{sample}}/viral/vibrant",
         phist_csv   = f"{OUTDIR}/{{sample}}/viral/phist/phist_results.csv",
     # run: executes in the Snakemake Python process — bypasses container/conda
     # issues with script: calling `python` (not `python3`) inside containers.

@@ -310,7 +310,6 @@ dependencies:
   - typing_extensions=3.7.4.3
   - unicodedata2=15.1.0
   - urllib3=2.2.3
-  - vibrant=1.0.1
   - virsorter=2.2.4
   - werkzeug=3.0.6
   - wget=1.20.3

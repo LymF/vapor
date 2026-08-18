@@ -108,10 +108,6 @@ genomad:
   image: genomad
   version: "1.11.2"
 
-vibrant:
-  image: vibrant
-  version: "1.2.1"
-
 # ── COBRA viral contig extension ────────────────────────────────────────
 cobra_meta:
   image: cobra-meta

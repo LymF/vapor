@@ -90,7 +90,6 @@ viral_consensus_mode: "hybrid"   # "count" | "score" | "hybrid"
 min_viral_tools:      2          # >= N tools must agree (count/hybrid mode)
 score_vs2_min:        0.5
 score_genomad_min:    0.5
-# VIBRANT: binary call (no numeric score)
 
 
 # ══ VIRAL QC + vOTU ════════════════════════════════════════════════════
@@ -158,7 +157,6 @@ coverm_method: "rpkm"   # "rpkm" | "tpm" | "mean" | "covered_fraction"
 # Core (required)
 checkv_db:    "/media/nas1/LITRP.DBs/metagenDBs/checkv/checkv-db-v1.5"
 vs2_db:       "/media/nas1/LITRP.DBs/metagenDBs/virsorter2"
-vibrant_base: "/media/nas1/LITRP.DBs/metagenDBs/vibrant-1.0.1"
 genomad_db:   "/media/nas1/LITRP.DBs/metagenDBs/genomad/genomad_db"
 checkm2_db:   "/media/nas1/LITRP.DBs/metagenDBs/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
 inphared_db:  "/media/nas1/LITRP.DBs/metagenDBs/inphared"

@@ -4,10 +4,9 @@
 # Tools (all receive rules.mmseqs2.output.rep as input):
 #   virsorter2 — HMM/ML, dsDNA + ssDNA + NCLDV + RNA + lavidaviridae
 #   genomad    — marker genes + NN (NN disabled: kernel execstack issue)
-#   vibrant    — HMM metabolic/structural, highest precision tool
 #
-# viral_consensus — integrates all three tools via configurable strategy:
-#   "count"  : >= MIN_VIRAL_TOOLS tools agree (default: 2 of 3)
+# viral_consensus — integrates both tools via configurable strategy:
+#   "count"  : >= MIN_VIRAL_TOOLS tools agree (default: 2 of 2)
 #   "score"  : any tool score >= threshold (SCORE_*_MIN)
 #   "hybrid" : count OR single high-confidence tool
 # ══════════════════════════════════════════════════════════════════════
@@ -93,60 +92,17 @@ rule genomad:
         """
 
 
-rule vibrant:
-    """
-    VIBRANT: 5th viral detection tool. Strong on integrated proviruses
-    and divergent dsDNA/ssDNA phages missed by marker-based tools.
-    VIBRANT outputs to CWD — cd to outdir first, using absolute paths.
-    """
-    input:
-        contigs = rules.mmseqs2.output.rep,
-    output:
-        done = f"{OUTDIR}/{{sample}}/viral/vibrant/done.txt",
-    log:   f"{OUTDIR}/{{sample}}/logs/vibrant.log"
-    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/vibrant.tsv"
-    conda: "../envs/phage_vibrant.yaml"
-    container:  CONTAINERS.get("vibrant")
-    threads: THREADS
-    params:
-        # derivado do output (ver nota em `rule genomad`)
-        outdir    = lambda wc, output: os.path.dirname(output.done),
-        minlen    = MIN_CONTIG,
-        db_dir    = f"{_VIBRANT_BASE}/databases",
-        files_dir = f"{_VIBRANT_BASE}/files",
-    shell:
-        """
-        mkdir -p {params.outdir}
-        cp {input.contigs} {params.outdir}/input.fasta
-        cd {params.outdir}
-        VIBRANT_run.py \
-            -i input.fasta \
-            -f nucl \
-            -t {threads} \
-            -l {params.minlen} \
-            -no_plot \
-            -d {params.db_dir} \
-            -m {params.files_dir} \
-            > {log} 2>&1 && RC=0 || RC=$?
-        if [ "$RC" -ne 0 ]; then
-            echo "failed: VIBRANT_run.py exit $RC" > {output.done}
-        else
-            echo "ok" > {output.done}
-        fi
-        """
-
 
 rule viral_consensus:
     """
-    Integrate results from all 3 viral detection tools.
+    Integrate results from all viral detection tools.
 
     CONTIG NAME NORMALIZATION:
     - VirSorter2 : appends ||full or ||lt0.5 — stripped with split("||")[0]
     - GeNomad    : uses original names directly; provirus "contig|prov_X_Y" → "contig"
-    - VIBRANT    : uses original names directly
 
     CONSENSUS STRATEGIES (VIRAL_CONSENSUS_MODE):
-    - "count"  : keep contigs called by >= MIN_VIRAL_TOOLS tools (default: 2 of 3)
+    - "count"  : keep contigs called by >= MIN_VIRAL_TOOLS tools (default: 2 of 2)
     - "score"  : keep contigs with any tool score >= threshold
     - "hybrid" : count OR single high-confidence tool (score mode)
 
@@ -158,7 +114,6 @@ rule viral_consensus:
         contigs      = rules.mmseqs2.output.rep,
         vs2_done     = rules.virsorter2.output.viral,
         genomad_done = rules.genomad.output.done,
-        vibrant_done = rules.vibrant.output.done,
     output:
         fasta   = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_consensus.fasta",
         support = f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_tool_support.tsv",
@@ -171,7 +126,6 @@ rule viral_consensus:
         # herdada em coassembly.smk usa {group} no lugar de {sample}.
         vs2_dir     = lambda wc, output: os.path.join(os.path.dirname(os.path.dirname(output.fasta)), "virsorter2"),
         genomad_dir = lambda wc, output: os.path.join(os.path.dirname(os.path.dirname(output.fasta)), "genomad"),
-        vibrant_dir = lambda wc, output: os.path.join(os.path.dirname(os.path.dirname(output.fasta)), "vibrant"),
         outdir      = lambda wc, output: os.path.dirname(output.fasta),
         unit_label  = lambda wc, output: os.path.basename(output.fasta).replace("_viral_consensus.fasta", ""),
     run:
@@ -230,20 +184,10 @@ rule viral_consensus:
                         name = raw.split("|")[0] if "|" in raw else raw
                         genomad_names.add(name)
 
-        # ── VIBRANT ───────────────────────────────────────────────────
-        vibrant_names = set()
-        for fa in (glob.glob(os.path.join(str(params.vibrant_dir), "**", "*phages_combined*"), recursive=True) +
-                   glob.glob(os.path.join(str(params.vibrant_dir), "**", "VIBRANT_phages_*", "*.fna"), recursive=True)):
-            try:
-                for l in open(fa):
-                    if l.startswith(">"): vibrant_names.add(l[1:].strip().split()[0])
-            except: pass
-
         # ── Count tool support per contig ─────────────────────────────
         tool_hits = defaultdict(list)
         for n in vs2_names:     tool_hits[n].append("VirSorter2")
         for n in genomad_names: tool_hits[n].append("GeNomad")
-        for n in vibrant_names: tool_hits[n].append("VIBRANT")
 
         # ── Consensus strategy ────────────────────────────────────────
         def _safe_float(v, d=0.0):
@@ -265,13 +209,6 @@ rule viral_consensus:
                     for _r in csv.DictReader(_f, delimiter="\t"):
                         if _safe_float(_r.get("virus_score",0)) >= SCORE_GENOMAD_MIN:
                             high_conf.add(_r.get("seq_name", "").strip())
-            for _vf in glob.glob(os.path.join(params.vibrant_dir, "**", "VIBRANT_genome_quality_*.tsv"), recursive=True):
-                try:
-                    with open(_vf) as _f:
-                        for _r in csv.DictReader(_f, delimiter="\t"):
-                            if _r.get("type", "").lower() in ("lytic", "lysogenic"):
-                                high_conf.add(_r.get("scaffold", "").strip())
-                except Exception: pass
         else:
             high_conf = set()
 
@@ -313,7 +250,6 @@ rule viral_consensus:
         with open(log[0], "a") as lf:
             lf.write(f"\nVirSorter2 : {len(vs2_names)}\n")
             lf.write(f"GeNomad    : {len(genomad_names)}\n")
-            lf.write(f"VIBRANT    : {len(vibrant_names)}\n")
             lf.write(f"Union total: {len(tool_hits)}\n")
             lf.write(f"Consensus mode={VIRAL_CONSENSUS_MODE} (min_tools={MIN_VIRAL_TOOLS}): {len(consensus)}\n")
             lf.write(f"FASTA output: {kept} → {output.fasta}\n")

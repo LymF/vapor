@@ -9,7 +9,7 @@
 #                 └─► Merge + filter + MMseqs2 (deduplication)
 #                       ├─► QUAST (assembly quality)
 #                       ├─► Viral detection ──► CheckV ──► vRhyme
-#                       │     VirSorter2, GeNomad, VIBRANT
+#                       │     VirSorter2, GeNomad
 #                       │
 #                       └─► BWA-MEM2 / minimap2 (read mapping → contigs)
 #                                 └─► depth.txt (coverage per contig)
@@ -30,7 +30,7 @@
 #   assembly.smk        — BLOCK 2  : MEGAHIT, metaSPAdes, metaviralSPAdes, Flye, hifiasm, Medaka
 #   merge_dedup.smk     — BLOCK 3  : merge_contigs, MMseqs2
 #   quast.smk           — BLOCK 4  : QUAST
-#   viral_detection.smk — BLOCK 5  : VS2, GeNomad, VIBRANT, viral_consensus
+#   viral_detection.smk — BLOCK 5  : VS2, GeNomad, viral_consensus
 #   mapping.smk         — BLOCK 6  : BWA-MEM2, minimap2, calc_depth
 #   cobra.smk           — BLOCK 5.5: COBRA contig extension (optional, SR PE only)
 #   viral_binning.smk   — BLOCK 7  : vRhyme, CheckV (×2)
@@ -120,7 +120,6 @@ MIN_SEQ_ID           = config["min_seq_id"]
 
 CHECKV_DB            = config["checkv_db"]
 VS2_DB               = config["vs2_db"]
-_VIBRANT_BASE        = config["vibrant_base"]
 GENOMAD_DB           = config["genomad_db"]
 CHECKM2_DB           = config["checkm2_db"]
 INPHARED_DB          = config["inphared_db"]
@@ -438,7 +437,6 @@ def _t_viral():
     t = []
     t += expand(f"{OUTDIR}/{{sample}}/viral/virsorter2/final-viral-combined.fa", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/genomad/done.txt", sample=SAMPLES)
-    t += expand(f"{OUTDIR}/{{sample}}/viral/vibrant/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_viral_consensus.fasta", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/consensus/{{sample}}_tool_support.tsv", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/viral/checkv/quality_summary.tsv", sample=SAMPLES)

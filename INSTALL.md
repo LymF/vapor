@@ -105,10 +105,6 @@ mamba create -n env_viral -c conda-forge -c bioconda \
 mamba create -n env_genomad -c conda-forge -c bioconda \
     genomad -y
 
-# VIBRANT 1.2.1
-mamba create -n phage_vibrant -c conda-forge -c bioconda \
-    "vibrant=1.2.1" hmmer prodigal -y
-
 # vRhyme
 mamba create -n env_vrhyme -c conda-forge -c bioconda \
     vrhyme -y
@@ -298,53 +294,6 @@ docker run --rm -v "$DB_BASE:/dbs" \
     quay.io/biocontainers/genomad:1.11.2--pyhdfd78af_0 \
     genomad download-database /dbs/genomad
 ```
-
----
-
-### VIBRANT
-
-The databases are version-agnostic (same files for 1.0.1 and 1.2.1).
-Set `vibrant_base` in `config.yaml` to whichever directory you create.
-
-**Conda:**
-```bash
-mkdir -p "$DB_BASE/vibrant/databases"
-mkdir -p "$DB_BASE/vibrant/files"
-conda activate phage_vibrant
-
-cd "$DB_BASE/vibrant/databases"
-wget https://zenodo.org/record/4543735/files/VIBRANT_v1.0.1.tar.gz
-tar -xzf VIBRANT_v1.0.1.tar.gz --strip-components=2 "VIBRANT_v1.0.1/databases/"
-
-cd "$DB_BASE/vibrant/files"
-git clone --depth 1 https://github.com/AnantharamanLab/VIBRANT /tmp/vibrant_src
-cp /tmp/vibrant_src/files/* "$DB_BASE/vibrant/files/"
-rm -rf /tmp/vibrant_src
-
-# Press-index HMM databases
-for hmm in "$DB_BASE/vibrant/databases/"*.HMM; do
-    hmmpress "$hmm"
-done
-conda deactivate
-```
-
-**Container:** (wget outside container; hmmpress via hmmer image)
-```bash
-mkdir -p "$DB_BASE/vibrant/databases" "$DB_BASE/vibrant/files"
-cd "$DB_BASE/vibrant/databases"
-wget https://zenodo.org/record/4543735/files/VIBRANT_v1.0.1.tar.gz
-tar -xzf VIBRANT_v1.0.1.tar.gz --strip-components=2 "VIBRANT_v1.0.1/databases/"
-cd "$DB_BASE/vibrant/files"
-git clone --depth 1 https://github.com/AnantharamanLab/VIBRANT /tmp/vibrant_src
-cp /tmp/vibrant_src/files/* ./ && rm -rf /tmp/vibrant_src
-
-# hmmpress via apptainer/singularity
-apptainer exec docker://quay.io/biocontainers/hmmer:3.4--hdbdd923_1 \
-    bash -c 'for hmm in '"$DB_BASE"'/vibrant/databases/*.HMM; do hmmpress "$hmm"; done'
-```
-
-> **Existing installs:** if your databases are already at `vibrant-1.0.1/`, you can keep
-> that path and just point `vibrant_base` there — no need to move files.
 
 ---
 
@@ -1000,7 +949,6 @@ lr_tech:    "ont"   # "ont" | "hifi"
 checkv_db:     "/path/to/checkv/checkv-db-v1.5"
 vs2_db:        "/path/to/virsorter2"
 genomad_db:    "/path/to/genomad/genomad_db"
-vibrant_base:  "/path/to/vibrant-1.0.1"
 checkm2_db:    "/path/to/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
 gtdbtk_db:     "/path/to/gtdbtk/release226"
 inphared_db:   "/path/to/inphared"
@@ -1065,7 +1013,7 @@ rm fastqs/TEST_R1.fastq.gz fastqs/TEST_R2.fastq.gz
 
 ```bash
 for env in env_qc env_assembly env_flye env_medaka env_lr_utils \
-           env_mapping env_viral env_genomad phage_vibrant env_vrhyme \
+           env_mapping env_viral env_genomad env_vrhyme \
            env_cobra env_binning env_binette env_checkm2 \
            env_gtdbtk env_phist env_annotation env_coverm \
            env_gunc env_derep env_defense env_rgi env_deeparg \
@@ -1084,7 +1032,6 @@ done
 | CheckV v1.5 | 3 GB |
 | VirSorter2 | 4 GB |
 | GeNomad | 3 GB |
-| VIBRANT v1.0.1 | 12 GB |
 | INPHARED | 2 GB |
 | CheckM2 | 3 GB |
 | GTDB-Tk release 226 | 85 GB |
@@ -1112,9 +1059,6 @@ done
 
 **metaSPAdes runs out of memory**
 Reduce `spades_mem` in `config.yaml`. If RAM is the bottleneck, use MEGAHIT only.
-
-**VIBRANT: `-f older` error**
-This pipeline uses `cd` to the output directory before running VIBRANT, passing only `-f nucl` explicitly. Ensure you are using the current version of the `Snakefile`.
 
 **GTDB-Tk: pplacer error**
 Confirm that `gtdbtk_db` points to the correct directory and that the database version is compatible with your installed GTDB-Tk (`gtdbtk check_install`).

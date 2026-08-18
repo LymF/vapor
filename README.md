@@ -19,7 +19,7 @@ vapor/
 │   │                            #            Flye, hifiasm, Medaka, metaMDBG
 │   ├── merge_dedup.smk          # BLOCK 3  — merge_contigs, MMseqs2
 │   ├── quast.smk                # BLOCK 4  — QUAST
-│   ├── viral_detection.smk      # BLOCK 5  — VirSorter2, GeNomad, VIBRANT, consensus
+│   ├── viral_detection.smk      # BLOCK 5  — VirSorter2, GeNomad, consensus
 │   ├── mapping.smk              # BLOCK 6  — BWA-MEM2 / minimap2, calc_depth
 │   ├── cobra.smk                # BLOCK 5.5— COBRA contig extension (optional, SR PE)
 │   ├── viral_binning.smk        # BLOCK 7  — CheckV, provirus trim, vRhyme, CheckV(vRhyme)
@@ -78,7 +78,6 @@ vapor/
     ├── env_mapping.yaml
     ├── env_viral.yaml
     ├── env_genomad.yaml
-    ├── phage_vibrant.yaml
     ├── env_vrhyme.yaml
     ├── env_cobra.yaml           # COBRA contig extension (optional)
     ├── env_binning.yaml
@@ -209,7 +208,6 @@ All parameters are defined in **`config.yaml`** — no `.smk` files need to be e
 checkv_db:    "/path/to/checkv-db-v1.5"
 vs2_db:       "/path/to/virsorter2"
 genomad_db:   "/path/to/genomad_db"
-vibrant_base: "/path/to/vibrant-1.0.1"
 checkm2_db:   "/path/to/uniref100.KO.1.dmnd"
 inphared_db:  "/path/to/inphared"
 gtdbtk_db:    "/path/to/gtdbtk/release226"
@@ -244,7 +242,6 @@ snakemake --snakefile Snakefile --use-conda --cores 1 --create-envs-only
 | `env_mapping` | bwa-mem2, minimap2, samtools |
 | `env_viral` | virsorter2, checkv, prodigal, diamond |
 | `env_genomad` | genomad |
-| `phage_vibrant` | vibrant |
 | `env_vrhyme` | vrhyme |
 | `env_cobra` | cobra-meta, blast (optional) |
 | `env_binning` | metabat2, vamb, semibin2 |

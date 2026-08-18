@@ -208,7 +208,7 @@ def parse_support_combos(path):
     The tool-support TSV written by rules/viral_detection.smk carries a `tools`
     column ("GeNomad,VirSorter2"), so the exact set intersections are already on
     disk — parse_support collapses them to a degree count, which cannot answer
-    "what does VIBRANT find that the others miss?". Returns
+    "which detector combinations agree, not just how many". Returns
     {"GeNomad,VirSorter2": n, …} with the tool names sorted inside each key."""
     combos = Counter()
     for row in parse_tsv(path):
@@ -336,17 +336,6 @@ def collect_viral_tool_counts(outdir, sample):
         len(parse_tsv(p))
         for p in glob.glob(os.path.join(outdir, sample, "viral", "genomad", "*_summary", "*_virus_summary.tsv"))
     )
-    vib_fastas = glob.glob(os.path.join(outdir, sample, "viral", "vibrant",
-                                        "**", "VIBRANT_phages_*", "*.fna"), recursive=True)
-    vib_combined = glob.glob(os.path.join(outdir, sample, "viral", "vibrant",
-                                          "**", "*phages_combined*"), recursive=True)
-    vib_seqs = set()
-    for fa in vib_fastas + vib_combined:
-        try:
-            for l in open(fa):
-                if l.startswith(">"): vib_seqs.add(l[1:].split()[0])
-        except: pass
-    counts["VIBRANT"] = len(vib_seqs)
     return counts
 
 
@@ -423,55 +412,6 @@ def parse_checkm2_phyla(checkm2_rows):
             if p.strip().startswith("p__"): phylum = p.strip()[3:] or "Unclassified"; break
         phyla[phylum] += 1
     return phyla
-
-
-# ── VIBRANT ───────────────────────────────────────────────────────────────────
-
-def load_vibrant(outdir_base, samples):
-    """Parse VIBRANT summary + AMG results for each sample."""
-    scaffold_records = []
-    amg_records = []
-    for s in samples:
-        vdir = os.path.join(outdir_base, s, 'viral', 'vibrant')
-        for tsv in glob.glob(os.path.join(vdir, '**', 'VIBRANT_summary_results_*.tsv'), recursive=True):
-            for row in load_tsv(tsv):
-                scaffold = row.get('scaffold', '')
-                if not scaffold: continue
-                scaffold_records.append({'sample': s,
-                    'Scaffold':    scaffold,
-                    'Total_genes': row.get('total genes', ''),
-                    'VOG_score':   row.get('VOG v-score', ''),
-                    'Pfam_score':  row.get('Pfam v-score', ''),
-                    'KEGG_score':  row.get('KEGG v-score', ''),
-                })
-        for tsv in glob.glob(os.path.join(vdir, '**', 'VIBRANT_AMG_pathways_*.tsv'), recursive=True):
-            for row in load_tsv(tsv):
-                pathway = row.get('Pathway', '') or row.get('pathway', '')
-                if not pathway: continue
-                n_amgs = row.get('Total AMGs', '') or row.get('total amgs', '1')
-                kos    = row.get('Present AMG KOs', '') or row.get('present amg kos', '')
-                amg_records.append({'sample':    s,
-                    'Pathway':    pathway,
-                    'Metabolism': row.get('Metabolism', '') or row.get('metabolism', ''),
-                    'KEGG_map':   row.get('KEGG Entry', '') or row.get('kegg entry', ''),
-                    'Total_AMGs': n_amgs,
-                    'KOs':        kos,
-                })
-        for tsv in glob.glob(os.path.join(vdir, '**', 'VIBRANT_AMG_individuals_*.tsv'), recursive=True):
-            for row in load_tsv(tsv):
-                prot = row.get('protein', '') or row.get('gene', '')
-                if not prot: continue
-                amg_records.append({'sample':    s,
-                    'Protein':    prot,
-                    'Scaffold':   row.get('scaffold', ''),
-                    'AMG_KO':     row.get('AMG KO', '') or row.get('KO', ''),
-                    'AMG_gene':   row.get('AMG gene', '') or row.get('gene name', ''),
-                    'Pathway':    row.get('metabolic pathway', '') or row.get('pathway', ''),
-                    'Metabolism': row.get('AMG category', '') or row.get('category', ''),
-                    'Total_AMGs': '1',
-                    'KOs':        row.get('AMG KO', ''),
-                })
-    return scaffold_records, amg_records
 
 
 # ── Viral taxonomy ────────────────────────────────────────────────────────────
@@ -1569,7 +1509,6 @@ def collect_tool_versions():
         "CoverM":        _ver(f"{C} env_coverm coverm --version"),
         "VirSorter2":    _ver(f"{C} env_viral virsorter --version"),
         "GeNomad":       _ver(f"{C} env_genomad genomad --version"),
-        "VIBRANT":       _ver(f"{C} env_viral VIBRANT_run.py 2>&1 | head -3"),
         "CheckV":        _ver(f"{C} env_viral checkv 2>&1 | head -1"),
         "vRhyme":        _ver(f"{C} env_vrhyme vRhyme --version"),
         "Diamond":       _ver(f"{C} env_viral diamond version"),

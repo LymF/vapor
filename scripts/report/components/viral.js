@@ -66,7 +66,6 @@
     buildVotuPresence();
     _renderDetection(samples);
     _renderBinning(samples);
-    _renderLifestyle(samples);
     makeSampleDropdown('sample-sel-viral-tax', _renderTaxonomy, { allSamples: true });
     makeSampleDropdown('sample-sel-votu-table', _renderVotuTable);
   };
@@ -76,7 +75,7 @@
     const vt  = typeof VIRAL_TOOLS !== 'undefined' ? VIRAL_TOOLS : {};
     const sup = typeof SUPPORT     !== 'undefined' ? SUPPORT     : {};
 
-    const tools = ['VirSorter2', 'GeNomad', 'VIBRANT'];
+    const tools = ['VirSorter2', 'GeNomad'];
     mkChart('vir-tools-chart', samplesBar({
       samples, title: 'Viral Contigs per Tool', valueName: 'Contigs',
       series: tools.map((t, i) => ({
@@ -97,7 +96,7 @@
 
     // Tool agreement as an UpSet: which COMBINATION of detectors supports each
     // contig. The old sample x tool heatmap showed per-tool totals, which cannot
-    // answer "what does VIBRANT find that the other two miss" -- the question a
+    // answer "which contigs does each detector find that the other misses" -- the question a
     // consensus filter exists to settle. Aggregated across samples; the
     // per-sample stacked bar above keeps the sample-level view.
     const combosAll = {};
@@ -402,43 +401,6 @@
         format: { CheckV_quality: qualBadge },
       });
     }
-  }
-
-  // ── Lifestyle ─────────────────────────────────────────────────────────────
-  function _renderLifestyle(samples) {
-    const ls = typeof LIFESTYLE !== 'undefined' ? LIFESTYLE : {};
-    const labels = ['Lytic', 'Lysogenic', 'Unknown'];
-    // Lytic/lysogenic is a categorical biological classification, not a
-    // good/bad status axis -- red (PAL[7]) means "low quality/problem"
-    // everywhere else in this report (CheckV, CheckM2, MIMAG), so using it
-    // here would mislead a reader skimming tabs into reading "Lytic" as the
-    // concerning outcome. PAL[3]/PAL[2] are plain categorical identity;
-    // PAL_MUTED for the true "don't know" bucket.
-    const cols = [PAL[3], PAL[2], PAL_MUTED];
-
-    const series = labels.map((l, i) => ({
-      name: l, type: 'bar', stack: 'ls', color: cols[i],
-      data: samples.map(s => (ls[s] || {})[l.toLowerCase()] || 0),
-    }));
-
-    mkChart('vir-lifestyle-chart', samplesBar({
-      samples, title: 'Viral Lifestyle Prediction (VIBRANT) — Lytic vs Lysogenic',
-      valueName: 'Count', stack: true,
-      series: labels.map((l, i) => ({
-        name: l, color: cols[i],
-        data: samples.map(s => (ls[s] || {})[l.toLowerCase()] || 0),
-      })),
-    }));
-
-    // AMG table
-    const amg = typeof VIBRANT_AMG !== 'undefined' ? VIBRANT_AMG : [];
-    makeTable('amg-table', amg, [
-      { key: 'sample',    label: 'Sample' },
-      { key: 'Pathway',   label: 'Pathway' },
-      { key: 'Metabolism',label: 'Metabolism' },
-      { key: 'Total_AMGs',label: 'AMGs' },
-      { key: 'KOs',       label: 'KO IDs' },
-    ], { searchId: 'amg-search' });
   }
 
   // ── vOTU Table ───────────────────────────────────────────────────────────

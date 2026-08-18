@@ -66,7 +66,7 @@ See INSTALL.md for database setup instructions.
 # Config keys that hold filesystem paths needing apptainer bind mounts.
 _PATH_KEYS = [
     "fastq_dir", "outdir",
-    "checkv_db", "vs2_db", "vibrant_base", "genomad_db",
+    "checkv_db", "vs2_db", "genomad_db",
     "checkm2_db", "inphared_db", "gtdbtk_db",
     "gunc_db", "pharokka_db", "phold_db", "bakta_db", "eggnog_db",
     "card_db", "deeparg_db", "defense_finder_models_db", "apis_db",
