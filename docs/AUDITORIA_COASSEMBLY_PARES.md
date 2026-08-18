@@ -21,14 +21,14 @@ Duas falhas do comparador:
 
 ## 1. Resultado final
 
-Dos 20 pares auditados, **15 foram unificados** por herança (`use rule ... as ... with:`), 2 continuam separados de propósito e 3 seguem pendentes.
+Dos 20 pares auditados, **19 foram unificados** por herança (`use rule ... as ... with:`). Só o `vrhyme` continua separado, de propósito.
 
-`rules/coassembly.smk`: **3605 → 2185 linhas (−39%)**. 23 regras herdadas, 16 gêmeas próprias restantes.
+`rules/coassembly.smk`: **3605 → 1948 linhas (−46%)**. 28 regras herdadas, 12 gêmeas próprias restantes — todas específicas de grupo, sem equivalente per-sample.
 
 ### Unificados — diferença só de docstring/rótulo (9)
 `abricate`, `mmseqs_taxonomy_viral`, `defensefinder_viral`, `defensefinder`, `argnorm_normalize`, `phold`, `dbapis_viral`, `extract_kegg_kos`, `pharokka`.
 
-Mais, na segunda leva: `amr_consensus` e `deeparg` — a v1 os listou como divergentes, mas os corpos eram idênticos byte a byte fora o rótulo do log.
+Mais, nas levas seguintes: `amr_consensus`, `deeparg`, `prodigal_viral`, `checkv_vrhyme`, `phist` e `viral_taxonomy` — a v1 os listou como divergentes, mas os corpos eram idênticos byte a byte fora o rótulo do log.
 
 ### Unificados — divergência legítima de entrada, resolvida por override (4)
 | Par | O que difere | Como foi resolvido |
@@ -38,7 +38,7 @@ Mais, na segunda leva: `amr_consensus` e `deeparg` — a v1 os listou como diver
 | `galah_derep` | idem, em 5 pontos | idem — **mais o §2** |
 | `filter_viral_for_prok` | entrada (rep_seq vs contigs), nome do output, `genomad_dir` | override de input/output; `genomad_dir` passou a derivar de `input.genomad` |
 
-### Já unificados antes desta auditoria (6)
+### Já unificados antes desta auditoria (8)
 `virsorter2`, `genomad`, `vibrant`, `viral_consensus`, `checkv`, `eggnog_prok`, `amrfinderplus`, `rgi_card`.
 
 ---
@@ -64,9 +64,8 @@ Escopo do que **não** foi feito: `coassembly.smk` tinha 46 `touch` vazios. Só 
 
 ---
 
-## 3. Mantidos separados de propósito
+## 3. Mantido separado de propósito
 
-### `vrhyme`
 ```python
 rule coassembly_vrhyme:
     input:
@@ -74,26 +73,32 @@ rule coassembly_vrhyme:
 ```
 O per-sample usa **um** BAM; o de grupo usa **todos**, para cobertura diferencial — análogo ao co-binning do VAMB. São algoritmos diferentes. **Unificar seria bug.**
 
-### `viral_taxonomy`
-O algoritmo é idêntico: mesmo schema de saída, mesmo `_PRIORITY`, mesmo merge por rank mais profundo, mesmo fallback. O que difere é a **base de evidência**: a gêmea zera `custom_tax = {}`, então a trilha de grupo classifica com 2 fontes (MMseqs2/INPHARED + geNomad) contra 3 da per-sample.
+---
 
-Com a saída do vConTACT3 (2026-08-17) a distância caiu de 2 fontes para 1. Unificar exigiria ligar o `mmseqs_taxonomy_custom_viral` na trilha de grupo — isso **acrescenta** uma execução de ferramenta, não é refatoração. Decisão pendente.
+## 4. `viral_taxonomy` — resolvido ligando a fonte que faltava
+
+O algoritmo sempre foi idêntico: mesmo schema, mesmo `_PRIORITY`, mesmo merge por rank mais profundo, mesmo fallback. O que diferia era a **base de evidência**: a gêmea zerava `custom_tax = {}` em código, então a trilha de grupo classificava com 2 fontes contra 3 da per-sample. O mesmo contig recebia taxonomia diferente conforme a trilha, e as colunas `custom_*` saíam sempre vazias mantendo-se no cabeçalho.
+
+Resolvido (2026-08-17) ligando `coassembly_mmseqs_taxonomy_custom_viral` — herdado, com auto-skip se `custom_viral_mmseqs_db` não estiver configurado — e convertendo o merge para herança. As duas trilhas passam a usar as mesmas três fontes.
+
+**Custo:** +1 execução de MMseqs2 por grupo. **Mudança de resultado:** sim, a taxonomia do co-assembly muda (para melhor, e agora comparável com a per-sample).
 
 ---
 
-## 4. Pendentes
+## 5. Gêmeas próprias restantes (12)
 
-| Par | Situação |
+Nenhuma tem equivalente per-sample a herdar:
+
+| Regras | Por quê |
 |---|---|
-| `prodigal_viral` | corpo aparenta ser idêntico; falta confirmar e converter |
-| `checkv_vrhyme` | idem |
-| `phist` | `bins_dir` VAMB vs Binette (como categoria B), mas o bloco vizinho `_coas_final_inputs` é lógica exclusiva de grupo |
-| `viral_trimmed`, `skani_votu`, `skani_cluster`, `viral_votu_reps` | sem regra base per-sample equivalente (o per-sample usa o catálogo global de vOTU) |
-| `index`, `map`, `sort`, `mapback`, `abundance`, `prok_bin_proteins`, `organize_outputs` | específicos de grupo |
+| `viral_trimmed`, `skani_votu`, `skani_cluster`, `viral_votu_reps` | o per-sample usa o **catálogo global** de vOTU; o grupo faz clustering próprio |
+| `index`, `map`, `sort`, `mapback`, `abundance` | mapeamento das amostras do grupo contra o co-assembly |
+| `prok_bin_proteins`, `organize_outputs` | específicas de grupo |
+| `vrhyme` | divergência intencional — ver §3 |
 
 ---
 
-## 5. Verificação
+## 6. Verificação
 
 Baseline: 32 amostras, 7 grupos, `coassembly.viral` e `coassembly.binning` ligados.
 
@@ -102,8 +107,12 @@ O invariante é o **conjunto de arquivos de output do DAG**, extraído do dry-ru
 | Etapa | Jobs | Outputs |
 |---|---|---|
 | Baseline | 1641 | 2683 |
-| Após todas as heranças | 1609 | 2611 |
+| Após remoção do vConTACT3 | 1609 | 2619 |
+| Após remoção do tier `hq_10kb` | 1609 | 2611 |
+| Após ligar MMseqs2/custom no grupo | 1616 | 2625 |
 
-As duas reduções são explicadas e foram conferidas item a item: −32 jobs e −64 outputs da remoção do vConTACT3 (o diff continha **só** caminhos `.../vcontact3/`), −8 outputs da remoção do tier `hq_10kb` (só caminhos `*hq_10kb*`). **Nenhuma unificação por herança alterou o invariante.**
+Cada delta foi conferido item a item e continha **apenas** os caminhos esperados: −32 jobs/−64 outputs só de `.../vcontact3/`; −8 outputs só de `*hq_10kb*`; +7 jobs/+14 outputs só de `mmseqs_vs_custom.tsv` e `mmseqs_custom_viral_done.txt`, sem nada removido.
+
+**Nenhuma das 19 unificações por herança alterou o invariante.** As três mudanças acima são de escopo, decididas explicitamente, não efeitos colaterais de refatoração.
 
 As mudanças do §2 são de **conteúdo** do `done.txt` e de comportamento em resume — não alteram o conjunto de arquivos, por isso o invariante permanece válido como rede de segurança mas não as detecta. Elas são cobertas pelos testes (67, era 65).
