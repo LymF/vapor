@@ -67,7 +67,10 @@ rule genomad:
     container:  CONTAINERS.get("genomad")
     threads: THREADS
     params:
-        outdir = f"{OUTDIR}/{{sample}}/viral/genomad",
+        # derivado do output, nao de wildcards.sample: esta regra e herdada
+        # por coassembly.smk via `use rule ... as ... with:` e a copia herdada
+        # usa o wildcard {group}.
+        outdir = lambda wc, output: os.path.dirname(output.done),
     shell:
         """
         rm -rf {params.outdir}
@@ -106,7 +109,8 @@ rule vibrant:
     container:  CONTAINERS.get("vibrant")
     threads: THREADS
     params:
-        outdir    = f"{OUTDIR}/{{sample}}/viral/vibrant",
+        # derivado do output (ver nota em `rule genomad`)
+        outdir    = lambda wc, output: os.path.dirname(output.done),
         minlen    = MIN_CONTIG,
         db_dir    = f"{_VIBRANT_BASE}/databases",
         files_dir = f"{_VIBRANT_BASE}/files",
@@ -159,10 +163,13 @@ rule viral_consensus:
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/viral_consensus.tsv"
     params:
-        vs2_dir     = f"{OUTDIR}/{{sample}}/viral/virsorter2",
-        genomad_dir = f"{OUTDIR}/{{sample}}/viral/genomad",
-        vibrant_dir = f"{OUTDIR}/{{sample}}/viral/vibrant",
-        outdir      = f"{OUTDIR}/{{sample}}/viral/consensus",
+        # todos derivados do output (ver nota em `rule genomad`): a copia
+        # herdada em coassembly.smk usa {group} no lugar de {sample}.
+        vs2_dir     = lambda wc, output: os.path.join(os.path.dirname(os.path.dirname(output.fasta)), "virsorter2"),
+        genomad_dir = lambda wc, output: os.path.join(os.path.dirname(os.path.dirname(output.fasta)), "genomad"),
+        vibrant_dir = lambda wc, output: os.path.join(os.path.dirname(os.path.dirname(output.fasta)), "vibrant"),
+        outdir      = lambda wc, output: os.path.dirname(output.fasta),
+        unit_label  = lambda wc, output: os.path.basename(output.fasta).replace("_viral_consensus.fasta", ""),
     run:
         import os, glob, csv
         from collections import defaultdict
@@ -307,4 +314,4 @@ rule viral_consensus:
             lf.write(f"Consensus mode={VIRAL_CONSENSUS_MODE} (min_tools={MIN_VIRAL_TOOLS}): {len(consensus)}\n")
             lf.write(f"FASTA output: {kept} → {output.fasta}\n")
 
-        print(f"[viral_consensus] {wildcards.sample}: {kept} consensus viral contigs")
+        print(f"[viral_consensus] {params.unit_label}: {kept} consensus viral contigs")
