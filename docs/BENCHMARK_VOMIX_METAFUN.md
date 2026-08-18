@@ -196,7 +196,13 @@ containerized: "oras://ghcr.io/<org>/vapor:<tag>"
 
 no `Snakefile`, mais um `snakemake --containerize > Dockerfile` no CI. Isso daria a instalação "um comando só" **sem** abandonar os envs conda e **sem** exigir imagens artesanais como as do metaFun. É a mudança de melhor razão esforço/benefício de todo este documento.
 
-Observação: os `container:` atuais da vapor apontam para imagens **por ferramenta** (`CONTAINERS.get("checkv")` etc.), o que é um modelo diferente e mais frágil — cada imagem tem que existir e ser mantida. O `containerized:` global resolve isso de uma vez.
+> ⚠️ **Correção (2026-08-17).** A frase original aqui dizia que os `container:` por regra da vapor eram "um modelo mais frágil, cada imagem tem que existir e ser mantida". **Isso está errado**, e a recomendação abaixo foi feita sobre essa premissa falsa.
+>
+> A vapor tem uma estratégia deliberada: `containers.yaml` (47 ferramentas → pacote bioconda + versão) → `pin_containers.py` → `containers.lock.yaml` (URIs `quay.io/biocontainers` pinadas). **As imagens são construídas automaticamente pelo projeto bioconda** — ninguém na vapor mantém 47 imagens, mantém uma lista de versões. Só duas imagens são próprias (`genome-map`, `medaka-gpu`), publicadas pelo CI.
+>
+> O problema real era que o `containers.lock.yaml` **nunca havia sido gerado**, então `CONTAINERS = {}` e os 47 `container:` resolviam para `None` — a estratégia inteira estava inerte. Resolvido gerando e commitando o lock, mais um job de CI que roda `pin_containers.py --check`.
+>
+> E os dois mecanismos coexistem mal: `container:` por regra **tem precedência** sobre `containerized:`, então com o lock presente a imagem global seria quase toda ignorada. Adotar `containerized:` exigiria **remover** o esquema atual, não somar a ele.
 
 ---
 
@@ -225,7 +231,7 @@ Ordenadas por razão benefício/esforço. Nada aqui foi implementado — é uma 
 
 **Alto retorno, baixo risco**
 
-1. **`containerized:` no Snakefile + `snakemake --containerize` no CI.** Instalação em um comando, preservando os 26 envs conda. Substitui o esquema atual de `CONTAINERS.get(...)` por ferramenta. (§4)
+1. ~~**`containerized:` no Snakefile**~~ — **descartado**, ver a correção em §4. O equivalente de valor era ativar a estratégia de containers que já existia: `containers.lock.yaml` gerado e commitado (48 URIs BioContainers pinadas) + `pin_containers.py --check` no CI. Feito em 2026-08-17. O `containerized:` continua sendo uma opção válida para quem precise de um artefato único offline, mas exigiria remover `containers.yaml`, `pin_containers.py` e as 47 diretivas `container:`.
 2. **CheckV-PyHMMER na `viral_binning.smk`.** Padrão de priming do `tmp/`: `pyrodigal-gv` → 80 jobs `pyhmmer` de 1 thread → `checkv end_to_end -t 1`. Já temos `pyhmmer=0.12.0` e `pyrodigal-gv=0.3.2` em `env_annotation.yaml`. Fazer a versão *com* pyrodigal-gv de verdade, que é o que o paper descreve e o código deles não faz. Ganho esperado só acima de ~10⁵ contigs — abaixo disso, o CheckV nativo é mais rápido, então precisa ser opcional via config. (§3.2)
 3. **`hostile` na `host_removal.smk`.** Índices curados e versionados no lugar do nosso mapeamento manual. (§2.2)
 

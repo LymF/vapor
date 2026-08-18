@@ -175,8 +175,9 @@ Trilha independente da montagem: **sylph** (profile) → **sylph-tax** → merge
 ## 3. Infraestrutura
 
 - **26 envs conda** (era 27 antes da remocao do `env_vcontact3`) em `envs/` (`env_qc`, `env_assembly`, `env_viral`, `env_genomad`, `env_binning`, `env_binette`, `env_checkm2`, `env_gunc`, `env_derep`, `env_gtdbtk`, `env_annotation`, `env_defense`, `env_rgi`, `env_deeparg`, `env_abricate`, `env_argnorm`, `env_vrhyme`, `env_phist`, `env_coverm`, `env_mapping`, `env_cobra`, `env_reads_classify`, `env_flye`, `env_medaka`, `env_lr_utils`, `phage_vibrant`).
-- **`container:` por regra** apontando para `CONTAINERS.get(<nome>)`, resolvido a partir de `containers.yaml` / `containers.lock.yaml` — uma imagem **por ferramenta**.
-- **Não há** `containerized:` global no `Snakefile` (ver `docs/BENCHMARK_VOMIX_METAFUN.md` §4 — é a mudança de melhor razão esforço/benefício identificada).
+- **`container:` por regra** via `CONTAINERS.get(<nome>)`, resolvido de `containers.lock.yaml` — 48 URIs `quay.io/biocontainers` pinadas, geradas de `containers.yaml` por `scripts/pin_containers.py`. As imagens vêm do bioconda upstream; o repo mantém só a lista de versões. Duas imagens próprias (`genome-map`, `medaka-gpu`) são publicadas no GHCR pelo CI.
+- Rodar com `--sdm apptainer` usa as imagens; `--sdm conda --use-conda` usa os envs locais. Sem o lock, todo `container:` resolve para `None` e o Snakemake cai para conda **sem avisar** — por isso o CI roda `pin_containers.py --check`.
+- **Não há** `containerized:` global no `Snakefile`, e adotá-lo exigiria remover o esquema acima (as duas diretivas conflitam: `container:` por regra tem precedência).
 
 ### Bibliotecas rápidas já disponíveis mas subutilizadas
 | Pacote | Onde está | Onde poderia ser usado |

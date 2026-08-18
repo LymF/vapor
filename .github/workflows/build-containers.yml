@@ -6,6 +6,11 @@ on:
     paths:
       - "docker/Dockerfile.genome-map"
       - "docker/Dockerfile.medaka-gpu"
+  pull_request:
+    paths:
+      - "containers.yaml"
+      - "containers.lock.yaml"
+      - "scripts/pin_containers.py"
   release:
     types: [published]
   workflow_dispatch:
@@ -15,8 +20,25 @@ env:
   OWNER: ${{ github.repository_owner }}
 
 jobs:
+  # Guarda o lock alinhado com containers.yaml. Sem isso o lock silenciosamente
+  # envelhece: uma versao bumpada no containers.yaml continuaria rodando a
+  # imagem antiga, ou -- se o lock sumir -- todo `container:` volta a resolver
+  # para None e a pipeline cai para conda sem avisar.
+  check-lock:
+    name: containers.lock.yaml em dia
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - name: Verificar lock contra containers.yaml
+        run: python3 scripts/pin_containers.py --check
+
   genome-map:
     name: genome-map image
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
