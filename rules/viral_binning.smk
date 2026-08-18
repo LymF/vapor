@@ -36,15 +36,20 @@ rule checkv:
         f"{OUTDIR}/{{sample}}/logs/checkv.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/checkv.tsv"
+    params:
+        # derivado do output, nao de wildcards.sample: esta regra e herdada
+        # por coassembly.smk via `use rule ... as ... with:`, e a copia
+        # herdada usa o wildcard {group}.
+        outdir = lambda wc, output: os.path.dirname(output.summary),
     conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("checkv")
     threads: THREADS
     shell:
         """
-        rm -rf {OUTDIR}/{wildcards.sample}/viral/checkv
+        rm -rf {params.outdir}
         checkv end_to_end \
             {input.viral} \
-            {OUTDIR}/{wildcards.sample}/viral/checkv \
+            {params.outdir} \
             -d {CHECKV_DB} \
             -t {threads} \
             > {log} 2>&1

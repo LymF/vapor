@@ -1212,18 +1212,10 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/viral_consensus.tsv"
 
 
-    rule coassembly_checkv:
-        """
-        CheckV — quality assessment of consensus viral contigs on the group
-        co-assembly. Mirrors `rule checkv` (rules/viral_binning.smk), operating
-        on the group viral consensus fasta instead of the per-sample
-        (COBRA-extended | viral_consensus) input.
-        Classifies: Complete / High-quality / Medium-quality / Low-quality / Not-determined.
-        NOTE: always removes output dir before running — CheckV skips gene calling
-        if it finds existing files, causing KeyError when contig names changed.
-        Outputs viruses.fna (complete viruses) and proviruses.fna (trimmed provirus
-        regions — host DNA flanks removed) for use in viral_nonredundant.
-        """
+    # CheckV no consenso viral do grupo. Herda `rule checkv`
+    # (rules/viral_binning.smk); so o input e os caminhos mudam — o
+    # per-sample entra pelo FASTA COBRA-estendido, o grupo pelo consenso.
+    use rule checkv as coassembly_checkv with:
         input:
             viral = rules.coassembly_viral_consensus.output.fasta,
         output:
@@ -1234,20 +1226,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             f"{OUTDIR}/coassembly/{{group}}/logs/checkv.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/checkv.tsv"
-        conda: "../envs/env_viral.yaml"
-        container:  CONTAINERS.get("checkv")
-        threads: THREADS
-        shell:
-            """
-            rm -rf {OUTDIR}/coassembly/{wildcards.group}/viral/checkv
-            checkv end_to_end \
-                {input.viral} \
-                {OUTDIR}/coassembly/{wildcards.group}/viral/checkv \
-                -d {CHECKV_DB} \
-                -t {threads} \
-                > {log} 2>&1
-            touch {output.viruses} {output.proviruses}
-            """
 
 
     rule coassembly_viral_trimmed:
