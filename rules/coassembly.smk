@@ -1457,8 +1457,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
           all_fasta      — all representatives (one per vOTU cluster), for reporting
           mq_fasta       — MQ+ (Complete/HQ/MQ or completeness>=50%) representatives,
                            for prodigal_viral, PHIST, Pharokka, genome maps
-          hq_10kb_fasta  — HQ+/Complete AND >= 10 kb representatives (tier de
-                           exportacao; o vConTACT3 que o consumia foi removido)
 
         Why only representatives?
           skani_cluster picks the highest-completeness member per cluster as the
@@ -1473,13 +1471,10 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
         output:
             all_fasta     = f"{OUTDIR}/coassembly/{{group}}/viral/votu/votu_all_reps.fasta",
             mq_fasta      = f"{OUTDIR}/coassembly/{{group}}/viral/votu/votu_mq_reps.fasta",
-            hq_10kb_fasta = f"{OUTDIR}/coassembly/{{group}}/viral/votu/votu_hq_10kb_reps.fasta",
         log:
             f"{OUTDIR}/coassembly/{{group}}/logs/viral_votu_reps.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/viral_votu_reps.tsv"
-        params:
-            hq_min_len = 10000,
         run:
             import csv, os
 
@@ -1491,10 +1486,8 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
 
             # CheckV quality sets for filtering — see `rule viral_votu_reps`
             # (rules/viral_binning.smk). keep_mq is gated by config
-            # `viral_min_quality` (VIRAL_KEEP_TIERS); hq_plus is
-            # config-independent (Complete/HQ only, + >=10kb below).
+            # `viral_min_quality` (VIRAL_KEEP_TIERS).
             keep_mq = set()
-            hq_plus = set()
             _comp_fallback = VIRAL_MIN_QUALITY_RANK == 2
             with open(str(input.checkv)) as fh:
                 for row in csv.DictReader(fh, delimiter='\t'):
@@ -1506,8 +1499,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                         comp = 0.0
                     if q in VIRAL_KEEP_TIERS or (_comp_fallback and comp >= 50):
                         keep_mq.add(cid)
-                    if q in ('Complete', 'High-quality'):
-                        hq_plus.add(cid)
 
             # Parse viral consensus fasta into dict
             seqs = {}
@@ -1542,16 +1533,12 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             n_all      = write_filtered(reps, str(output.all_fasta))
             mq_reps    = reps & keep_mq
             n_mq       = write_filtered(mq_reps, str(output.mq_fasta))
-            hq_reps    = reps & hq_plus
-            n_hq_10kb  = write_filtered(hq_reps, str(output.hq_10kb_fasta),
-                                        length_min=params.hq_min_len)
 
             with open(str(log[0]), 'w') as lf:
                 lf.write(f'[viral_votu_reps] Total vOTU reps: {n_all}\n')
                 lf.write(f'[viral_votu_reps] min quality gate: {VIRAL_MIN_QUALITY} '
                          f'(tiers kept: {sorted(VIRAL_KEEP_TIERS)})\n')
                 lf.write(f'[viral_votu_reps] annotation subset (taxonomy/PHIST/Pharokka): {n_mq}\n')
-                lf.write(f'[viral_votu_reps] HQ+/>=10kb reps: {n_hq_10kb}\n')
 
 
     rule coassembly_prodigal_viral:

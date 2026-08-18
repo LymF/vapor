@@ -194,16 +194,13 @@ rule votu_catalog_cluster:
 
 
 rule votu_catalog_reps:
-    """Extract the three representative tiers used downstream.
+    """Extract the two representative tiers used downstream.
 
     Same quality gates as the removed per-sample representative-extraction
     rule, applied once over the global catalog:
       all      — one per vOTU; recruitment reference and report base
       mq       — MQ+ (Complete/HQ/MQ or completeness >= 50%); taxonomy,
                  PHIST, annotation
-      hq_10kb  — HQ+/Complete and >= 10 kb. Tier de exportacao: era a
-                 entrada do vConTACT3, removido em 2026-08-17, e hoje nao
-                 tem consumidor interno na pipeline.
     """
     input:
         pool     = rules.votu_catalog_pool.output.pool,
@@ -212,7 +209,6 @@ rule votu_catalog_reps:
     output:
         all_fasta     = f"{CATALOG_DIR}/catalog_all_reps.fasta",
         mq_fasta      = f"{CATALOG_DIR}/catalog_mq_reps.fasta",
-        hq_10kb_fasta = f"{CATALOG_DIR}/catalog_hq_10kb_reps.fasta",
         done          = f"{CATALOG_DIR}/done.txt",
     log:
         f"{OUTDIR}/logs/votu_catalog_reps.log"
@@ -235,9 +231,6 @@ rule votu_catalog_reps:
             return (quality.get(rid, "") in params.keep_tiers
                     or completeness.get(rid, 0.0) >= 50.0)
 
-        def is_hq(rid):
-            return quality.get(rid, "") in ("Complete", "High-quality")
-
         seqs = {}
         cur = None
         with open(str(input.pool)) as fh:
@@ -251,10 +244,9 @@ rule votu_catalog_reps:
                 elif cur is not None:
                     seqs[cur].append(line.strip())
 
-        n_all = n_mq = n_hq = 0
+        n_all = n_mq = 0
         with open(str(output.all_fasta), "w") as fa, \
-             open(str(output.mq_fasta), "w") as fm, \
-             open(str(output.hq_10kb_fasta), "w") as fh10:
+             open(str(output.mq_fasta), "w") as fm:
             for rid, chunks in seqs.items():
                 seq = "".join(chunks)
                 record = f">{rid}\n{seq}\n"
@@ -263,14 +255,10 @@ rule votu_catalog_reps:
                 if is_mq(rid):
                     fm.write(record)
                     n_mq += 1
-                if is_hq(rid) and len(seq) >= 10000:
-                    fh10.write(record)
-                    n_hq += 1
 
         with open(str(log[0]), "w") as lf:
             lf.write(f"[votu_catalog_reps] all: {n_all}\n")
             lf.write(f"[votu_catalog_reps] MQ+ (taxonomy/PHIST/annotation): {n_mq}\n")
-            lf.write(f"[votu_catalog_reps] HQ+/>=10kb: {n_hq}\n")
         if n_all == 0:
             write_status(str(output.done), "skipped: empty catalog")
         else:

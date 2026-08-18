@@ -138,12 +138,10 @@ rather than once per vOTU.
   rule. **Representative** per cluster = the member with the highest CheckV completeness
   (tie-break: earliest in a deterministic traversal order), so vOTU IDs stay stable
   across reruns.
-- **`votu_catalog_reps`** extracts three representative tiers, same quality gates as
+- **`votu_catalog_reps`** extracts two representative tiers, same quality gates as
   before but applied once over the global catalog instead of per sample:
   `catalog_all_reps.fasta` (all vOTUs), `catalog_mq_reps.fasta` (the **annotation
-  subset** feeding taxonomy / PHIST / pharokka / genome maps), `catalog_hq_10kb_reps.fasta`
-  (HQ+/Complete and ≥ 10 kb — tier de exportação; era a entrada do vConTACT3,
-  removido em 2026-08-17).
+  subset** feeding taxonomy / PHIST / pharokka / genome maps).
 - **`catalog_mq_reps` quality gate is configurable** via `viral_min_quality`
   (`complete | high | medium | low | not_determined`, default **medium** =
   Complete/HQ/MQ or completeness ≥ 50%). Lower it for high-novelty / short-fragment data

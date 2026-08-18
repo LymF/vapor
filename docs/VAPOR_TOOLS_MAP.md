@@ -73,7 +73,7 @@ flowchart TD
     GT --> PANN
 
     subgraph CAT["11 · Catálogo global de vOTU"]
-        SK["skani triangle --sparse --slow"] --> CL["clustering ICTV<br/>95% ANI + 85% AF"] --> REPS["representantes<br/>3 tiers"] --> CVM["mapeamento + CoverM<br/>→ matrizes presença/abundância"]
+        SK["skani triangle --sparse --slow"] --> CL["clustering ICTV<br/>95% ANI + 85% AF"] --> REPS["representantes<br/>2 tiers"] --> CVM["mapeamento + CoverM<br/>→ matrizes presença/abundância"]
     end
 
     CAT & PANN & VANN & HOST & RC --> REP["12 · Relatório<br/>generate_report.py + MultiQC"]
@@ -162,7 +162,7 @@ Merge final em `viral_taxonomy` → `viral_taxonomy_merged.tsv`.
 | — | ilhas de defesa (script próprio) |
 
 ### 13 · Catálogo global de vOTU — `rules/votu_catalog.smk`
-Pool com IDs prefixados por origem → **skani** `triangle --sparse --slow` (o `--sparse` é obrigatório: a matriz densa não emite aligned fraction, e sem ela o critério ICTV de AF ≥ 85 não é avaliável) → clustering 95% ANI + 85% AF → 3 tiers de representantes → **bwa-mem2/minimap2** + **samtools** + **CoverM** → matrizes vOTU × amostra.
+Pool com IDs prefixados por origem → **skani** `triangle --sparse --slow` (o `--sparse` é obrigatório: a matriz densa não emite aligned fraction, e sem ela o critério ICTV de AF ≥ 85 não é avaliável) → clustering 95% ANI + 85% AF → 2 tiers de representantes (all, mq) → **bwa-mem2/minimap2** + **samtools** + **CoverM** → matrizes vOTU × amostra.
 
 ### 14 · Classificação por reads — `rules/reads_classify.smk`
 Trilha independente da montagem: **sylph** (profile) → **sylph-tax** → merge → filtro de prevalência → tabela OTU → colapso por hospedeiro. **BACPHLIP** (via `scripts/reads_classify/bacphlip_lifestyle.py`) prediz estilo de vida virulento/temperado, mas **só para genomas de referência detectados pelo sylph** — exige `reads_classify_genome_fasta` no config. Não roda sobre vOTUs montados.
