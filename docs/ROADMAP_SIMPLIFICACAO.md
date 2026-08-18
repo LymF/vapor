@@ -302,7 +302,7 @@ Para `pharokka`/`phold` isso é a diferença entre horas e minutos. E elimina um
 classe inteira de inconsistência: hoje nada garante que duas amostras anotem o
 mesmo representante do mesmo jeito.
 
-#### Estado verificado (2026-08-18) — ainda NÃO corrigido
+#### Estado verificado (2026-08-18)
 
 Sete regras por amostra consomem `votu_catalog_reps`. Verificado input a input.
 **Cuidado com o método:** referências `rules.X.output` são por amostra sem conter
@@ -323,21 +323,80 @@ por texto literal dá falso positivo):
 | regra | inputs | veredito |
 |---|---|---|
 | `prodigal_viral` | **só o FASTA global** | **N× idêntico — desperdício confirmado** |
-| `pharokka` | global + CheckV **por amostra** | **suspeito, investigar** |
-| `viral_taxonomy` | + geNomad/MMseqs por amostra | legítimo |
-| `genome_map_phage` | + phold/pharokka por amostra | legítimo |
+| `pharokka` | global + CheckV **por amostra** | **BUG confirmado — não anota nada** |
+| `viral_taxonomy` | + geNomad/MMseqs por amostra | **BUG confirmado — geNomad sai do merge** |
+| `genome_map_virus` | + CheckV por amostra | **BUG confirmado — zero mapas** |
+| `genome_map_phage` | + phold/pharokka por amostra | quebrado em cascata pelo `pharokka` |
 | `phist` | + `bins_dir` por amostra | legítimo |
-| `genome_map_virus`, `make_votu_table` | dados por amostra | legítimo |
+| `make_votu_table` | dados por amostra | **correto** — já namespaceia (ver abaixo) |
 
 **`prodigal_viral`**: entrada exclusivamente global, saída por amostra. Com 32
 amostras são 32 execuções produzindo bytes idênticos. Deve virar regra global.
 
-**`pharokka`**: recebe o FASTA global mas filtra por `rules.checkv.output.summary`,
-que é o CheckV **daquela amostra**. A qualidade dos representantes do catálogo
-global está nos summaries do próprio catálogo, não no de uma amostra qualquer.
-Efeito possível: cada amostra anota um subconjunto diferente do mesmo catálogo,
-por um critério que não pertence a ele. **Não classificado como bug sem análise
-dedicada** — é o tipo de coisa que produz resultado plausível e errado.
+#### O bug de namespace de ID (analisado em 2026-08-18)
+
+O `pharokka` **não estava só suspeito — está quebrado**, e não sozinho.
+
+**Causa raiz.** O commit `8ef8bb4` (2026-08-13, *"remove a cadeia per-amostra e
+reponta os 9 consumidores no catálogo global"*) trocou o input dos consumidores
+de `viral_votu_reps` (por amostra) para `votu_catalog_reps` (global). Os dois
+produzem **espaços de nome de ID diferentes**:
+
+| fonte | ID |
+|---|---|
+| `viral_votu_reps` (antigo, por amostra) | `MEGAHIT_k141_10006` |
+| `votu_catalog_reps` (global) | `S1\|MEGAHIT_k141_10006` |
+
+O `build_pool` prefixa por origem de propósito. Mas os *joins por ID* dos
+consumidores não foram movidos junto: continuam cruzando o catálogo global com
+tabelas por amostra que têm ID nu. Nenhum deles falha — todos devolvem conjunto
+vazio, que passa por resultado biológico.
+
+**Três regras afetadas, verificadas uma a uma:**
+
+1. **`pharokka`** (`annotation.smk:82-107`) monta `hq_set` do CheckV da amostra
+   (IDs nus) e filtra o FASTA global (namespaced). Zero match → `hq_fa` vazio →
+   cai no `if not hq_set or getsize == 0` → grava *"No HQ phages found —
+   skipping"* e toca outputs vazios. Sai como *"essa amostra não tem fago de alta
+   completude"*. Em cascata: `phold` recebe GBK vazio, `genome_map_phage`
+   também.
+2. **`genome_map_virus`** (`genome_map_universal.py:714-733`), independente do
+   pharokka: `comp_map` vem do CheckV (nu), `seqs` do FASTA global (namespaced),
+   então `comp_map.get(gid, 0.0)` sempre devolve 0.0 e nenhum genoma passa do
+   `min_comp`. Zero mapas.
+3. **`viral_taxonomy`** (`taxonomy.smk:376-434`) itera os contigs do FASTA global
+   (namespaced) e busca `genomad_tax.get(contig)`, cujas chaves são o `seq_name`
+   do geNomad **daquela amostra** (nu). O geNomad roda sobre o `rep_seq.fasta` da
+   amostra, então nunca casa — **o geNomad sai do merge de taxonomia**. O MMseqs
+   escapa porque roda sobre as proteínas do `prodigal_viral`, que já é global.
+
+**Reprodução** (cópia literal da lógica do `pharokka`):
+
+```
+hq_set (do CheckV da amostra) : ['MEGAHIT_k141_10006', 'MEGAHIT_k141_777']
+headers do catálogo global    : ['S1|MEGAHIT_k141_10006', 'S2|...', 'S1|...']
+sequências extraídas          : 0
+```
+
+**Por que ninguém viu.** O `results/` da corrida atual **não tem
+`votu_catalog/`** — os outputs de pharokka em disco são da arquitetura anterior
+(headers `k141_2550`, sem prefixo). O código atual nunca rodou até o fim; a
+regressão está latente desde 13/08.
+
+**A convenção era conhecida e só não foi propagada:** `votu_catalog.smk:79` monta
+a chave como `f"{source_id}|{contig}"`, e `make_votu_table.py:309` compara com
+`f"{sample}|{mem}" == rep` enquanto busca o CheckV com o ID nu. Esses dois estão
+certos e servem de molde.
+
+**O conserto não é adicionar o prefixo no join.** Mesmo com o namespace certo, a
+semântica continua errada: cada amostra filtraria o catálogo global pelo CheckV
+dela, e um representante originário da S2 seria aceito ou descartado pela tabela
+da S1. O conserto é o próprio (h) — as regras viram globais e usam a completude
+do próprio catálogo (`_load_catalog_completeness()`, que já namespaceia certo). O
+namespace se resolve como consequência.
+
+**Isso reclassifica o (h): não é só otimização de custo, é correção de
+resultado.**
 
 As duas regras adicionadas em (f) e (g) já nasceram globais e não aumentam esta
 dívida.
