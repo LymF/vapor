@@ -27,6 +27,12 @@ rule virsorter2:
         f"{OUTDIR}/{{sample}}/logs/virsorter2.log"
     benchmark:
         f"{OUTDIR}/{{sample}}/benchmarks/virsorter2.tsv"
+    params:
+        # Derived from output, never from wildcards.sample: this rule is
+        # inherited by coassembly.smk via `use rule ... as ... with:`, and the
+        # inherited copy has a {group} wildcard instead of {sample}. Any
+        # wildcards.<name> in the body would break there.
+        wdir = lambda wc, output: os.path.dirname(output.viral),
     conda: "../envs/env_viral.yaml"
     container:  CONTAINERS.get("virsorter")
     threads: THREADS
@@ -34,7 +40,7 @@ rule virsorter2:
         """
         virsorter run \
             -i {input.contigs} \
-            -w {OUTDIR}/{wildcards.sample}/viral/virsorter2 \
+            -w {params.wdir} \
             --db-dir {VS2_DB} \
             --include-groups dsDNAphage,ssDNA,NCLDV,RNA,lavidaviridae \
             --min-score 0.5 \

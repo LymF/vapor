@@ -1156,13 +1156,11 @@ if COBINNING_MULTISPLIT and not LONG_READS:
 
 if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
 
-    rule coassembly_virsorter2:
-        """
-        VirSorter2 viral detection on the group co-assembly.
-        Mirrors `rule virsorter2` (rules/viral_detection.smk): same
-        env/container/flags (--include-groups, --min-score,
-        --hallmark-required-on-short).
-        """
+    # VirSorter2 on the group co-assembly.
+    # Inherits the ENTIRE body (shell, conda, container, threads, params) from
+    # `rule virsorter2` in rules/viral_detection.smk — only the paths are
+    # overridden. There is no second copy of the command to keep in sync.
+    use rule virsorter2 as coassembly_virsorter2 with:
         input:
             contigs = f"{OUTDIR}/coassembly/{{group}}/contigs.fa",
         output:
@@ -1171,21 +1169,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             f"{OUTDIR}/coassembly/{{group}}/logs/virsorter2.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/virsorter2.tsv"
-        conda: "../envs/env_viral.yaml"
-        container:  CONTAINERS.get("virsorter")
-        threads: THREADS
-        shell:
-            """
-            virsorter run \
-                -i {input.contigs} \
-                -w {OUTDIR}/coassembly/{wildcards.group}/viral/virsorter2 \
-                --db-dir {VS2_DB} \
-                --include-groups dsDNAphage,ssDNA,NCLDV,RNA,lavidaviridae \
-                --min-score 0.5 \
-                --hallmark-required-on-short \
-                -j {threads} all \
-                > {log} 2>&1
-            """
 
 
     rule coassembly_genomad:
