@@ -2081,14 +2081,10 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/argnorm.tsv"
 
-    rule coassembly_amr_consensus:
-        """
-        AMR consensus -- merge coassembly_amrfinderplus + coassembly_rgi_card
-        + coassembly_deeparg hits by CDS locus using ARO as the common
-        vocabulary. Consensus score = number of tools that detected the locus
-        divided by 3. Mirrors `rule amr_consensus` (rules/defense_amr.smk)
-        for the group.
-        """
+    # Consenso de AMR do grupo. Herda `rule amr_consensus`
+    # (rules/defense_amr.smk): os corpos eram identicos, mudava so o rotulo
+    # do log.
+    use rule amr_consensus as coassembly_amr_consensus with:
         input:
             argnorm_done     = rules.coassembly_argnorm_normalize.output.done,
             rgi_done         = rules.coassembly_rgi_card.output.done,
@@ -2102,47 +2098,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             f"{OUTDIR}/coassembly/{{group}}/logs/amr_consensus.log"
         benchmark:
             f"{OUTDIR}/coassembly/{{group}}/benchmarks/amr_consensus.tsv"
-        conda: "../envs/env_argnorm.yaml"
-        threads: 1
-        params:
-            enabled = AMR_CONSENSUS_ENABLED,
-            script  = os.path.join(workflow.basedir, "scripts", "consolidate_amr.py"),
-        run:
-            import os
-            from pathlib import Path
-
-            os.makedirs(os.path.dirname(str(output.done)), exist_ok=True)
-
-            def write_empty(msg):
-                with open(str(log[0]), "a") as lf:
-                    lf.write(msg + "\n")
-                cols = "\t".join([
-                    "locus", "aro_accession", "gene_name", "drug_class",
-                    "resistance_mechanism", "n_tools", "consensus_score", "tools_detected",
-                ])
-                Path(str(output.consensus)).write_text(cols + "\n")
-                Path(str(output.done)).touch()
-
-            if not params.enabled:
-                write_empty("[coassembly_amr_consensus] use_amr_consensus=False -- skipping")
-                return
-
-            shell(
-                "python {params.script} "
-                "--amrfinder-normed {input.amrfinder_normed} "
-                "--rgi-results {input.rgi_results} "
-                "--deeparg-normed {input.deeparg_normed} "
-                "-o {output.consensus} >> {log} 2>&1"
-            )
-
-            if not os.path.exists(str(output.consensus)) or os.path.getsize(str(output.consensus)) == 0:
-                write_empty("[coassembly_amr_consensus] WARNING: script produced no output")
-                return
-
-            with open(str(log[0]), "a") as lf:
-                lf.write("[coassembly_amr_consensus] Done\n")
-            Path(str(output.done)).touch()
-
 
 # ── Group PHIST (viral vOTU host prediction vs group MAGs) ──────────────────────
 # Needs BOTH the group's viral vOTU set (COASSEMBLY_VIRAL) and the group's
