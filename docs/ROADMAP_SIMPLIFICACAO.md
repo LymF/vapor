@@ -898,6 +898,34 @@ descrevem contigs montados (`k141_...`), não os genomas de referência do IMG/V
 
 ### Caça a bugs de tratamento de dados — 2026-08-19
 
+#### Auditoria das ferramentas de anotação/defesa/AMR (commit `508fb27`)
+
+Pedida depois da migração. **O painel de AMR do relatório estava
+estruturalmente vazio**: é alimentado só pelo `amr_consensus`, que o loader
+filtra em `n_tools >= 2`, e três bugs independentes tornavam esse limiar
+inalcançável. Nenhum deles falha — todos devolvem conjunto vazio.
+
+| bug | evidência |
+|---|---|
+| DeepARG entrava pelo **nome do gene** (`#ARG` = "MDFA"), não pela proteína (`read_id`) | saída real em `~/global/results/ERR4682430/bins/deeparg/` |
+| RGI devolve em `ORF_ID` o **cabeçalho inteiro do Prodigal** (`bin__k141_9_1 # 63 # 314 # -1 # ID=...`), o AMRFinderPlus só o ID | mesma pasta, `rgi/rgi_results.txt` |
+| argNorm 1.1.0 escreve `# argNorm version: 1.1.0` **antes** do cabeçalho → `DictReader` engole o arquivo | `argnorm/deeparg_normed.tsv` |
+
+Consertados normalizando o locus para o primeiro token, lendo o DeepARG por
+`read_id` e pulando o preâmbulo. **Cuidado com o filtro de comentário:** ele
+tem de descartar `##` e `# ` (com espaço) mas NÃO `#ARG`/`#query`, que são
+cabeçalhos de verdade. As vistas por fonte tinham herdado os bugs 2 e 3.
+
+**Checado e correto** (registro para não reauditar): DefenseFinder e ABRicate
+levam o genoma em coluna própria; `protein_in_syst` é lista por vírgula e o
+loader já a divide; a taxonomia MMseqs2 sai prefixada por genoma; e o
+**DefenseFinder viral, que roda UMA vez sobre o catálogo concatenado, não
+junta sistemas de contigs diferentes** — verificados todos os
+`viral_(anti)defense_systems.tsv` em disco, nenhum sistema multigene
+atravessa contig. Era a suspeita óbvia, dado que o lado procariótico roda
+por genoma justamente para evitar isso; a evidência diz que não acontece.
+
+
 Varredura pedida depois da oitava manifestação, com o mesmo método: **verificar
 cada suposição de formato contra os arquivos reais**, nunca contra o comentário
 do código. Dados usados: `~/global/results` (run completa, com `report.html`) e
