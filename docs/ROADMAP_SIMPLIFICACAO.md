@@ -1150,7 +1150,38 @@ descasamento.
   necessário. A tentativa anterior estava preservando um caminho que não deve
   existir — o erro foi de escopo, não de Snakemake.
 
-  ### Plano para a próxima sessão
+  ### Migração das análises — FEITA 2026-08-19 (commit `5c7b051`)
+
+  Executada como planejado abaixo. Resultado medido no DAG da Amazônia
+  (`-n --forceall`, outdir temporário): **1834 → 1538 jobs**, delta exato item
+  a item — −9 regras × 32 amostras, −8 × 7 grupos, +8 globais,
+  +1 `mag_catalog_proteins` (que existia mas não tinha consumidor), +32 e +7
+  vistas. DAG também construído com co-assembly desligado (1260), com
+  `coassembly.binning: false` (1429) e com `defense_amr_enabled: false`.
+  115 testes passam (5 novos sobre `member_map`/`resolve_prefixed_id`).
+
+  Três coisas que valem registro porque não estavam no plano:
+
+  1. **O manifesto de proteínas da vista aponta para o proteoma da
+     REPRESENTANTE**, não do membro. As tabelas de defesa carregam os IDs de
+     proteína da representante (o DefenseFinder roda por genoma, então os IDs
+     saem sem prefixo) e é contra esses IDs que `compute_defense_islands`
+     casa os genes. Um proteoma próprio do membro daria **zero ilhas em
+     silêncio** — mesma família de bug que o resto deste documento persegue.
+  2. **As vistas propagam o status do `done.txt` global.** Uma vista vazia
+     porque a ferramenta global falhou não pode aparecer como zero biológico:
+     `load_tool_status` distingue `ok`/`skipped:`/`failed:`, e essa distinção
+     só sobrevive se a vista repassar em vez de escrever "ok" por ter
+     conseguido criar um arquivo.
+  3. **`prok_bin_proteins` foi apagada junto.** Com o `low_depth_mode` fora,
+     ela não tinha mais nada de por-amostra; o manifesto virou vista.
+
+  Fica de fora, ainda por amostra: `bakta`, `eggnog_prok` e
+  `extract_kegg_kos`. Não consomem o manifesto de proteínas (leem os bins e a
+  saída do bakta direto), então não vieram junto nesta leva — são o próximo
+  alvo natural.
+
+  ### Plano executado
 
   1. **Apagar** `defensefinder`, `amrfinderplus`, `rgi_card`, `deeparg`,
      `abricate` (`defense_amr.smk`) e `mmseqs_taxonomy_prok` (`taxonomy.smk`),
