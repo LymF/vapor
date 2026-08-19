@@ -427,14 +427,13 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
 # ══════════════════════════════════════════════════════════════════════
 # Análises nas REPRESENTANTES
 #
-# `low_depth_mode` NÃO entra aqui, por decisão. Nesse modo o
-# `prok_bin_proteins` ignora bins e trata os contigs da amostra como um único
-# `contigs_pseudogenome` — conteúdo genuinamente por amostra, que não pertence
-# a catálogo nenhum e não tem representante do qual herdar. As regras por
-# amostra em defense_amr.smk/annotation.smk seguem valendo lá.
+# O catálogo é o caminho único: toda análise que depende só da sequência roda
+# uma vez na representante e o bin membro herda o resultado por join no
+# `mag_membership.tsv` (mesmo princípio do item (h) do lado viral). Só o
+# `defense_amr_enabled` desliga esse bloco, porque sem ele não há consumidor.
 # ══════════════════════════════════════════════════════════════════════
 
-MAG_CATALOG_ANALYSES = (not LOW_DEPTH_MODE) and DEFENSE_AMR_ENABLED
+MAG_CATALOG_ANALYSES = DEFENSE_AMR_ENABLED
 
 
 def _mag_source_reps(membership_path, source_id):

@@ -256,8 +256,7 @@ re-run on the vMAGs (`checkv_vrhyme`).
   contamination ≤ `prok_max_contamination` (default **10%**) — the prokaryotic
   analogue of `viral_min_quality`. Lower `prok_min_completeness` for fragmented /
   high-novelty MAGs (e.g. IonTorrent) that rarely reach MQ. **AMR, defense and
-  GTDB-Tk are NOT gated** — they run on every Binette/VAMB bin (or the whole
-  contig set as a pseudo-genome under `low_depth_mode`). Legacy
+  GTDB-Tk are NOT gated** — they run on every Binette/VAMB bin. Legacy
   `bakta_min_completeness`/`bakta_max_contamination` keys still override the gate.
 
 ---

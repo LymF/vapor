@@ -199,9 +199,7 @@ rule mmseqs_taxonomy_prok:
     loader (load_mmseqs_taxonomy_prok in scripts/report/data_loaders.py)
     aggregates to genome level with a second LCA pass across each genome
     unit's own proteins -- a vote would reintroduce the same problem this
-    rule exists to avoid. Under low_depth_mode the genome unit is each
-    contig individually, not the whole sample's pooled pseudo-genome (see
-    _prok_genome_unit), so taxonomy isn't blended across organisms.
+    rule exists to avoid.
 
     Replaces diamond_custom_prok entirely (removed) -- custom prokaryote
     taxonomy now runs exclusively through this rule. Skips gracefully if

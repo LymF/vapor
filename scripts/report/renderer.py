@@ -72,7 +72,6 @@ def build_report(snakemake):
 def _build(snakemake):
     samples        = snakemake.params.samples
     outdir         = snakemake.params.outdir
-    low_depth_mode = bool(getattr(snakemake.params, 'low_depth_mode', False))
     out_html       = snakemake.output.html
 
     tracks_param = dict(getattr(snakemake.params, "tracks", {}) or {})
@@ -137,8 +136,7 @@ def _build(snakemake):
     antidefense_viral_dbapis_data = load_dbapis_viral(
         dbapis_viral_path, samples, getattr(snakemake.params, 'apis_db_dir', ''))
     defense_islands = compute_defense_islands(prok_protein_manifest_l, samples, defensefinder_data)
-    amr_consensus_data = load_amr_consensus(amr_consensus_paths_l, samples,
-                                             low_depth_mode=low_depth_mode)
+    amr_consensus_data = load_amr_consensus(amr_consensus_paths_l, samples)
     host_defense_links = build_host_defense_links(phist_data, gtdb_data)
     bin_annotations = build_bin_annotation_summary(
         defensefinder_data, antidefensefinder_data, amr_consensus_data)
@@ -233,8 +231,7 @@ def _build(snakemake):
     phrogs_data  = load_phrogs(outdir, samples)
 
     # ── Prokaryotic merged taxonomy ───────────────────────────────────────────
-    merged_prok = merge_prok_taxonomy(gtdb_data, mmseqs_prok_data, checkm2_data,
-                                       low_depth_mode=low_depth_mode)
+    merged_prok = merge_prok_taxonomy(gtdb_data, mmseqs_prok_data, checkm2_data)
 
     # ── Build overview dict ───────────────────────────────────────────────────
     overview = {}

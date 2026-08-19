@@ -327,16 +327,11 @@ if not LONG_READS:
         threads: THREADS
         params:
             outdir       = f"{OUTDIR}/coassembly/{{group}}/vamb/run",
-            low_depth    = LOW_DEPTH_MODE,
             viral_filter = COASSEMBLY_VIRAL,
         shell:
             """
             mkdir -p $(dirname {log})
             mkdir -p $(dirname {params.outdir})
-            if [ "{params.low_depth}" = "True" ]; then
-                echo "[VAMB co-binning] Skipped -- low_depth_mode enabled" | tee {log}
-                touch {output.done}; exit 0
-            fi
             rm -rf {params.outdir}
 
             ABUNDANCE_TSV={input.abundance}
@@ -759,15 +754,10 @@ if COBINNING_MULTISPLIT and not LONG_READS:
         threads: THREADS
         params:
             outdir    = f"{OUTDIR}/coassembly/multisplit/vamb/run",
-            low_depth = LOW_DEPTH_MODE,
         shell:
             """
             mkdir -p $(dirname {log})
             mkdir -p $(dirname {params.outdir})
-            if [ "{params.low_depth}" = "True" ]; then
-                echo "[VAMB multi-split] Skipped -- low_depth_mode enabled" | tee {log}
-                touch {output.done}; exit 0
-            fi
             rm -rf {params.outdir}
             CUDA_FLAG=""
             if [ "{USE_GPU}" = "True" ]; then CUDA_FLAG="--cuda"; fi

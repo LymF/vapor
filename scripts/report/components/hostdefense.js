@@ -588,7 +588,6 @@
       const key = `${r.sample}::${r.Bin}`;
       if (viralContigs.has(key)) return 'Viral genome';
       if (prokBins.has(key)) return 'Prokaryotic MAG';
-      if (r.Bin === 'contigs_pseudogenome') return 'Unbinned / mixed contigs';
       return 'Other / unbinned';
     }
 

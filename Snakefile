@@ -215,7 +215,6 @@ ARGNORM_ENABLED              = config.get("use_argnorm", True)
 DEFENSE_AMR_VIRAL_ENABLED    = config.get("use_defense_viral", True)
 APIS_DB                      = _expand(config.get("apis_db", "")) if config.get("apis_db", "") else ""
 AMR_CONSENSUS_ENABLED        = config.get("use_amr_consensus", True)
-LOW_DEPTH_MODE              = config.get("low_depth_mode", False)
 
 
 # ── Viral filtering for prokaryotic binning ────────────────────────────

@@ -169,14 +169,9 @@ rule metabat2:
     threads: THREADS
     params:
         outdir     = f"{OUTDIR}/{{sample}}/bins/metabat2",
-        low_depth  = LOW_DEPTH_MODE,
     shell:
         """
         mkdir -p {params.outdir}
-        if [ "{params.low_depth}" = "True" ]; then
-            echo "[MetaBAT2] Skipped -- low_depth_mode enabled" | tee {log}
-            echo "skipped: low_depth_mode" > {output.done}; exit 0
-        fi
         METABAT_MIN=$(( {MIN_CONTIG} > 1500 ? {MIN_CONTIG} : 1500 ))
         metabat2 \
             -i {input.contigs} \
@@ -213,14 +208,9 @@ rule semibin2:
     threads: THREADS
     params:
         outdir     = f"{OUTDIR}/{{sample}}/bins/semibin2",
-        low_depth  = LOW_DEPTH_MODE,
     shell:
         """
         mkdir -p {params.outdir}
-        if [ "{params.low_depth}" = "True" ]; then
-            echo "[SemiBin2] Skipped -- low_depth_mode enabled" | tee {log}
-            echo "skipped: low_depth_mode" > {output.done}; exit 0
-        fi
         ENGINE="cpu"
         if [ "{USE_GPU}" = "True" ]; then ENGINE="gpu"; fi
         SemiBin2 single_easy_bin \
@@ -376,18 +366,12 @@ rule prok_bin_proteins:
     defined (via include: order in the Snakefile) before anything reuses it
     through `rules.<name>`.
 
-    Normal path: one Prodigal call per Binette final bin (single mode).
-    Low-depth path: one Prodigal call (meta mode) on the whole
-    viral-filtered contig set used as binning input, treated as a single
-    pseudo-genome -- triggered ONLY by low_depth_mode (config.yaml), set
-    explicitly by the user. Zero bins with low_depth_mode left off is NOT
-    treated as an implicit signal to fall back to this path -- a sample
-    can produce bins that exist but are too low-quality to trust, and an
-    automatic zero-bins check can't tell that apart from "no bins, low
-    depth, contigs are all we have"; the user has to say so explicitly.
-    With nothing to do (no bins, low_depth_mode off), this rule just
-    writes an empty manifest -- every downstream rule already treats an
-    empty manifest as "skip, write empty output".
+    One Prodigal call per Binette final bin (single mode). There is no
+    fallback path for samples that produce no bins: a sample can produce
+    bins that exist but are too low-quality to trust, and a zero-bins
+    check can't tell that apart from "no bins at all". With nothing to
+    do, this rule just writes an empty manifest -- every downstream rule
+    already treats an empty manifest as "skip, write empty output".
     """
     input:
         contigs = _prok_input_contigs,
@@ -405,7 +389,6 @@ rule prok_bin_proteins:
     params:
         bins_dir   = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
         outdir     = f"{OUTDIR}/{{sample}}/bins/proteins",
-        low_depth  = LOW_DEPTH_MODE,
         enabled    = DEFENSE_AMR_ENABLED,
     run:
         import glob, os
@@ -417,28 +400,6 @@ rule prok_bin_proteins:
         with open(str(log[0]), "w") as lf:
             if not params.enabled:
                 lf.write("[prok_bin_proteins] defense_amr_enabled=False -- skipping\n")
-            elif params.low_depth:
-                # low_depth_mode forces the single-pseudo-genome path
-                # unconditionally -- a user-set decision, not inferred from
-                # whether bins happen to exist. The binners themselves are
-                # already skipped (prok_binning.smk) when this flag is set,
-                # so bins_dir is normally empty anyway by this point, but we
-                # don't even check it: the flag alone decides.
-                if os.path.exists(str(input.contigs)) and os.path.getsize(str(input.contigs)) > 0:
-                    lf.write("[prok_bin_proteins] low_depth_mode=True -- "
-                             "contigs as pseudo-genome\n")
-                    name = "contigs_pseudogenome"
-                    faa  = os.path.join(params.outdir, f"{name}.faa")
-                    gff  = os.path.join(params.outdir, f"{name}.gff")
-                    contigs = str(input.contigs)
-                    shell(
-                        "prodigal -i {contigs} -a {faa} -f gff -o {gff} -p meta -q "
-                        ">> {log} 2>&1 || true"
-                    )
-                    if os.path.exists(faa) and os.path.getsize(faa) > 0:
-                        manifest_rows.append((name, "contigs", contigs, faa, gff))
-                else:
-                    lf.write("[prok_bin_proteins] low_depth_mode=True but no contigs -- skipping\n")
             else:
                 bins = sorted(glob.glob(os.path.join(params.bins_dir, "*.fa")))
                 if bins:
@@ -454,7 +415,7 @@ rule prok_bin_proteins:
                         if os.path.exists(faa) and os.path.getsize(faa) > 0:
                             manifest_rows.append((name, "bins", bin_fa, faa, gff))
                 else:
-                    lf.write("[prok_bin_proteins] No bins and low_depth_mode=False -- skipping\n")
+                    lf.write("[prok_bin_proteins] No bins -- skipping\n")
 
             with open(str(output.manifest), "w") as mf:
                 for name, mode, fna, faa, gff in manifest_rows:

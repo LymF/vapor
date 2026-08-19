@@ -567,7 +567,6 @@ params {
     votu_clustering_enabled = true
     defense_amr_enabled = true
     use_gpu             = false
-    low_depth_mode      = false
 
     // Long-read specific
     lr_min_len          = 1000

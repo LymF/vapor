@@ -734,8 +734,8 @@ def _contig_from_protein_id(protein_id):
 
 def load_defensefinder(paths, samples):
     """DefenseFinder per-genome systems, merged with a 'genome' column by
-    rules/defense_amr.smk (genome = bin name, or 'contigs_pseudogenome' in
-    the low-depth fallback). 'Proteins' keeps the raw protein_in_syst list
+    rules/defense_amr.smk (genome = bin name). 'Proteins' keeps the raw
+    protein_in_syst list
     for defense-island detection (compute_defense_islands)."""
     records = []
     for p, s in zip(paths, samples):
@@ -1027,33 +1027,17 @@ def _split_genome_prefix(value, sep="__"):
     return "", value or ""
 
 
-_LOW_DEPTH_PSEUDO_GENOME = "contigs_pseudogenome"
-
-
 def _prok_genome_unit(qseqid):
-    """Resolve the taxonomic grouping unit for a prokaryote-side protein ID.
-
-    Normal bins: the bin name (before '__'). low_depth_mode pools every
-    contig's genes under one constant 'contigs_pseudogenome' prefix
-    (rule prok_bin_proteins) -- grouping by that constant would blend every
-    organism in the sample into a single majority-vote/LCA call. Regroup by
-    the contig itself instead (recovered from the trailing
-    '{contig}_{gene_n}' part via _contig_from_protein_id), so each contig
-    gets its own taxonomy call, same granularity as the viral side."""
-    prefix, rest = _split_genome_prefix(qseqid)
-    if prefix == _LOW_DEPTH_PSEUDO_GENOME:
-        return _contig_from_protein_id(rest)
+    """Resolve the taxonomic grouping unit for a prokaryote-side protein ID:
+    the bin name, i.e. the part before the '__' that _concat_proteins adds."""
+    prefix, _ = _split_genome_prefix(qseqid)
     return prefix
 
 
-def load_amr_consensus(paths, samples, *, low_depth_mode=False):
+def load_amr_consensus(paths, samples):
     """Consolidated AMR hits from consolidate_amr.py (AMRFinderPlus + RGI +
     DeepARG merged by CDS locus via ARO).  One row per locus; consensus_score
     = n_tools / 3.
-
-    low_depth_mode: when True, contigs_pseudogenome is the analysis unit (no
-    real bins), so those rows are kept (still filtered to n_tools >= 2).
-    When False, contigs_pseudogenome is excluded entirely.
     """
     records = []
     for p, s in zip(paths, samples):
@@ -1062,8 +1046,6 @@ def load_amr_consensus(paths, samples, *, low_depth_mode=False):
             if not locus:
                 continue
             genome, _ = _split_genome_prefix(locus)
-            if genome == 'contigs_pseudogenome' and not low_depth_mode:
-                continue
             if safe_int(row.get('n_tools', 0)) < 2:
                 continue
             records.append({
@@ -1204,17 +1186,14 @@ def collapse_taxonomy_to_votu(tax_records, outdir, samples):
     return collapsed
 
 
-def merge_prok_taxonomy(gtdb_records, mmseqs_prok_records, checkm2_dict, *, low_depth_mode=False):
+def merge_prok_taxonomy(gtdb_records, mmseqs_prok_records, checkm2_dict):
     """Priority: GTDB-Tk (genome-level, most reliable) > MMseqs2 LCA (real
     per-genome lowest-common-ancestor against the custom IMG_NR DB -- see
     load_mmseqs_taxonomy_prok) > Unclassified. Replaces the old
     diamond_custom_prok best-hit/majority-vote source entirely (removed).
 
-    Normally keyed off CheckM2 bins, since Completeness/Contamination only
-    make sense for a real MAG. Under low_depth_mode there are no bins/CheckM2
-    rows at all -- mmseqs records (already regrouped per-contig by
-    _prok_genome_unit, not lumped into one sample-wide call) are surfaced
-    directly instead of being silently dropped.
+    Keyed off CheckM2 bins, since Completeness/Contamination only make sense
+    for a real MAG.
     """
     gtdb_bins   = {(r.get('sample', ''), r.get('Bin', '').replace('.fa', '')): r
                    for r in gtdb_records}
@@ -1244,44 +1223,6 @@ def merge_prok_taxonomy(gtdb_records, mmseqs_prok_records, checkm2_dict, *, low_
             base['Contamination'] = cm_row.get('Contamination', '')
             base['Genome_size']   = cm_row.get('Genome_Size', cm_row.get('genome_size', ''))
             merged.append(base)
-
-    # low_depth_mode: no bins exist; aggregate per-contig MMseqs2-LCA records
-    # by taxonomy string so the report stays manageable (one row per unique
-    # lineage per sample instead of one row per contig).
-    # Normal mode: skip this block to avoid flooding MERGED_PROK with raw contigs.
-    if low_depth_mode and not merged:
-        from collections import defaultdict
-        groups = defaultdict(lambda: {'count': 0, 'rec': None})
-        for key, rec in mmseqs_bins.items():
-            if key in seen:
-                continue
-            sample = key[0]
-            lineage = ';'.join(filter(None, [
-                rec.get('Domain', ''), rec.get('Phylum', ''), rec.get('Class', ''),
-                rec.get('Order', ''),  rec.get('Family', ''), rec.get('Genus', ''),
-                rec.get('Species', ''),
-            ])) or 'Unclassified'
-            gk = (sample, lineage)
-            groups[gk]['count'] += 1
-            groups[gk]['rec'] = rec
-        for (sample, lineage), val in groups.items():
-            rec = val['rec']
-            n   = val['count']
-            merged.append({
-                'sample':      sample,
-                'Bin':         f'{n} contigs',
-                'Domain':      rec.get('Domain', ''),
-                'Phylum':      rec.get('Phylum', ''),
-                'Class':       rec.get('Class', ''),
-                'Order':       rec.get('Order', ''),
-                'Family':      rec.get('Family', ''),
-                'Genus':       rec.get('Genus', ''),
-                'Species':     rec.get('Species', ''),
-                'Full_classification': lineage,
-                'Source_tax':  'MMseqs2-LCA',
-                'Completeness': '', 'Contamination': '', 'Genome_size': '',
-                'contig_count': n,
-            })
 
     return merged
 
@@ -1840,7 +1781,7 @@ def load_coassembly_rich(outdir, groups):
     bac_paths = [_g(g, "gtdbtk", "classify", "gtdbtk.bac120.summary.tsv") for g in groups]
     arc_paths = [_g(g, "gtdbtk", "classify", "gtdbtk.ar53.summary.tsv") for g in groups]
     gtdb = load_gtdbtk(bac_paths, arc_paths, groups)
-    merged_prok = merge_prok_taxonomy(gtdb, [], checkm2, low_depth_mode=False)
+    merged_prok = merge_prok_taxonomy(gtdb, [], checkm2)
 
     mimag = {}
     for g in groups:

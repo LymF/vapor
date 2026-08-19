@@ -1184,7 +1184,29 @@ descasamento.
      consumidor ver; depois disso o corte no primeiro `__` volta a estar certo,
      porque nomes de bin (`binette_binN`, inteiros do VAMB) não contêm `__`.
 
-  ### `low_depth_mode` sai da ferramenta — DECIDIDO 2026-08-19
+  ### `low_depth_mode` saiu da ferramenta — FEITO 2026-08-19
+
+  Removido. A versão anterior está preservada na tag **`v-lowdepth`**
+  (`git worktree add ../vapor-lowdepth v-lowdepth` para rodar; ver a nota de
+  método abaixo sobre por que tag e não cópia em pasta).
+
+  O que saiu: os gates de `metabat2`, `semibin2`, `vamb_cobinning` e
+  `vamb_multisplit`; o caminho `contigs_pseudogenome` do `prok_bin_proteins`;
+  `LOW_DEPTH_MODE` no `Snakefile`; a chave no `config.yaml`; e no relatório
+  `_LOW_DEPTH_PSEUDO_GENOME`, o desvio por contig do `_prok_genome_unit`, o
+  parâmetro dos dois loaders e o bloco de agregação por linhagem do
+  `merge_prok_taxonomy`. `MAG_CATALOG_ANALYSES` virou `DEFENSE_AMR_ENABLED`.
+
+  **Verificação:** 110 testes passam; DAG estrutural (`-n --forceall`, outdir
+  temporário) **idêntico** antes/depois com `config_amazon_18-08-26.yaml`
+  (`low_depth_mode: false`) — nenhuma mudança de contagem em regra nenhuma. Com
+  o `config_amazon_12-08-26.yaml` (que tinha `true`) a chave agora é inerte e
+  os binners voltam a rodar: `metabat2` 32, `semibin2` 32, `binette` 32,
+  `vamb_cobinning` 7. **Consequência prática:** rodar aquele config nesta
+  versão NÃO reproduz a corrida antiga — para isso, o worktree da tag.
+
+  ### Registro da decisão (2026-08-19)
+
 
   A tensão abaixo some pela raiz: **o `low_depth_mode` não vai existir na
   versão final.** Ele existe hoje porque os dados da Amazônia não têm cobertura

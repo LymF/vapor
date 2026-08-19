@@ -127,11 +127,6 @@ viral_min_quality: not_determined
 
 # ══ PROKARYOTIC BINNING ════════════════════════════════════════════════
 
-# Low-depth mode: skips MetaBAT2/VAMB/SemiBin2/Binette and routes
-# prokaryotic analyses through the whole contig set as a pseudo-genome.
-# Enable explicitly — there is no automatic fallback (see INSTALL.md).
-low_depth_mode: false
-
 prok_filter_viral: true   # remove free-living viral contigs from binner input
                           # (provirus-bearing contigs are always kept)
 semibin_env: "ocean"      # "soil" | "ocean" | "gut" | "wastewater" | "global"
