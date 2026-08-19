@@ -137,3 +137,55 @@ rule mag_pangenome_select:
 
         write_status(str(output.done),
                      "ok" if eligible else "skipped: no eligible clusters")
+
+
+rule mag_pangenome_proteins:
+    """Prodigal nos MEMBROS dos clusters elegiveis.
+
+    Gemea de `mag_catalog_proteins` com outro diretorio de entrada: os
+    genomas do POOL (`mag_catalog/genomes/`), filtrados por members.txt.
+    Mesmo formato de manifesto, de proposito -- e o que deixa
+    `mag_pangenome_defensefinder` e `mag_pangenome_amr` serem herdadas com
+    `use rule` sem alterar uma linha do corpo delas.
+    """
+    input:
+        members = rules.mag_pangenome_select.output.members,
+        select  = rules.mag_pangenome_select.output.done,
+    output:
+        manifest = f"{PANGENOME_DIR}/proteins/manifest.txt",
+        done     = f"{PANGENOME_DIR}/proteins/done.txt",
+    log:
+        f"{OUTDIR}/logs/mag_pangenome_proteins.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/mag_pangenome_proteins.tsv"
+    conda: "../envs/env_viral.yaml"
+    container:  CONTAINERS.get("prodigal")
+    threads: 1
+    params:
+        genomes_dir = f"{MAG_CATALOG_DIR}/genomes",
+        outdir      = f"{PANGENOME_DIR}/proteins",
+    run:
+        _os.makedirs(params.outdir, exist_ok=True)
+        rows = []
+        with open(str(log[0]), "w") as lf:
+            names = [ln.strip() for ln in open(str(input.members))
+                     if ln.strip()]
+            lf.write(f"[pangenome_proteins] {len(names)} membros a anotar\n")
+            for name in names:
+                fna = _os.path.join(params.genomes_dir, f"{name}.fa")
+                if not _os.path.exists(fna):
+                    lf.write(f"[pangenome_proteins] AUSENTE: {fna}\n")
+                    continue
+                faa = _os.path.join(params.outdir, f"{name}.faa")
+                gff = _os.path.join(params.outdir, f"{name}.gff")
+                shell("prodigal -i {fna} -a {faa} -f gff -o {gff} "
+                      "-p single -q >> {log} 2>&1")
+                rows.append((name, "bin", fna, faa, gff))
+
+            with open(str(output.manifest), "w") as mf:
+                for r in rows:
+                    mf.write("\t".join(r) + "\n")
+            lf.write(f"[pangenome_proteins] manifesto com {len(rows)} genomas\n")
+
+        write_status(str(output.done),
+                     "ok" if rows else "skipped: no eligible members")
