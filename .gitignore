@@ -60,3 +60,14 @@ tests/data/votu_regression/*.tsv
 
 # Workspace do subagent-driven-development (scratch, por plano)
 .superpowers/
+
+# ── Pipelines de referência clonados para comparação ──────────────────
+# Repositórios git embutidos. Sem isto, um `git add -A` distraído varre
+# milhares de arquivos de terceiros para dentro de um commit nosso.
+metaFun/
+phanta/
+vOMIX-MEGA/
+viroprofiler/
+.agents/
+.cache/
+.claude/
