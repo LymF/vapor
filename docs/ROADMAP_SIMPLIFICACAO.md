@@ -1577,8 +1577,61 @@ descasamento.
   e `votu_catalog_genomad_genes`. Some também a dívida do (h): os SVGs inline
   replicados N vezes no `report.html`.
 
+### CAZy e completude de módulo KEGG — FEITO 2026-08-19
+
+Comparação do inventário do metaFun (`ANALISE_TOOLS_VOMIX_METAFUN.md` §2.6)
+contra a vapor: além do dbCAN, faltavam duas coisas que a pipeline **já
+calculava e não apresentava**. Ambas entraram sem banco novo e sem env novo
+(o usuário pediu explicitamente para não criar mais um env conda).
+
+1. **A coluna CAZy do eggNOG nunca foi lida.** Ela está no
+   `eggnog_annotations.tsv` desde sempre — coluna **19**, conferida no
+   cabeçalho real de `~/global/results` — e um grep por `cazy` no `scripts/`
+   inteiro não devolvia consumidor nenhum. O `mag_extract_kegg_kos` passa a
+   gravar `cazy_per_mag.tsv` no mesmo passe do KO: **+0 jobs no DAG**. Em
+   ERR4682430, 641 de 46.694 proteínas têm CAZy não-vazio (~1,4%), com
+   multi-família separada por vírgula (`CBM48,GH13`). Detalhe que quase
+   passou: o `continue` antigo pulava a linha sem KO, então uma proteína
+   **só** com CAZy seria descartada — o guarda agora testa os dois campos.
+2. **A completude de módulo KEGG.** O docstring do `ko_per_mag.tsv` dizia
+   "pronto para KEGG-Decoder" desde sempre e ninguém rodava o passo. Entrou
+   `mag_kegg_completeness`.
+
+**O KEGG-Decoder não existe no bioconda** (`conda search` não acha nada com
+esse nome) — o que estava planejado não era executável. No lugar entrou o
+**kegg-pathways-completeness** (EBI/MGnify, bioconda 1.4.4), e ele é melhor
+por três motivos, não só por estar disponível:
+
+- traz `modules_table.tsv` + `graphs.pkl` embutidos (**573 módulos**,
+  jan/2026): nenhum download, nenhuma licença KEGG;
+- **o genoma é uma coluna do input**, não um prefixo. O KEGG-Decoder corta o
+  ID no primeiro underscore; com `S1__binette_bin1` isso devolveria `S1` e
+  creditaria todo módulo à AMOSTRA — a mesma família de bug que este
+  documento inteiro persegue. Testado com a v1.4.4 real: `S1__binette_bin1`
+  e `G2__3` voltam intactos na coluna `contig`;
+- a saída por MAG carrega `missing_ko`, não só o percentual. Uma via a 80% só
+  é interpretável se der para ver o passo que falta.
+
+Vistas: `cazy` e `modules` entram por `genome_col="mag"`, como o `kegg`.
+Painéis novos na aba de anotação (classes CAZy empilhadas, top-15 famílias,
+tabela de módulos por amostra) e `mag_kegg_completeness` em
+`STATUS_TRACKED_GLOBAL_TOOLS` — "nenhum módulo completo" é resultado
+biológico possível e não pode parecer igual a "a ferramenta quebrou".
+
+**Verificação:** 171 testes passam (18 novos sobre `annotation_tables.py`);
+`check_env_container_sync.py` vai de 85 para 86 pares comparados sem
+divergência nova (as duas do prodigal são anteriores); DAG da Amazônia
+(`-n --forceall`, outdir temporário, `config_amazon_18-08-26.yaml`)
+**1403 → 1404**, delta exato de um `mag_kegg_completeness` — o CAZy entra com
+zero jobs, como projetado.
+
 - **dbCAN** (CAZymes) — lacuna real, o metaFun tem e a vapor não. Disponível:
-  bioconda 5.2.9, quay.io `5.2.9--pyhdfd78af_0`.
+  bioconda 5.2.9, quay.io `5.2.9--pyhdfd78af_0`. A coluna CAZy do eggNOG
+  (acima) já dá o primeiro sinal; o dbCAN acrescentaria HMM dedicado,
+  subfamília correta, CGC e predição de substrato. Tamanho do banco **não é
+  declarado** pela documentação; pelos componentes (CAZy.dmnd sobre 3,6 M
+  sequências + dbCAN-sub.hmm) a ordem de grandeza é de poucos GB, irrelevante
+  perto dos ~500 GB que a pipeline já pede — o custo real é tempo de HMM.
 - **hostile** para remoção de hospedeiro (bioconda 2.0.2) — substituiria
   bwa-mem2 + filtro samtools.
 - **PhaBOX2** (PhaTYP, CHERRY) — bioconda 2.1.13.
