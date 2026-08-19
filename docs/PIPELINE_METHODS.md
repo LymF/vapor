@@ -457,10 +457,9 @@ makes the vOTU the reporting unit.
 **PHIST** — k-mer phage↔host prediction; the global catalog's `catalog_mq_reps.fasta`
 representatives (§5.1) vs the recovered prokaryotic MAGs as candidate hosts
 (per-sample Binette bins; co-assembly: group VAMB MAGs). iPHoP was removed. Co-assembly
-`coassembly_phist` (needs both viral + prok tracks + short reads) does **not** use the
-global catalog: it links the GROUP's own `votu_mq_reps.fasta` (from the group-local
-skani chain) → that group's VAMB MAGs. Os dois lados ficam no espaço de IDs do grupo
-(contig nu), e não no do catálogo (`{source}|{contig}`) — não junte um com o outro.
+`coassembly_phist` links the same global vOTU representatives → that group's VAMB MAGs
+(needs both viral + prok tracks + short reads). Até 2026-08-19 ele usava um conjunto
+de vOTU local do grupo, removido junto com a cadeia skani local.
 
 ---
 

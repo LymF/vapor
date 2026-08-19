@@ -1059,11 +1059,32 @@ quarta cópia do laço.
 **não** usa o catálogo global, ao contrário do que `CLAUDE.md` e
 `PIPELINE_METHODS.md` afirmavam. Ele roda o `votu_mq_reps.fasta` do PRÓPRIO
 grupo contra os MAGs do grupo, então seus IDs de fago são contigs nus, não
-`{source}|{contig}`. Documentação corrigida; o comportamento ficou como está,
-mas vale decidir: com o catálogo global sendo o padrão da ferramenta, a cadeia
-skani local do grupo (`coassembly_skani_votu`/`_cluster`/`viral_votu_reps`) é
-hoje a única clusterização de vOTU fora dele — a per-amostra já foi removida.
-É candidata natural à próxima simplificação.
+`{source}|{contig}`. **Resolvido no mesmo dia** (commit `91465df`): a cadeia skani
+local do grupo foi REMOVIDA e o `coassembly_phist` passou a usar o catálogo
+global, que é o que a documentação já afirmava.
+
+##### Remoção da cadeia skani local dos grupos (commit `91465df`)
+
+Era a última clusterização de vOTU fora do catálogo — a per-amostra saiu em
+13/08. Desde 18/08 o `_catalog_sources()` pooleia **exatamente o mesmo FASTA**
+que ela consumia, então a corrida carregava duas definições de vOTU para as
+mesmas sequências, com IDs em espaços diferentes e representantes que podiam
+divergir. −279 linhas em `coassembly.smk`; DAG de 1424 para **1403**
+(−3 regras × 7 grupos), 1315 sem binning de grupo, 1285 em long reads,
+reads-only inalterado.
+
+Quem lia a saída dela passou a ler o catálogo: o `coassembly_phist` usa o
+`votu_catalog_reps.mq_fasta` (paridade com o per-amostra), e o relatório conta
+os vOTUs do grupo como "vOTUs com pelo menos um membro montado no grupo" — a
+mesma definição de *assembled* da matriz de presença —, tira os comprimentos
+dos representantes do catálogo e monta a curva de acumulação com
+`load_catalog_clusters_by_source`, que devolve o membro **nu** (casa com a
+matriz do VAMB) e o representante **namespaced** (a identidade do vOTU).
+
+Saiu junto o flag **`use_votu`**, que ficou sem leitor nenhum: desligá-lo não
+desligava uma etapa opcional, derrubava a trilha viral inteira. Mesma
+disciplina do `low_depth_mode` e do `MAG_CATALOG_ANALYSES` — flag que não
+decide nada não fica. Os limiares `votu_ani`/`votu_af` seguem configuráveis.
 
 **Checado e correto:** a co-assembly já usava os reads aparados/sem hospedeiro
 (`_clean_*`) — a trilha de reads era a única que não usava; a matriz de
