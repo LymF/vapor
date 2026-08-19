@@ -159,3 +159,36 @@ def test_load_tool_status_group_key_cannot_collide_with_sample(tmp_path):
     colliding = f"{GROUP_STATUS_PREFIX}G1"
     with pytest.raises(ValueError):
         load_tool_status(str(outdir), [colliding], ["G1"])
+
+
+def test_every_global_done_file_is_status_tracked():
+    """
+    Toda regra global do catalogo que escreve um done.txt tem de estar em
+    STATUS_TRACKED_GLOBAL_TOOLS.
+
+    Este teste existe porque o item "(h)" (18/08/2026) migrou dez regras para
+    o catalogo global e nenhuma foi registrada: pharokka, phold, os dois
+    genome_map, defensefinder e dbapis viral podiam falhar sem que aparecesse
+    uma linha sequer no relatorio -- a aba so ficava vazia, que e exatamente
+    a aparencia de "nao havia nada a mostrar". Sem uma checagem automatica, a
+    proxima regra migrada repete o esquecimento.
+    """
+    import re
+
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    smk = open(os.path.join(here, "rules", "votu_catalog.smk")).read()
+
+    # Apenas as f-strings de saida ancoradas em CATALOG_DIR; referencias de
+    # input (`done = rules.votu_prodigal.output.done`) nao sao f-strings e
+    # nao casam.
+    declared = {
+        "votu_catalog/" + m
+        for m in re.findall(r'f"\{CATALOG_DIR\}/([^"]*done[^"]*\.txt)"', smk)
+    }
+    assert declared, "nenhum done.txt encontrado -- regex do teste quebrou"
+
+    untracked = declared - set(STATUS_TRACKED_GLOBAL_TOOLS.values())
+    assert not untracked, (
+        "regras globais escrevem done.txt sem rastreio no relatorio: "
+        + ", ".join(sorted(untracked))
+    )

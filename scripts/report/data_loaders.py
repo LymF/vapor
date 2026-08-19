@@ -30,10 +30,24 @@ STATUS_TRACKED_TOOLS = {
 # cannot collide with a real sample name (sample discovery never produces a
 # name wrapped in parentheses).
 STATUS_TRACKED_GLOBAL_TOOLS = {
-    "votu_catalog_reps":     "votu_catalog/done.txt",
-    "votu_catalog_matrices": "votu_catalog/matrices_done.txt",
-    "bacphlip_votu":         "votu_catalog/bacphlip/done.txt",
-    "eggnog_viral":          "votu_catalog/eggnog_viral/done.txt",
+    "votu_catalog_reps":       "votu_catalog/done.txt",
+    "votu_catalog_matrices":   "votu_catalog/matrices_done.txt",
+    "bacphlip_votu":           "votu_catalog/bacphlip/done.txt",
+    "eggnog_viral":            "votu_catalog/eggnog_viral/done.txt",
+    # Migradas para o catalogo global no item "(h)" (2026-08-18) e nao
+    # rastreadas ate agora: uma falha em qualquer uma delas nao aparecia em
+    # lugar nenhum do relatorio -- a aba simplesmente ficava vazia, que e a
+    # mesma aparencia de "nao ha nada a mostrar".
+    "votu_prodigal":           "votu_catalog/taxonomy/prodigal_done.txt",
+    "votu_mmseqs_taxonomy":    "votu_catalog/taxonomy/mmseqs_inphared_done.txt",
+    "votu_mmseqs_tax_custom":  "votu_catalog/taxonomy/mmseqs_custom_viral_done.txt",
+    "votu_taxonomy":           "votu_catalog/taxonomy/taxonomy_done.txt",
+    "votu_pharokka":           "votu_catalog/annotation/pharokka/done.txt",
+    "votu_phold":              "votu_catalog/annotation/phold/done.txt",
+    "votu_genome_map_phage":   "votu_catalog/annotation/genome_maps/phage_maps_done.txt",
+    "votu_genome_map_virus":   "votu_catalog/annotation/genome_maps/virus_maps_done.txt",
+    "votu_defensefinder_viral": "votu_catalog/defensefinder/done.txt",
+    "votu_dbapis_viral":       "votu_catalog/dbapis/done.txt",
 }
 
 GLOBAL_STATUS_LABEL = "(global)"

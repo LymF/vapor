@@ -466,7 +466,7 @@ rule votu_mmseqs_taxonomy:
             with open(str(log[0]), "a") as lf:
                 lf.write(msg + "\n")
             Path(str(output.hits)).write_text(header)
-            Path(str(output.done)).touch()
+            write_status(output.done, "skipped: " + msg.split("] ", 1)[-1])
 
         if not os.path.exists(str(params.seqtaxdb) + ".dbtype"):
             write_empty(
@@ -498,7 +498,7 @@ rule votu_mmseqs_taxonomy:
             with open(str(output.hits) + ".raw") as f, open(str(output.hits), "a") as out:
                 out.writelines(f)
             os.remove(str(output.hits) + ".raw")
-        Path(str(output.done)).touch()
+        write_status(output.done, "ok")
 
 
 rule votu_mmseqs_taxonomy_custom:
@@ -545,7 +545,7 @@ rule votu_mmseqs_taxonomy_custom:
             with open(str(log[0]), "a") as lf:
                 lf.write(msg + "\n")
             Path(str(output.hits)).write_text(header)
-            Path(str(output.done)).touch()
+            write_status(output.done, "skipped: " + msg.split("] ", 1)[-1])
 
         if not params.seqtaxdb or not os.path.exists(str(params.seqtaxdb) + ".dbtype"):
             write_empty("[votu_mmseqs_taxonomy_custom] No custom_viral_mmseqs_db configured -- skipping")
@@ -571,7 +571,7 @@ rule votu_mmseqs_taxonomy_custom:
             with open(str(output.hits) + ".raw") as f, open(str(output.hits), "a") as out:
                 out.writelines(f)
             os.remove(str(output.hits) + ".raw")
-        Path(str(output.done)).touch()
+        write_status(output.done, "ok")
 
 
 rule votu_taxonomy:
@@ -1480,7 +1480,7 @@ rule votu_pharokka:
         if not params.db or not os.path.isdir(str(params.db)):
             with open(log_path, "w") as lf:
                 lf.write("[votu_pharokka] PHAROKKA_DB not configured — skipping\n")
-            touch_empty(output.done)
+            write_status(output.done, "skipped: PHAROKKA_DB not configured")
             touch_empty(output.gbk)
             touch_empty(output.tsv)
             return
@@ -1518,7 +1518,9 @@ rule votu_pharokka:
         if not hq_set or os.path.getsize(str(params.hq_fa)) == 0:
             with open(log_path, "a") as lf:
                 lf.write("[votu_pharokka] No HQ phages found — skipping\n")
-            touch_empty(output.done)
+            write_status(output.done,
+                         "skipped: no vOTU representative reached "
+                         "%s%% completeness" % params.min_comp)
             touch_empty(output.gbk)
             touch_empty(output.tsv)
             return
@@ -1568,7 +1570,7 @@ rule votu_pharokka:
         else:
             touch_empty(output.tsv)
 
-        shell("touch {output.done}")
+        write_status(output.done, "ok")
 
 
 rule votu_phold:
@@ -1753,7 +1755,7 @@ rule votu_genome_map_virus:
         tax_tsv = str(input.viral_tax)
         has_tax = os.path.exists(tax_tsv) and os.path.getsize(tax_tsv) > 0
 
-        shell(
+        _cmd = (
             "python3 {params.scripts_dir}/genome_map_universal.py"
             " --mode virus"
             " --fasta {input.viral_nr}"
@@ -1764,9 +1766,19 @@ rule votu_genome_map_virus:
             " --min-completeness {params.min_comp}"
             " --top-n {params.top_n}"
             + (" --viral-taxonomy " + tax_tsv if has_tax else "") +
-            " >> {log} 2>&1 || true"
+            " >> {log} 2>&1"
         )
-        Path(str(output.done)).touch()
+        # Nao levanta: o gemeo `votu_genome_map_phage` registra o RC e segue
+        # (`|| RC=$?`), e o DAG a jusante nao depende dos SVGs. O que NAO se
+        # pode fazer e o que estava aqui -- `|| true` seguido de touch vazio,
+        # que faz "o script quebrou" e "nenhum genoma qualificou" ficarem
+        # indistinguiveis no relatorio.
+        try:
+            shell(_cmd)
+        except Exception as exc:
+            write_status(output.done, "failed: genome_map_universal.py %s" % exc)
+        else:
+            write_status(output.done, "ok")
 
 
 rule votu_defensefinder_viral:
@@ -1828,7 +1840,7 @@ rule votu_defensefinder_viral:
                 lf.write(msg + "\n")
             Path(str(output.systems)).write_text("genome\n")
             Path(str(output.antisystems)).write_text("genome\n")
-            Path(str(output.done)).touch()
+            write_status(output.done, "skipped: " + msg.split("] ", 1)[-1])
 
         if (not params.enabled or not os.path.exists(str(input.faa))
                 or os.path.getsize(str(input.faa)) == 0):
@@ -1846,11 +1858,21 @@ rule votu_defensefinder_viral:
 
         run_out = os.path.join(params.outdir, "run")
         os.makedirs(run_out, exist_ok=True)
-        shell(
-            "defense-finder run -o {run_out} --models-dir {models_dir} "
-            "--antidefensefinder {input.faa} "
-            ">> {log} 2>&1 || echo '[votu_defensefinder_viral] WARNING: run failed' >> {log}"
-        )
+        # O `|| echo WARNING` que estava aqui engolia a falha: as tabelas
+        # saiam vazias e o done.txt vinha tocado em branco, ou seja, um
+        # DefenseFinder quebrado era lido como "nenhum sistema anti-defesa
+        # neste virome" -- exatamente o modo de falha silenciosa que o
+        # write_status existe para impedir.
+        _df_error = None
+        try:
+            shell(
+                "defense-finder run -o {run_out} --models-dir {models_dir} "
+                "--antidefensefinder {input.faa} >> {log} 2>&1"
+            )
+        except Exception as exc:
+            _df_error = exc
+            with open(str(log[0]), "a") as lf:
+                lf.write("[votu_defensefinder_viral] WARNING: run failed: %s\n" % exc)
 
         # Same split-by-"activity" logic as the host-side rule (3.0.0
         # writes one consolidated *_defense_finder_systems.tsv, Defense and
@@ -1890,7 +1912,10 @@ rule votu_defensefinder_viral:
         with open(str(log[0]), "a") as lf:
             lf.write(f"[votu_defensefinder_viral] Done -- {len(def_rows)} defense, "
                       f"{len(anti_rows)} antidefense system rows\n")
-        Path(str(output.done)).touch()
+        if _df_error is not None:
+            write_status(output.done, "failed: defense-finder run %s" % _df_error)
+        else:
+            write_status(output.done, "ok")
 
 
 rule votu_dbapis_viral:

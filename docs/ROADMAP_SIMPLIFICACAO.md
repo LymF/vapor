@@ -670,8 +670,9 @@ Nenhuma foi analisada a fundo — não tratar como aprovadas.
 
 ### Pendências abertas pelo (h) — TODAS CONSERTADAS em 2026-08-18
 
-Três defeitos de **empacotamento/disponibilidade**, nenhum produz resultado
-biológico errado. Dois são anteriores ao (h).
+Quatro defeitos de **empacotamento/disponibilidade/observabilidade**, nenhum
+produz resultado biológico errado — mas o (4) esconderia um que produzisse.
+Dois são anteriores ao (h).
 
 1. ~~**`final/viral/defense_amr/` virou diretório vazio**~~ — **FEITO**. Entrou a
    regra `finalize_votu_catalog` (molde: `finalize_reads_classify`), que copia
@@ -713,6 +714,38 @@ biológico errado. Dois são anteriores ao (h).
    e todos os genome maps virais. Ao mesmo tempo os dois inputs novos do
    `report.smk` são incondicionais e arrastam a cadeia do catálogo de volta.
    A flag já era meio decorativa; o (h) alargou a inconsistência.
+
+4. ~~**Nenhuma das regras globais novas era rastreada no relatório**~~ — **FEITO**
+   (2026-08-19). As dez regras que o (h) moveu para o catálogo global ficaram
+   fora de `STATUS_TRACKED_GLOBAL_TOOLS` (`scripts/report/data_loaders.py`):
+   pharokka, phold, os dois `genome_map`, defensefinder e dbAPIS virais, mais
+   prodigal e os três de taxonomia. Se qualquer uma quebrasse, o relatório não
+   mostrava **uma linha sequer** — a aba apenas ficava vazia, que é exatamente
+   a aparência de "não havia nada a mostrar".
+
+   O conserto tem duas metades, e só a segunda é óbvia:
+
+   - **Seis regras nem escreviam status de verdade** — `votu_pharokka`,
+     `votu_genome_map_virus`, `votu_defensefinder_viral`,
+     `votu_mmseqs_taxonomy` e seu gêmeo `_custom` faziam
+     `Path(done).touch()`/`touch {output.done}`. Registrá-las no dicionário
+     sem antes corrigir isso teria produzido o erro **oposto**: `done.txt`
+     vazio é lido como `unknown`, e `tool_failed()` trata `unknown` como
+     lacuna — toda execução bem-sucedida passaria a aparecer como falha.
+     Todas passaram a usar `write_status()`.
+   - Duas engoliam a falha ativamente: `votu_defensefinder_viral` tinha
+     `|| echo WARNING` e `votu_genome_map_virus` tinha `|| true`, ambos
+     seguidos de `touch` cego. Um DefenseFinder quebrado escrevia tabelas
+     vazias e era lido como "nenhum sistema anti-defesa neste viroma" — a
+     mesma classe de erro do AMRFinderPlus com disco cheio que originou a
+     convenção do `write_status`. Agora capturam a exceção e gravam
+     `failed: <erro>`, sem derrubar o DAG (o gêmeo `votu_genome_map_phage` já
+     fazia isso via `|| RC=$?`).
+
+   Guarda automática: `test_every_global_done_file_is_status_tracked` extrai
+   por regex todo `f"{CATALOG_DIR}/…done….txt"` do `.smk` e exige que esteja
+   no dicionário. Hoje são 14 de 14. A próxima regra migrada não consegue
+   repetir o esquecimento sem quebrar a suíte.
 
 ### Sétima manifestação — os bins do vRhyme nunca foram encontrados
 
