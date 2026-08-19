@@ -1094,6 +1094,48 @@ o mesmo parser testado do catálogo, sem drift; e o
 `coassembly_organize_outputs` copia exatamente os caminhos que as vistas do
 catálogo de MAGs agora escrevem.
 
+#### Auditoria de QC, montagem, mapeamento e abundância (commit `9f8bfa9`)
+
+1. **A abundância de vOTU saía zerada para a maioria das linhas.** A coluna
+   `representative` do `{sample}_vOTU_abundance.tsv` era **meio-nua**: o
+   prefixo do namespace era removido quando o representante era da própria
+   amostra e mantido quando era de outra. Isso quebrava as duas pontas ao
+   mesmo tempo — (a) o comprimento vinha do FASTA **local**, então todo
+   representante estrangeiro ficava com comprimento 0 e a métrica ia a 0.0
+   (com 32 amostras, a maioria dos vOTUs), e (b) o relatório junta essa
+   tabela pelo `representative` namespaced e pelo `Virus` do PHIST (também
+   namespaced), então não casava justamente as linhas **locais** — `breadth`
+   e `rpmpm` zerados para elas, e o colapso por hospedeiro somando RPKM
+   zerado. Agora a coluna sai sempre namespaced e o comprimento vem do FASTA
+   de representantes do **catálogo**.
+2. **Chao1 e Simpson eram calculados sobre RPKM.** Os dois são estimadores de
+   **contagem**: Chao1 é construído inteiramente sobre f1/f2 (taxa vistos uma
+   e duas vezes) e o Simpson na forma `a*(a-1)` conta pares de indivíduos.
+   Sobre RPKM, "aparecer uma vez" vira "ter RPKM entre 1 e 2 depois do
+   `int()`" — uma faixa da escala de normalização, não raridade. Passam a ser
+   calculados sobre a contagem de reads do próprio CoverM (o `coverm_prok`
+   ganhou a coluna); sem contagens saem **vazios**, e o loader deixou de
+   transformar vazio em 0.0. Riqueza e Shannon seguem sobre a métrica
+   configurada, onde estão corretos.
+3. **O `min_contig` não valia para ONT.** MEGAHIT e metaMDBG aplicam o corte
+   por flag; o **Flye não tem flag equivalente** e nada filtrava depois — uma
+   corrida ONT levava contigs de qualquer tamanho para detecção viral,
+   mapeamento e binning, enquanto as outras duas trilhas não levavam. Entrou
+   `scripts/filter_min_length.py`, aplicado no `flye_lr` e no
+   `flye_coassembly`.
+4. **metaMDBG engolia falha** (`|| true` + FASTA vazio tocado): uma montagem
+   HiFi quebrada saía como "0 contigs", enquanto o `flye_lr` já capturava o
+   exit code. E as versões recentes gravam `contigs.fasta.GZ`, que o laço de
+   candidatos não cobria — montagem boa saindo como zero.
+
+**Checado e correto:** o Snakemake roda o shell com `set -e` **e** `pipefail`
+(testado com um Snakefile mínimo: `(echo; false) | cat > out` falha o job), de
+modo que os `filtlong | gzip` e afins não mascaram erro — era a suspeita
+óbvia; os presets do minimap2 (`map-ont`/`map-hifi`) e os filtros do CoverM
+são os padrões da literatura; o fator de escala do `votu_abundance` é de fato
+constante por amostra para rpkm/tpm/mean, como o docstring afirma; e o
+sentinel vazio que o fastp escreve em modo single-end nunca é lido.
+
 
 Varredura pedida depois da oitava manifestação, com o mesmo método: **verificar
 cada suposição de formato contra os arquivos reais**, nunca contra o comentário
