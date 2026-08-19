@@ -153,11 +153,6 @@ prok_max_contamination:    10.0   # % CheckM2 contamination cap to annotate a MA
 # Legacy overrides (optional): bakta_min_completeness / bakta_max_contamination
 
 # Genome maps
-genome_map_top_n:                  5     # max maps per category per sample
-genome_map_min_completeness_viral: 90.0  # % CheckV completeness (phage + virus)
-genome_map_min_completeness_prok:  90.0  # % CheckM2 completeness (prok)
-genome_map_max_contamination_prok:  5.0  # % CheckM2 contamination threshold
-genome_map_max_contigs_prok:         5   # max contigs per MAG
 
 
 # ══ ABUNDANCE ══════════════════════════════════════════════════════════

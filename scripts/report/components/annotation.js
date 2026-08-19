@@ -1,39 +1,11 @@
-/* annotation.js — Functional annotation (COG/PHROGS), phage tables, genome maps */
+/* annotation.js — Functional annotation (COG/PHROGS) e tabelas de fago */
 (function () {
   'use strict';
 
   window.renderAnnotation = function () {
     const samples = typeof SAMPLES !== 'undefined' ? SAMPLES : [];
     _renderFunctional(samples);
-    makeSampleDropdown('sample-sel-maps', _renderMaps);
-    _updateMapsSampleLabels();
-    // Map mode selector
-    const modeEl = document.getElementById('genome-map-mode');
-    if (modeEl) modeEl.addEventListener('change', () => {
-      _updateMapsSampleLabels();
-      const sel = document.getElementById('sample-sel-maps');
-      if (sel) _renderMaps(sel.value);
-    });
   };
-
-  // ── Annotate the sample dropdown with per-mode genome counts ─────────────
-  // "virus" mode is catalog-wide since 2026-08-18 ("(h)") -- every sample
-  // shows the SAME set of genome maps (see load_genome_maps,
-  // scripts/report/data_loaders.py), so the count is labeled "catalog" to
-  // avoid implying a per-sample recount. "prok" stays genuinely per-sample.
-  function _updateMapsSampleLabels() {
-    const sel    = document.getElementById('sample-sel-maps');
-    const modeEl = document.getElementById('genome-map-mode');
-    if (!sel || !modeEl) return;
-    const mode = modeEl.value;
-    const maps = typeof GENOME_MAPS !== 'undefined' ? GENOME_MAPS : {};
-    [...sel.options].forEach(opt => {
-      const count = ((maps[opt.value] || {})[mode] || []).length;
-      opt.textContent = mode === 'virus'
-        ? `${opt.value} (${count} — vOTU catalog, same for all samples)`
-        : `${opt.value} (${count})`;
-    });
-  }
 
   // ── COG + PHROGS stacked bars ─────────────────────────────────────────────
   function _renderFunctional(samples) {
@@ -95,79 +67,5 @@
     }));
   }
 
-  // ── Genome maps ───────────────────────────────────────────────────────────
-  function _renderMaps(sample) {
-    const modeEl = document.getElementById('genome-map-mode');
-    const mode   = modeEl ? modeEl.value : 'virus';
-    const maps   = (typeof GENOME_MAPS !== 'undefined' ? GENOME_MAPS : {})[sample] || {};
-    const items  = (maps[mode] || []);
-    const cont   = document.getElementById('genome-maps-container');
-    if (!cont) return;
-
-    cont.innerHTML = '';
-
-    if (!items.length) {
-      cont.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;padding:.5rem">No genome maps for this selection.</p>';
-      return;
-    }
-
-    items.forEach(m => {
-      const item = document.createElement('div');
-      item.className = 'genome-map-item';
-
-      const h4 = document.createElement('h4');
-      h4.textContent = m.id;
-      // Phage/Virus badge: the "Virus" view merges both categories into one
-      // list -- the badge shows which one PHROGS hallmark-gene evidence
-      // assigned, instead of forcing a separate mode toggle per category.
-      if (m.category) {
-        const badge = document.createElement('span');
-        badge.className = 'badge ' + (m.category === 'Phage' ? 'badge-teal' : 'badge-amber');
-        badge.style.marginLeft = '.5rem';
-        badge.textContent = m.category;
-        h4.appendChild(badge);
-      }
-      item.appendChild(h4);
-
-      // Copy FASTA button
-      if (m.seq) {
-        const copyBtn = document.createElement('button');
-        copyBtn.type = 'button';
-        copyBtn.className = 'btn-sm';
-        copyBtn.style.cssText = 'margin-bottom:.5rem;display:inline-flex;align-items:center;gap:.3rem';
-        copyBtn.textContent = 'Copy FASTA';
-        copyBtn.title = 'Copy genome sequence (FASTA) to clipboard';
-        copyBtn.addEventListener('click', () => {
-          const wrapped = (m.seq.match(/.{1,60}/g) || []).join('\n');
-          const fasta = `>${m.id}\n${wrapped}`;
-          (navigator.clipboard
-            ? navigator.clipboard.writeText(fasta)
-            : Promise.reject()
-          ).catch(() => {
-            const ta = document.createElement('textarea');
-            ta.value = fasta;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-          }).finally(() => {
-            copyBtn.textContent = 'Copied!';
-            setTimeout(() => { copyBtn.textContent = 'Copy FASTA'; }, 1500);
-          });
-        });
-        item.appendChild(copyBtn);
-      }
-
-      // SVG content
-      const wrap = document.createElement('div');
-      wrap.innerHTML = m.svg;
-      const svg = wrap.querySelector('svg');
-      if (svg) { svg.style.maxWidth = '100%'; svg.style.height = 'auto'; }
-      item.appendChild(svg || wrap);
-
-      cont.appendChild(item);
-      if (window.VaporExport) window.VaporExport.attachToSVGHost(item);
-    });
-  }
 
 })();

@@ -371,25 +371,9 @@
 
     <!-- Annotation -->
     <section id="tab-annotation" class="tab-panel" role="tabpanel" aria-labelledby="nav-annotation" hidden>
-      <div class="sub-nav" role="tablist">
-        <button class="sub-tab active" data-sub="ann-functional">Functional (COG/KEGG)</button>
-        <button class="sub-tab" data-sub="ann-maps">Genome Maps</button>
-      </div>
       <div id="sub-ann-functional" class="sub-panel active">
         <div class="chart-card"><div id="ann-cog-chart"  class="echarts-box"></div></div>
         <div class="chart-card mt-md"><div id="ann-phrogs-chart" class="echarts-box"></div></div>
-      </div>
-      <div id="sub-ann-maps" class="sub-panel" style="display:none">
-        <div class="toolbar">
-          <label>Sample: <select id="sample-sel-maps"></select></label>
-          <label style="margin-left:1rem">Mode:
-            <select id="genome-map-mode">
-              <option value="virus">Virus</option>
-              <option value="prok">Prokaryote</option>
-            </select>
-          </label>
-        </div>
-        <div id="genome-maps-container" class="genome-maps-grid"></div>
       </div>
     </section>
 

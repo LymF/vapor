@@ -44,8 +44,6 @@ STATUS_TRACKED_GLOBAL_TOOLS = {
     "votu_taxonomy":           "votu_catalog/taxonomy/taxonomy_done.txt",
     "votu_pharokka":           "votu_catalog/annotation/pharokka/done.txt",
     "votu_phold":              "votu_catalog/annotation/phold/done.txt",
-    "votu_genome_map_phage":   "votu_catalog/annotation/genome_maps/phage_maps_done.txt",
-    "votu_genome_map_virus":   "votu_catalog/annotation/genome_maps/virus_maps_done.txt",
     "votu_defensefinder_viral": "votu_catalog/defensefinder/done.txt",
     "votu_dbapis_viral":       "votu_catalog/dbapis/done.txt",
 }
@@ -783,7 +781,7 @@ def load_antidefensefinder_viral(path, samples):
     .faa. There is exactly ONE table to read, at
     {outdir}/votu_catalog/defensefinder/viral_antidefense_systems.tsv --
     the same records list is returned under every sample key, same
-    duplication trade-off as load_phrogs/load_genome_maps (data_loaders.py),
+    duplication trade-off as load_phrogs (data_loaders.py),
     so the existing per-sample chart/table plumbing in hostdefense.js keeps
     working unmodified; the chart there is labeled "vOTU catalog --
     global, same across samples".
@@ -1523,67 +1521,6 @@ def load_svg(svg_path):
         with open(svg_path, encoding='utf-8') as f: return f.read()
     except Exception: return ""
 
-
-def load_genome_maps(outdir, samples):
-    """Load genome map SVGs for virus/prok modes, max 5 per category, from
-    the global vOTU catalog.
-
-    "virus" merges the phage/ and virus/ output subfolders into a single list
-    -- the report shows one unified "Virus" view, with each genome tagged
-    category="Phage" or category="Virus" (the backend split still exists on
-    disk, decided by PHROGS hallmark-gene evidence in genome_map_universal.py,
-    but the UI no longer forces the user to pick a mode to see all of them).
-
-    Phage/virus maps moved to the global catalog on 2026-08-18 (second half
-    of "(h)"): genome_map_phage/genome_map_virus now run once, over vOTU
-    representatives (rules votu_genome_map_phage/votu_genome_map_virus,
-    rules/votu_catalog.smk), at
-    {outdir}/votu_catalog/annotation/genome_maps/{{phage,virus}}. The SAME
-    catalog-wide "virus" list is returned under every sample key, same
-    rationale as load_phrogs above. "prok" stays genuinely per-sample
-    (genome_map_prok, rules/annotation.smk) -- prokaryotic MAGs are not
-    deduplicated into a global catalog the way vOTUs are.
-    """
-    virus_base = os.path.join(outdir, "votu_catalog", "annotation", "genome_maps")
-    virus_maps = []
-    for mode, category in (("phage", "Phage"), ("virus", "Virus")):
-        mdir = os.path.join(virus_base, mode)
-        for svg_f in sorted(glob.glob(os.path.join(mdir, "*.svg")))[:5]:
-            gid = os.path.basename(svg_f).replace("_map.svg", "")
-            svg = load_svg(svg_f)
-            if svg:
-                seq = ""
-                fasta_f = os.path.join(mdir, f"{gid}.fasta")
-                if os.path.exists(fasta_f):
-                    try:
-                        with open(fasta_f) as ff:
-                            seq = "".join(l.strip() for l in ff if not l.startswith(">"))
-                    except Exception:
-                        pass
-                virus_maps.append({"id": gid, "svg": svg, "seq": seq, "category": category})
-
-    result = {}
-    for s in samples:
-        result[s] = {"virus": virus_maps, "prok": []}
-        base = os.path.join(outdir, s, "annotation", "genome_maps")
-        mdir = os.path.join(base, "prok")
-        for svg_f in sorted(glob.glob(os.path.join(mdir, "*.svg")))[:5]:
-            gid = os.path.basename(svg_f).replace("_map.svg", "")
-            svg = load_svg(svg_f)
-            if svg:
-                seq = ""
-                fasta_f = os.path.join(mdir, f"{gid}.fasta")
-                if os.path.exists(fasta_f):
-                    try:
-                        with open(fasta_f) as ff:
-                            seq = "".join(l.strip() for l in ff if not l.startswith(">"))
-                    except Exception:
-                        pass
-                result[s]["prok"].append({"id": gid, "svg": svg, "seq": seq})
-    return result
-
-
-# ── Path dict helper ──────────────────────────────────────────────────────────
 
 def path_dict(paths, samples):
     """Map paths to sample names by matching sample name in path.

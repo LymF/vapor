@@ -4,18 +4,17 @@
 # bakta       — prokaryotic MAG annotation (HQ/MQ bins from CheckM2)
 # eggnog_prok — COG/KEGG/CAZy/GO functional annotation of MAG proteins
 # extract_kegg_kos — KO extraction per MAG from EggNOG output (KOALA-format TSV)
-# genome_map_prok — circular genome maps for prokaryotic MAGs (per sample:
-#                    prokaryote bins are not deduplicated into a global
-#                    catalog the way vOTUs are, so there is no global
-#                    representative to compute this against)
 #
-# pharokka/phold/genome_map_phage/genome_map_virus moved to
-# rules/votu_catalog.smk (votu_pharokka/votu_phold/votu_genome_map_phage/
-# votu_genome_map_virus) on 2026-08-18 -- they depend only on the vOTU
-# representative SEQUENCE, never on which sample it came from, so they now
-# run once over the global catalog instead of once per sample. See
+# pharokka/phold moved to rules/votu_catalog.smk (votu_pharokka/votu_phold) on
+# 2026-08-18 -- dependem so da SEQUENCIA do representante de vOTU, nunca de qual
+# amostra ela veio, entao rodam uma vez sobre o catalogo global. Ver
 # docs/ROADMAP_SIMPLIFICACAO.md "(h) Princípio: computar no representante,
 # herdar no membro".
+#
+# Os genome maps (genome_map_prok/phage/virus e scripts/genome_map*.py) foram
+# REMOVIDOS em 2026-08-19 a pedido do usuario. Levaram junto duas regras que so
+# existiam para alimenta-los: votu_catalog_quality_summary e
+# votu_catalog_genomad_genes.
 #
 # All rules soft-fail (touch output) when their database is not configured.
 # Config keys: bakta_db, bakta_min_completeness,
@@ -261,53 +260,3 @@ rule extract_kegg_kos:
             lf.write(f"[extract_kegg_kos] Output: {output.ko_table}\n")
 
         Path(str(output.done)).touch()
-
-
-
-rule genome_map_prok:
-    """
-    Circular genome maps for prokaryotic MAGs (COG color scheme).
-    Reads Bakta GBK files for each qualifying MAG (≥90% completeness, ≤5%
-    contamination, ≤5 contigs). Multi-contig MAGs are drawn as multi-sector
-    Circos plots. Genes colored by keyword-inferred COG functional category.
-    Skipped if no Bakta outputs exist.
-    """
-    input:
-        bakta_done = rules.bakta.output.done,
-        checkm2    = rules.checkm2.output.report,
-    output:
-        done = f"{OUTDIR}/{{sample}}/annotation/genome_maps/prok_maps_done.txt",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/genome_map_prok.log"
-    benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/genome_map_prok.tsv"
-    conda: "../envs/env_annotation.yaml"
-    container:  CONTAINERS.get("genome_map")
-    threads: 1
-    params:
-        outdir      = f"{OUTDIR}/{{sample}}/annotation/genome_maps/prok",
-        bakta_dir   = f"{OUTDIR}/{{sample}}/annotation/bakta",
-        min_comp    = GENOME_MAP_MIN_COMP_PROK,
-        max_cont    = GENOME_MAP_MAX_CONT_PROK,
-        max_contigs = GENOME_MAP_MAX_CONTIGS_PROK,
-        top_n       = GENOME_MAP_TOP_N,
-        scripts_dir = SCRIPTS_DIR,
-    shell:
-        """
-        mkdir -p {params.outdir}
-        python3 {params.scripts_dir}/genome_map_universal.py \
-            --mode prok \
-            --bakta-dir {params.bakta_dir} \
-            --checkm2 {input.checkm2} \
-            --outdir {params.outdir} \
-            --min-completeness {params.min_comp} \
-            --max-contamination {params.max_cont} \
-            --max-contigs {params.max_contigs} \
-            --top-n {params.top_n} \
-            > {log} 2>&1 && RC=0 || RC=$?
-        if [ "$RC" -ne 0 ]; then
-            echo "failed: genome_map_universal.py exit $RC" > {output.done}
-        else
-            echo "ok" > {output.done}
-        fi
-        """

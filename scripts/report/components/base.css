@@ -337,7 +337,6 @@ body {
   z-index: 5;
 }
 .chart-card:hover .export-toolbar,
-.genome-map-item:hover .export-toolbar,
 .export-toolbar:focus-within {
   opacity: 1;
 }
@@ -499,32 +498,6 @@ body {
 [data-theme="dark"] .badge-amber  { background: #451a03; color: #fcd34d; }
 [data-theme="dark"] .badge-red    { background: #450a0a; color: #fca5a5; }
 [data-theme="dark"] .badge-purple { background: #2e1065; color: #c4b5fd; }
-
-/* ── Genome maps ──────────────────────────────────────────────────────────── */
-.genome-maps-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-.genome-map-item {
-  position: relative;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: .75rem;
-  overflow-x: auto;
-}
-.genome-map-item h4 {
-  font-size: .75rem;
-  color: var(--text-muted);
-  margin-bottom: .5rem;
-  font-weight: 600;
-}
-.genome-map-item svg {
-  max-width: 100%;
-  height: auto;
-  display: block;
-}
 
 /* ── About tab ────────────────────────────────────────────────────────────── */
 .about-wrap {

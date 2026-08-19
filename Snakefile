@@ -217,11 +217,6 @@ APIS_DB                      = _expand(config.get("apis_db", "")) if config.get(
 AMR_CONSENSUS_ENABLED        = config.get("use_amr_consensus", True)
 LOW_DEPTH_MODE              = config.get("low_depth_mode", False)
 
-GENOME_MAP_TOP_N           = config.get("genome_map_top_n", 5)
-GENOME_MAP_MIN_COMP_VIRAL  = config.get("genome_map_min_completeness_viral", 90.0)
-GENOME_MAP_MIN_COMP_PROK   = config.get("genome_map_min_completeness_prok", 90.0)
-GENOME_MAP_MAX_CONT_PROK   = config.get("genome_map_max_contamination_prok", 5.0)
-GENOME_MAP_MAX_CONTIGS_PROK = config.get("genome_map_max_contigs_prok", 5)
 
 # ── Viral filtering for prokaryotic binning ────────────────────────────
 PROK_FILTER_VIRAL = config.get("prok_filter_viral", True)
@@ -481,13 +476,11 @@ def _t_viral():
     if USE_EGGNOG_VIRAL:
         t.append(f"{OUTDIR}/votu_catalog/eggnog_viral/putative_amgs.tsv")
         t.append(f"{OUTDIR}/votu_catalog/eggnog_viral/done.txt")
-    # pharokka/phold/genome_maps: moved to the global catalog on
-    # 2026-08-18 (second half of "(h)", docs/ROADMAP_SIMPLIFICACAO.md) --
-    # no longer per-sample, see rules/votu_catalog.smk.
+    # pharokka/phold: moved to the global catalog on 2026-08-18 (second half
+    # of "(h)", docs/ROADMAP_SIMPLIFICACAO.md). Os genome maps foram removidos
+    # em 2026-08-19.
     t.append(f"{OUTDIR}/votu_catalog/annotation/pharokka/done.txt")
     t.append(f"{OUTDIR}/votu_catalog/annotation/phold/done.txt")
-    t.append(f"{OUTDIR}/votu_catalog/annotation/genome_maps/phage_maps_done.txt")
-    t.append(f"{OUTDIR}/votu_catalog/annotation/genome_maps/virus_maps_done.txt")
     # defensefinder_viral/dbapis_viral: moved to the global catalog on
     # 2026-08-18 too (same move, same reasoning) -- no longer per-sample
     # or per-group, see rules/votu_catalog.smk.
@@ -531,7 +524,6 @@ def _t_prok():
     t += expand(f"{OUTDIR}/{{sample}}/annotation/bakta/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/annotation/eggnog/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/annotation/kegg_decoder/done.txt", sample=SAMPLES)
-    t += expand(f"{OUTDIR}/{{sample}}/annotation/genome_maps/prok_maps_done.txt", sample=SAMPLES)
     return t
 
 
