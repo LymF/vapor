@@ -1,24 +1,22 @@
 """
 Colapsar abundancia viral (sylph) por genero do hospedeiro predito.
 
-DUAS FONTES DE HOSPEDEIRO, deliberadamente separadas em colunas proprias:
+FONTE DO HOSPEDEIRO: a anotacao do BANCO de referencia -- coluna
+"Virus_host (if viral)" dos .sylphmpa por amostra, recuperada por
+build_host_map.py, ja que o `sylph-tax merge` a descarta. Existe para IMG/VR e
+UHGV, e o IMG/VR deixa a maioria como UNKNOWN (medido: 8 de 1407 taxa virais
+com genero real nos dados da Amazonia).
 
-  host_db     anotacao do BANCO de referencia (coluna "Virus_host (if viral)"
-              dos .sylphmpa por amostra, recuperada por build_host_map.py --
-              o `sylph-tax merge` descarta essa coluna). Existe para IMG/VR e
-              UHGV; o IMG/VR deixa muita coisa como UNKNOWN.
-  host_phist  predicao por k-mer contra MAGs, para os virus que o banco nao
-              anota. Preenchida a partir de um mapa clade_name -> linhagem.
+`host_source` acompanha `host_genus` de proposito: sem ele, "o banco atribuiu
+Acinetobacter" e "ninguem atribuiu nada" ficam indistinguiveis depois da
+agregacao. Um genero sem proveniencia e um numero sem procedencia.
 
-Elas nao se substituem: a do banco e curada e vale para o genoma de
-referencia; a do PHIST e computada contra os MAGs DESTA amostragem. Manter as
-duas visiveis deixa a proveniencia auditavel em vez de escondida atras de um
-unico numero. `host_genus` e a resolucao (banco primeiro, PHIST depois) e
-`host_source` diz de onde veio.
+Predicao de hospedeiro por PHIST NAO existe neste track -- ver o bloco de
+comentario em rules/reads_classify.smk para a decisao e o motivo.
 
 Uso:
     python collapse_by_host.py <merged.tsv> <saida.tsv> [--host-map F]
-                               [--phist-map F] [--assignments F]
+                               [--assignments F]
 
 Colunas de entrada:  clade_name | sample1 | sample2 | ...
 Colunas de saida:    host_genus | host_source | n_viral_taxa | sample1 | ...
@@ -95,21 +93,15 @@ def _load_map(path):
     return out
 
 
-def resolve_host(clade, db_map, phist_map):
-    """(genero, fonte) para um clado. Banco primeiro, PHIST depois.
+def resolve_host(clade, db_map):
+    """(genero, fonte) para um clado. Fonte e "db" ou "none".
 
-    O banco vem primeiro porque e curado e descreve o genoma de referencia que
-    o sylph de fato detectou. O PHIST entra onde o banco cala -- e nao ao
-    contrario, senao uma predicao por k-mer sobrescreveria uma atribuicao
-    publicada.
+    Devolver a fonte junto, e nao so o genero, e o ponto: depois do groupby um
+    "Unknown" sem procedencia se confunde com um hospedeiro que o banco de fato
+    nao conhece.
     """
     g_db = _parse_genus(db_map.get(clade, ""))
-    if g_db != UNKNOWN:
-        return g_db, "db"
-    g_ph = _parse_genus(phist_map.get(clade, ""))
-    if g_ph != UNKNOWN:
-        return g_ph, "phist"
-    return UNKNOWN, "none"
+    return (g_db, "db") if g_db != UNKNOWN else (UNKNOWN, "none")
 
 
 def main():
@@ -118,17 +110,13 @@ def main():
     ap.add_argument("output")
     ap.add_argument("--host-map", default="",
                     help="TSV clade_name/host_db (build_host_map.py)")
-    ap.add_argument("--phist-map", default="",
-                    help="TSV clade_name/host_phist (PHIST do track de reads)")
     ap.add_argument("--assignments", default="",
                     help="TSV auditavel por taxon: as duas fontes lado a lado")
     args = ap.parse_args()
 
-    db_map    = _load_map(args.host_map)
-    phist_map = _load_map(args.phist_map)
-    sys.stderr.write("[collapse_by_host] host_db: %d clados | host_phist: %d clados%s\n"
-                     % (len(db_map), len(phist_map),
-                        "" if args.phist_map else " (nenhum mapa PHIST fornecido)"))
+    db_map = _load_map(args.host_map)
+    sys.stderr.write("[collapse_by_host] host_db: %d clados com hospedeiro\n"
+                     % len(db_map))
 
     df = pd.read_csv(args.input, sep="\t", comment="#")
     taxon_col   = df.columns[0] if len(df.columns) else "clade_name"
@@ -153,7 +141,7 @@ def main():
         pd.DataFrame(columns=out_cols).to_csv(args.output, sep="\t", index=False)
         return
 
-    resolved = [resolve_host(c, db_map, phist_map) for c in viral[taxon_col]]
+    resolved = [resolve_host(c, db_map) for c in viral[taxon_col]]
     viral["host_genus"]  = [r[0] for r in resolved]
     viral["host_source"] = [r[1] for r in resolved]
 
@@ -161,7 +149,6 @@ def main():
         aud = pd.DataFrame({
             "clade_name":  viral[taxon_col].values,
             "host_db":     [db_map.get(c, "") for c in viral[taxon_col]],
-            "host_phist":  [phist_map.get(c, "") for c in viral[taxon_col]],
             "host_genus":  viral["host_genus"].values,
             "host_source": viral["host_source"].values,
         })
@@ -176,7 +163,7 @@ def main():
     agg = grp[sample_cols].sum()
     agg.insert(0, "n_viral_taxa", grp[taxon_col].count())
     sources = grp["host_source"].apply(
-        lambda col: ",".join(sorted(set(col) - {"none"}) or ["none"]))
+        lambda col: ",".join(sorted(set(col) - {"none"}) or ["none"]))  # noqa: E501
     agg.insert(0, "host_source", sources)
     agg = agg.reset_index()
     if sample_cols:

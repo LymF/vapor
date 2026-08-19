@@ -52,17 +52,6 @@ _RC_HAS_PREBUILT_VIRAL = any(k in _RC_ACTIVE_DBS for k in ("imgvr", "uhgv"))
 _RC_TAX_DIR = _expand(config.get("reads_classify_tax_dir", "")) \
     or _os.path.join(OUTDIR, "reads_classify", "taxonomy")
 
-# Optional genome FASTA for BACPHLIP lifestyle prediction
-_RC_GENOME_FASTA = _expand(config.get("reads_classify_genome_fasta", "")) \
-    if config.get("reads_classify_genome_fasta", "") else ""
-
-# Mapa clade_name -> linhagem do hospedeiro vindo de um PHIST sobre os genomas
-# de referencia detectados pelo sylph. Ainda nao ha regra que o produza (ver
-# reads_collapse_host); vazio = coluna host_phist vazia, nao "PHIST sem hits".
-_RC_PHIST_MAP = _expand(config.get("reads_classify_phist_map", "")) \
-    if config.get("reads_classify_phist_map", "") else ""
-
-_RC_VIR_THRESHOLD    = config.get("reads_classify_virulence_threshold", 0.5)
 _RC_MIN_PREVALENCE   = config.get("reads_classify_min_prevalence", 0.0)
 
 
@@ -297,16 +286,15 @@ rule reads_host_map:
 
 rule reads_collapse_host:
     """
-    Agregar abundancia viral por genero do hospedeiro, de DUAS fontes.
+    Agregar abundancia viral por genero do hospedeiro anotado pelo BANCO.
 
-    host_db     anotacao do banco (IMG/VR, UHGV), via reads_host_map.
-    host_phist  predicao por k-mer contra MAGs, para os virus que o banco nao
-                anota. `_RC_PHIST_MAP` fica vazio enquanto nao houver PHIST no
-                track de reads -- e a coluna sai vazia, com host_source="none",
-                que e distinguivel de "o PHIST rodou e nao achou".
+    Fonte unica: a coluna "Virus_host (if viral)" dos .sylphmpa, recuperada por
+    `reads_host_map` -- o `sylph-tax merge` a descarta. O PHIST sobre genomas de
+    referencia foi descartado neste track; ver o bloco de comentario abaixo.
 
-    O sidecar `viral_host_assignments.tsv` traz as duas fontes lado a lado por
-    taxon, para a proveniencia do numero agregado ser auditavel.
+    O sidecar `viral_host_assignments.tsv` traz a atribuicao por taxon, para a
+    proveniencia do numero agregado ser auditavel: `host_source` distingue "o
+    banco atribuiu" de "ninguem atribuiu".
     """
     input:
         table    = f"{OUTDIR}/reads_classify/merged_relative_abundance_filtered.tsv",
@@ -320,51 +308,36 @@ rule reads_collapse_host:
     container:  CONTAINERS.get("sylph_tax")
     params:
         script    = _os.path.join(_RC_SCRIPTS, "collapse_by_host.py"),
-        phist_arg = (f"--phist-map {_RC_PHIST_MAP}" if _RC_PHIST_MAP else ""),
     shell:
         """
         python {params.script} {input.table} {output.table} \
             --host-map {input.host_map} \
-            --assignments {output.assignments} \
-            {params.phist_arg} 2> {log}
+            --assignments {output.assignments} 2> {log}
         """
 
 
-# ── BACPHLIP lifestyle prediction (optional) ───────────────────────────
-# Only active when reads_classify_genome_fasta is set in config.
-
-if _RC_GENOME_FASTA:
-
-    rule reads_bacphlip:
-        """
-        Predict viral lifestyle (virulent/temperate) for sylph-detected genomes.
-        Requires reads_classify_genome_fasta: path to reference genome FASTA.
-        """
-        input:
-            tsv   = f"{OUTDIR}/{{sample}}/reads_classify/sylph_results.tsv",
-            fasta = _RC_GENOME_FASTA,
-        output:
-            done  = f"{OUTDIR}/{{sample}}/reads_classify/bacphlip/done.txt",
-        log:
-            f"{OUTDIR}/{{sample}}/logs/reads_bacphlip.log",
-        benchmark:
-            f"{OUTDIR}/{{sample}}/benchmarks/reads_bacphlip.tsv",
-        conda:      "../envs/env_reads_classify.yaml"
-        container:  CONTAINERS.get("sylph_tax")
-        params:
-            out_dir   = f"{OUTDIR}/{{sample}}/reads_classify/bacphlip",
-            vir_thresh = _RC_VIR_THRESHOLD,
-            script    = _os.path.join(_RC_SCRIPTS, "bacphlip_lifestyle.py"),
-        shell:
-            """
-            python {params.script} \
-                {input.tsv} \
-                {input.fasta} \
-                {params.out_dir} \
-                {params.vir_thresh} \
-                2> {log}
-            touch {output.done}
-            """
+# -- BACPHLIP e PHIST NAO existem neste track, por decisao (2026-08-19) ------
+#
+# Ambos precisam das SEQUENCIAS dos genomas de referencia, e o que ha em disco
+# sao apenas os sketches .syldb do sylph -- um .syldb e um esboco de k-mers, do
+# qual nao se recupera sequencia. Habilita-los exigiria baixar o IMG/VR em
+# FASTA e, para o PHIST, os representantes do GTDB r232: dezenas de GB numa
+# pipeline que ja pede ~500 GB de bancos.
+#
+# E o custo nao compraria nada novo. As duas perguntas ja tem resposta sobre os
+# virus DO USUARIO, e nao sobre genomas de referencia publicos:
+#   lifestyle  -> `bacphlip_votu`  (votu_catalog.smk, sobre all_fasta)
+#   hospedeiro -> `rule phist`     (host_prediction.smk, mq_fasta vs os MAGs)
+# A versao deste track responderia as mesmas perguntas sobre o IMG/VR, que nao
+# e o objeto de estudo. O hospedeiro anotado pelo BANCO continua disponivel,
+# via `reads_host_map` -> coluna host_db.
+#
+# Se um dia voltar: o PHIST exige um FASTA POR GENOMA dos dois lados (o kmer-db
+# emite uma linha por ARQUIVO, nao por sequencia) mais dois arquivos de lista
+# com um caminho por linha -- ver split_viral_fastas.py. E atencao: os
+# resultados do `rule phist` NAO servem aqui, porque descrevem contigs montados
+# ("k141_...") e nao os genomas de referencia do IMG/VR ("t__IMGVR_UViG_...");
+# a juncao sairia vazia, mais um caso da familia de bugs de namespace.
 
 
 # ── Final sentinel ─────────────────────────────────────────────────────
@@ -376,10 +349,6 @@ rule reads_classify_done:
     input:
         otu     = f"{OUTDIR}/reads_classify/otu_table.tsv",
         host    = f"{OUTDIR}/reads_classify/viral_abundance_by_host.tsv",
-        *(expand(
-            f"{OUTDIR}/{{sample}}/reads_classify/bacphlip/done.txt",
-            sample=SAMPLES,
-        ) if _RC_GENOME_FASTA else []),
     output:
         f"{OUTDIR}/reads_classify/reads_classify_done.txt",
     shell:

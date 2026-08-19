@@ -243,12 +243,4 @@ reads_classify_min_kmers: 5
 # BACPHLIP lifestyle prediction — optional, requires genome FASTA source.
 # Set to path of a FASTA containing all reference genomes in your sylph DB.
 # Leave empty to skip lifestyle prediction.
-reads_classify_genome_fasta: ""
 
-# Mapa clade_name -> linhagem do hospedeiro vindo de um PHIST sobre os genomas
-# de REFERENCIA que o sylph detectou. Vazio = a coluna host_phist do
-# viral_abundance_by_host.tsv fica vazia (host_source "none"), o que e
-# distinguivel de "o PHIST rodou e nao achou hospedeiro". Ainda nao ha regra
-# que produza esse arquivo -- ver docs/ROADMAP_SIMPLIFICACAO.md.
-reads_classify_phist_map: ""
-reads_classify_virulence_threshold: 0.5   # BACPHLIP score above this = Virulent

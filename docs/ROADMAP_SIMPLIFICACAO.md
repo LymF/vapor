@@ -866,26 +866,35 @@ genoma de referência que o sylph de fato detectou; o PHIST entra onde o banco
 cala. O contrário deixaria uma predição por k-mer sobrescrever uma atribuição
 publicada.
 
-**Ainda falta: PHIST no track de reads.** `_RC_PHIST_MAP` /
-`reads_classify_phist_map` já existe e alimenta a coluna; nenhuma regra o
-produz. Duas coisas travam, e a segunda é uma armadilha:
+**DECIDIDO: PHIST e BACPHLIP saem do track de reads** (2026-08-19). Os dois
+precisam das **sequências** dos genomas de referência, e em disco só existem os
+sketches `.syldb` do sylph — um `.syldb` é um esboço de k-mers, do qual não se
+recupera sequência. Era esse o bloqueio real, não formatação: `reads_classify_
+genome_fasta` estava vazio porque o arquivo não existe. Habilitar exigiria
+baixar o IMG/VR em FASTA e, para o PHIST, os representantes do GTDB r232 —
+dezenas de GB numa pipeline que já pede ~500 GB.
 
-1. **Formato.** O PHIST aqui é `kmer-db build` + `kmer-db new2all` + `phist`.
-   Exige **um FASTA por genoma** dos dois lados (o kmer-db dá uma linha de
-   resultado por ARQUIVO, não por sequência), mais dois arquivos de lista com
-   um caminho por linha. É por isso que existe o `split_viral_fastas.py`.
-2. **Os resultados de PHIST que já existem não servem.** O `rule phist` roda
-   sobre contigs MONTADOS (`k141_...`) contra os MAGs da amostra. Os clados do
-   sylph são genomas de REFERÊNCIA do IMG/VR (`t__IMGVR_UViG_...`) — entidades
-   diferentes, sem chave em comum. Reaproveitar a tabela existente produziria
-   junção vazia (mais um caso da família). É preciso um PHIST novo, sobre os
-   genomas detectados pelo sylph, extraídos do `reads_classify_genome_fasta`
-   pelo `Contig_name` — a mesma extração que o `bacphlip_lifestyle.py` faz, e
-   cujo bug de ID foi corrigido hoje.
+E o custo não compraria nada novo, que é o argumento decisivo: **as duas
+perguntas já têm resposta sobre os vírus do usuário**, não sobre genomas de
+referência públicos —
 
-Decisão pendente do usuário: quem são os hospedeiros candidatos — os MAGs da
-própria amostragem (liga o perfil por reads às bactérias montadas) ou os
-genomas GTDB que o sylph detectou (independe de montagem)?
+| pergunta | quem já responde | sobre o quê |
+|---|---|---|
+| lifestyle | `bacphlip_votu` (`votu_catalog.smk`) | `votu_catalog_reps.all_fasta` |
+| hospedeiro | `rule phist` (`host_prediction.smk`) | `mq_fasta` vs os MAGs da amostra |
+
+A versão do track de reads responderia as mesmas perguntas sobre o IMG/VR, que
+não é o objeto de estudo. Removidos: `rule reads_bacphlip`,
+`scripts/reads_classify/bacphlip_lifestyle.py`, e as chaves
+`reads_classify_genome_fasta` / `reads_classify_virulence_threshold`. O
+hospedeiro anotado pelo **banco** continua, via `reads_host_map` → `host_db`.
+
+Registrado para quem reabrir isto: o PHIST exige **um FASTA por genoma** dos
+dois lados (o `kmer-db` emite uma linha por ARQUIVO, não por sequência) mais
+dois arquivos de lista com um caminho por linha — é o que o
+`split_viral_fastas.py` faz. E **os resultados do `rule phist` não servem**:
+descrevem contigs montados (`k141_...`), não os genomas de referência do IMG/VR
+(`t__IMGVR_UViG_...`); a junção sairia vazia, mais um caso da família.
 
 ### Caça a bugs de tratamento de dados — 2026-08-19
 

@@ -51,18 +51,18 @@ def test_genero_unknown_tem_uma_grafia_so():
     assert _parse_genus("d__Bacteria;p__X;c__Y;o__Z;f__W;g__Acinetobacter") == "Acinetobacter"
 
 
-def test_banco_tem_precedencia_sobre_phist():
-    """Uma predicao por k-mer nao pode sobrescrever atribuicao publicada."""
+def test_host_do_banco_vem_com_fonte():
     db = {"c1": "d__B;p__;c__;o__;f__;g__Acinetobacter"}
-    ph = {"c1": "d__B;p__;c__;o__;f__;g__Pseudomonas"}
-    assert resolve_host("c1", db, ph) == ("Acinetobacter", "db")
+    assert resolve_host("c1", db) == ("Acinetobacter", "db")
 
 
-def test_phist_preenche_onde_o_banco_cala():
-    db = {"c1": "d__B;p__;c__;o__;f__;UNKNOWN"}
-    ph = {"c1": "d__B;p__;c__;o__;f__;g__Pseudomonas"}
-    assert resolve_host("c1", db, ph) == ("Pseudomonas", "phist")
+def test_rank_de_genero_vazio_nao_vira_atribuicao():
+    """O IMG/VR preenche o rank com "UNKNOWN"; isso e ausencia, nao um genero
+    chamado UNKNOWN."""
+    assert resolve_host("c1", {"c1": "d__B;p__X;c__;o__;f__;UNKNOWN"}) == (UNKNOWN, "none")
 
 
-def test_sem_nenhuma_fonte_a_origem_e_none_nao_um_palpite():
-    assert resolve_host("c1", {}, {}) == (UNKNOWN, "none")
+def test_sem_fonte_a_origem_e_none_nao_um_palpite():
+    """host_source existe para que, depois do groupby, "ninguem atribuiu" nao
+    se confunda com uma atribuicao real."""
+    assert resolve_host("c1", {}) == (UNKNOWN, "none")
