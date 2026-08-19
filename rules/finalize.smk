@@ -208,7 +208,7 @@ rule organize_outputs:
             cp(g('viral_disc_tsv'), f"{final}/viral/viral_discarded.tsv")
 
             if TRACK_VIRAL:
-                vrhyme_bins = glob.glob(f"{s}/bins/vrhyme/vRhyme_best_bins.*.fasta")
+                vrhyme_bins = glob.glob(f"{s}/bins/vrhyme/vRhyme_best_bins_fasta/*.fasta")
                 for bf in vrhyme_bins:
                     shutil.copy(bf, f"{final}/viral/viral_bins/")
                 lf.write(f"vRhyme bins: {len(vrhyme_bins)}\n")

@@ -21,6 +21,9 @@ Usage: python3 split_viral_fastas.py <viral_fasta> <vrhyme_dir> <output_dir> <so
 """
 import os, sys, shutil, glob
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from vrhyme_bins import bin_fastas, contig_from_bin_header
+
 viral_fa   = sys.argv[1]
 vrhyme_dir = sys.argv[2]
 out_dir    = sys.argv[3]
@@ -30,7 +33,7 @@ os.makedirs(out_dir, exist_ok=True)
 
 # 1. vRhyme bins — copy bin FASTAs and record which contigs are already binned
 binned_contigs = set()
-vbins = glob.glob(os.path.join(vrhyme_dir, 'vRhyme_best_bins.*.fasta'))
+vbins = bin_fastas(vrhyme_dir)
 bins_copied = 0
 for vbin in vbins:
     bname = os.path.basename(vbin)
@@ -39,7 +42,7 @@ for vbin in vbins:
     with open(vbin) as f:
         for line in f:
             if line.startswith('>'):
-                name = line[1:].split()[0]
+                name = contig_from_bin_header(line)
                 binned_contigs.add(name)
                 if source_id:
                     binned_contigs.add(f'{source_id}|{name}')

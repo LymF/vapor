@@ -215,6 +215,7 @@ rule viral_nonredundant:
         from collections import defaultdict
         import sys as _sys
         _sys.path.insert(0, SCRIPTS_DIR)
+        from vrhyme_bins import bin_fastas, contig_from_bin_header
         from viral_length_gate import (
             passes_gate, summarize, format_discard_row, DISCARD_TSV_COLUMNS,
         )
@@ -308,11 +309,11 @@ rule viral_nonredundant:
         out_lines = []
         gate_results = []
 
-        for vbin in sorted(glob.glob(os.path.join(vbins_dir, 'vRhyme_best_bins.*.fasta'))):
+        for vbin in bin_fastas(vbins_dir):
             with open(vbin) as fh:
                 for line in fh:
                     if line.startswith('>'):
-                        name = line[1:].split()[0]
+                        name = contig_from_bin_header(line)
                         if name not in binned:
                             binned.add(name)
                             for hdr, seq in entries_for(name):
@@ -363,7 +364,7 @@ rule viral_nonredundant:
             w.writerow(DISCARD_TSV_COLUMNS)
             w.writerows(discard_rows)
 
-        n_bins  = len(glob.glob(os.path.join(vbins_dir, 'vRhyme_best_bins.*.fasta')))
+        n_bins  = len(bin_fastas(vbins_dir))
         n_total = sum(1 for l in out_lines if l.startswith('>'))
         n_trimmed = sum(1 for n in binned | set(orig_seqs) if n in trimmed)
         counts = summarize(gate_results)

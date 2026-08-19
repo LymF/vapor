@@ -714,6 +714,54 @@ biológico errado. Dois são anteriores ao (h).
    `report.smk` são incondicionais e arrastam a cadeia do catálogo de volta.
    A flag já era meio decorativa; o (h) alargou a inconsistência.
 
+### Sétima manifestação — os bins do vRhyme nunca foram encontrados
+
+**Verificada contra os dados da Amazônia em 2026-08-18** (7 grupos de
+co-assembly, 2870 headers de bin). Anterior a todo este roadmap.
+
+O layout real do vRhyme não é o que o código assumia:
+
+| | real | o que o código procurava |
+|---|---|---|
+| diretório | `vrhyme/vRhyme_best_bins_fasta/` | `vrhyme/` |
+| arquivo | `vRhyme_bin_100.fasta` | `vRhyme_best_bins.*.fasta` |
+| header | `>vRhyme_100__k141_246312` | `k141_246312` |
+
+O glob casava **zero** arquivos, em 100% dos casos. O padrão parecia plausível
+numa leitura rápida porque `vRhyme_best_bins.19.*` **existe** naquele
+diretório — só que como `.membership.tsv` e `.summary.tsv`, nunca `.fasta`.
+
+Cinco pontos usavam o glob errado: `viral_nonredundant` (loop e contador),
+o par de grupo em `coassembly.smk`, o `split_viral_fastas.py` (PHIST) e o
+`finalize.smk`. O `checkv_vrhyme` e o `data_loaders.py` acertavam — o que
+tornava a divergência ainda menos visível.
+
+**Consequências, todas silenciosas:**
+- nenhum vMAG entrava no conjunto não-redundante;
+- o contador de bins do log reportava 0, então "não há bins" e "não achei os
+  bins" eram indistinguíveis;
+- o dedup do `split_viral_fastas.py` nunca disparava (a correção de namespace
+  do commit `a317707` estava certa mas era insuficiente — o glob não achava
+  nada de qualquer jeito);
+- e, depois do item (e), o braço "está num bin" do portão nunca disparava.
+
+**Impacto medido no grupo TAP** (1429 sequências), simulando o portão do (e)
+com dado real:
+
+| | mantidos | descartados |
+|---|---|---|
+| com o glob quebrado | 378 | **1051** |
+| com o glob corrigido | 942 | 487 |
+
+Ou seja: 860 contigs binados seriam descartados por falta de evidência que
+existia e não estava sendo lida. O item (e) não causou isso — mas teria sido
+quem transformaria o bug latente em perda de dado.
+
+**Conserto:** `scripts/vrhyme_bins.py`, com `bin_fastas()`,
+`contig_from_bin_header()` e `binned_contigs()`. Um lugar só, para não haver
+uma sexta cópia do glob. Verificado: 860 de 860 contigs binados do TAP passam
+a casar (era 0).
+
 ### Quinta manifestação do bug de namespace — `split_viral_fastas.py` — CONSERTADA
 
 **Anterior ao (h)** (vem do `8ef8bb4`), e é o mesmo padrão. O roadmap marcou o

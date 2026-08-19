@@ -1280,6 +1280,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
             import csv, glob, os
             import sys as _sys
             _sys.path.insert(0, SCRIPTS_DIR)
+            from vrhyme_bins import bin_fastas, contig_from_bin_header
             from viral_length_gate import (
                 passes_gate, summarize, format_discard_row, DISCARD_TSV_COLUMNS,
             )
@@ -1345,7 +1346,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
             # (coassembly_vrhyme's -i is the already-trimmed fasta).
             vbins_dir = params.vrhyme_dir
             binned = set()
-            for vbin in sorted(glob.glob(os.path.join(vbins_dir, 'vRhyme_best_bins.*.fasta'))):
+            for vbin in bin_fastas(vbins_dir):
                 with open(vbin) as fh:
                     for line in fh:
                         if line.startswith('>'):
@@ -1391,7 +1392,7 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
                 w.writerow(DISCARD_TSV_COLUMNS)
                 w.writerows(discard_rows)
 
-            n_bins = len(glob.glob(os.path.join(vbins_dir, 'vRhyme_best_bins.*.fasta')))
+            n_bins = len(bin_fastas(vbins_dir))
             counts = summarize(gate_results)
             with open(str(log[0]), 'w') as lf:
                 lf.write(f'group={wildcards.group}\n')
