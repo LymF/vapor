@@ -1067,34 +1067,13 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             import os
             from collections import defaultdict
 
-            # Build CheckV trimmed dict: orig_contig_id -> list of (header_line, seq_lines)
-            # viruses.fna: header = original ID (no trimming needed, but use this file to
-            #   be consistent — avoids re-reading the consensus for non-provirus sequences)
-            # proviruses.fna: header = "orig_id|start_end" (trimmed region only)
-            trimmed = defaultdict(list)
-            for fna_path, is_provirus in [
-                (str(input.checkv_viruses), False),
-                (str(input.checkv_proviruses), True),
-            ]:
-                if not os.path.exists(fna_path) or os.path.getsize(fna_path) == 0:
-                    continue
-                curr_hdr, curr_seq = None, []
-                with open(fna_path) as fh:
-                    for line in fh:
-                        if line.startswith('>'):
-                            if curr_hdr:
-                                hdr_id = curr_hdr[1:].split()[0]
-                                orig = hdr_id.rsplit('|', 1)[0] if is_provirus else hdr_id
-                                trimmed[orig].append((curr_hdr, curr_seq))
-                            curr_hdr = line; curr_seq = []
-                        else:
-                            curr_seq.append(line)
-                    if curr_hdr:
-                        hdr_id = curr_hdr[1:].split()[0]
-                        orig = hdr_id.rsplit('|', 1)[0] if is_provirus else hdr_id
-                        trimmed[orig].append((curr_hdr, curr_seq))
+            import sys as _sys
+            _sys.path.insert(0, SCRIPTS_DIR)
+            from checkv_provirus import build_trimmed_index
 
-            # Fallback: original sequences for anything CheckV didn't process
+            # Consenso PRIMEIRO: seus ids sao o `known` contra o qual o header
+            # de provirus e resolvido (ver scripts/checkv_provirus.py). Gemeo
+            # exato de `viral_trimmed` em rules/viral_binning.smk.
             orig_seqs = {}
             with open(str(input.consensus)) as fh:
                 curr_hdr, curr_seq = None, []
@@ -1107,6 +1086,33 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                         curr_seq.append(line)
                 if curr_hdr:
                     orig_seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
+
+            # viruses.fna    : header = id original.
+            # proviruses.fna : header = "{contig}_{n}" (so a regiao aparada).
+            def _iter_fna(path, is_provirus):
+                if not os.path.exists(path) or os.path.getsize(path) == 0:
+                    return
+                curr_hdr, curr_seq = None, []
+                with open(path) as fh:
+                    for line in fh:
+                        if line.startswith('>'):
+                            if curr_hdr:
+                                yield (curr_hdr, curr_seq, is_provirus)
+                            curr_hdr = line; curr_seq = []
+                        else:
+                            curr_seq.append(line)
+                    if curr_hdr:
+                        yield (curr_hdr, curr_seq, is_provirus)
+
+            _entries = list(_iter_fna(str(input.checkv_viruses), False)) + \
+                       list(_iter_fna(str(input.checkv_proviruses), True))
+            trimmed, _unresolved = build_trimmed_index(_entries, set(orig_seqs))
+            _n_prov = sum(1 for e in _entries if e[2])
+            if _n_prov and _unresolved == _n_prov:
+                raise RuntimeError(
+                    "nenhum dos %d headers de provirus do CheckV foi resolvido "
+                    "para um contig do consenso -- o formato do proviruses.fna "
+                    "mudou. Ver scripts/checkv_provirus.py." % _n_prov)
 
             def emit(name, out_lines):
                 if name in trimmed:
@@ -1317,13 +1323,19 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
                     except ValueError:
                         completeness[cid] = 0.0
 
+            import sys as _sys
+            _sys.path.insert(0, SCRIPTS_DIR)
+            from checkv_provirus import resolve_original_id
+
             def lookup_key(name):
-                """Recover the pre-trim quality_summary key for a (possibly
-                provirus-suffixed) trimmed-fasta header."""
-                if name in quality:
-                    return name
-                stripped = name.rsplit('|', 1)[0]
-                return stripped if stripped in quality else name
+                """Chave pre-trim do quality_summary para um header ja aparado.
+
+                Usava `rsplit('|', 1)`, que nunca casava: o CheckV sufixa
+                "_{n}", nao "|start_end". Efeito -- todo provirus caia para
+                completude 0.0 e reprovava o braco de qualidade do portao.
+                """
+                orig, _ok = resolve_original_id(name, set(quality))
+                return orig
 
             # Read the already-trimmed fasta: name -> (header, seq_lines, length)
             seqs = {}

@@ -837,6 +837,56 @@ quem transformaria o bug latente em perda de dado.
 uma sexta cópia do glob. Verificado: 860 de 860 contigs binados do TAP passam
 a casar (era 0).
 
+### Oitava manifestação — o aparo de provírus do CheckV nunca acontecia
+
+**Medida contra os dados da Amazônia em 2026-08-19** (7 grupos de co-assembly).
+Anterior a todo este roadmap. Consertada nos commits desta data.
+
+O código lia `proviruses.fna` e derivava o contig de origem com
+`hdr_id.rsplit('|', 1)[0]`, apoiado num comentário que afirmava que o header é
+`"orig_id|start_end"`. **Não é.** O formato real:
+
+    >k141_219139_1 1-13933/18998
+    >k141_97527_1 1-2446/3389
+
+É `{contig}_{n}`, e o intervalo está na *descrição*, depois do espaço — que todo
+leitor descarta com `.split()[0]`. Sem nenhum `|` no header, o `rsplit` era um
+no-op: devolvia o header inteiro, a chave nunca batia com o contig do consenso,
+e o efeito foi duplo — **o fragmento aparado era descartado E a sequência
+original, com o DNA de hospedeiro flanqueando o profago, era emitida como
+"viral"**.
+
+| | |
+|---|---|
+| provírus nos 7 grupos | 118 |
+| resolvidos antes | **0** |
+| resolvidos depois | 118 |
+| pb de hospedeiro carregados como "viral" | **216.458** |
+
+Consequências a jusante: comprimento inflado no portão do item (e), ANI errada
+no clustering de vOTU, e genes de hospedeiro anotados como virais por
+pharokka/phold. Este último importa em particular para o eixo
+defesa/anti-defesa: genes de defesa **do hospedeiro** dentro do flanco podiam
+ser contados como anti-defesa **do fago**.
+
+Três cópias da mesma linha errada (`viral_binning.smk`, `coassembly.smk`, e o
+`lookup_key` do portão de grupo) — foi ter três cópias que permitiu a
+divergência sobreviver. Agora há um módulo só, `scripts/checkv_provirus.py`,
+com 8 testes. Ele **não adivinha delimitador**: testa candidatos contra o
+conjunto de ids que se sabe existirem, e devolve um flag `resolvido` que o
+chamador conta. Se o CheckV mudar o formato de novo, as regras abortam com
+mensagem explícita em vez de emitir flanco de hospedeiro em silêncio.
+
+**Uma armadilha no conserto, que quase virou um bug novo:** como o aparo nunca
+acontecia, o catálogo global **nunca via headers com sufixo**. Consertar só
+essa camada faria os ids `k141_219139_1` chegarem ao pool, onde
+`_load_catalog_completeness()` os chavearia contra um `quality_summary.tsv` que
+só conhece `k141_219139` — todo profago cairia para completude 0.0, sumindo do
+nível `mq` e do pharokka. Ou seja, o conserto teria movido o descasamento de
+lugar em vez de removê-lo. Por isso `_load_catalog_completeness()` ganhou uma
+segunda passada sobre o `provenance.tsv`, que copia a evidência do contig de
+origem para o id do fragmento.
+
 ### Quinta manifestação do bug de namespace — `split_viral_fastas.py` — CONSERTADA
 
 **Anterior ao (h)** (vem do `8ef8bb4`), e é o mesmo padrão. O roadmap marcou o

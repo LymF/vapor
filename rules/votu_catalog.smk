@@ -73,24 +73,68 @@ def _catalog_checkv_summaries(wildcards):
 
 
 def _load_catalog_completeness():
-    """CheckV completeness and quality tier, keyed by the pool's namespaced IDs."""
+    """CheckV completeness and quality tier, keyed by the pool's namespaced IDs.
+
+    Duas passadas, e a segunda existe por um motivo especifico. O
+    quality_summary.tsv do CheckV tem uma linha por contig ORIGINAL
+    ("k141_219139"), mas a sequencia que chega ao pool pode ser um fragmento
+    de provirus aparado ("k141_219139_1"). Chavear so pelo id original faria
+    todo profago cair para completude 0.0 -- reprovando o braco de qualidade
+    do portao, sumindo do nivel `mq` de representantes e nunca sendo anotado
+    pelo pharokka.
+
+    Ate 2026-08-19 isso nao aparecia porque o aparo do CheckV silenciosamente
+    nunca acontecia (o mesmo bug de sufixo, uma camada abaixo -- ver
+    scripts/checkv_provirus.py). Consertar aquela camada sem esta apenas
+    moveria o descasamento de lugar.
+
+    A segunda passada le o provenance.tsv, que ja lista todo member_id do pool
+    com seu source, e copia a evidencia do contig de origem para o id do
+    fragmento.
+    """
     import csv
+    import sys as _sys
+    _sys.path.insert(0, SCRIPTS_DIR)
+    from checkv_provirus import resolve_original_id
+
     completeness = {}
     quality = {}
+    known_by_source = {}
     for source_id, path in _catalog_checkv_pairs():
         if not os.path.exists(path):
             continue
+        known = known_by_source.setdefault(source_id, set())
         with open(path) as fh:
             for row in csv.DictReader(fh, delimiter="\t"):
                 contig = (row.get("contig_id") or "").strip()
                 if not contig:
                     continue
+                known.add(contig)
                 key = f"{source_id}|{contig}"
                 quality[key] = (row.get("checkv_quality") or "").strip()
                 try:
                     completeness[key] = float(row.get("completeness") or 0)
                 except ValueError:
                     completeness[key] = 0.0
+
+    prov_path = f"{CATALOG_DIR}/provenance.tsv"
+    if os.path.exists(prov_path):
+        with open(prov_path) as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                member = (row.get("member_id") or "").strip()
+                source = (row.get("source_id") or "").strip()
+                header = (row.get("original_contig_id") or "").strip()
+                if not member or member in completeness:
+                    continue
+                orig, ok = resolve_original_id(header,
+                                               known_by_source.get(source, set()))
+                if not ok:
+                    continue
+                src_key = f"{source}|{orig}"
+                if src_key in completeness:
+                    completeness[member] = completeness[src_key]
+                    quality[member] = quality.get(src_key, "")
+
     return completeness, quality
 
 

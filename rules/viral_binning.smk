@@ -219,6 +219,7 @@ rule viral_nonredundant:
         from viral_length_gate import (
             passes_gate, summarize, format_discard_row, DISCARD_TSV_COLUMNS,
         )
+        from checkv_provirus import build_trimmed_index
 
         # vRhyme falhou? Entao o braco "esta num bin" e INDISPONIVEL, nao
         # falso -- e o portao degradaria para comprimento-puro, descartando
@@ -238,34 +239,11 @@ rule viral_nonredundant:
                 "silencio. Corrija o vRhyme antes de seguir." % _vr_status)
 
 
-        # Build CheckV trimmed dict: orig_contig_id -> list of (header_line, seq_lines)
-        # viruses.fna: header = original ID (no trimming needed, but use this file to
-        #   be consistent — avoids re-reading the consensus for non-provirus sequences)
-        # proviruses.fna: header = "orig_id|start_end" (trimmed region only)
-        trimmed = defaultdict(list)
-        for fna_path, is_provirus in [
-            (str(input.checkv_viruses), False),
-            (str(input.checkv_proviruses), True),
-        ]:
-            if not os.path.exists(fna_path) or os.path.getsize(fna_path) == 0:
-                continue
-            curr_hdr, curr_seq = None, []
-            with open(fna_path) as fh:
-                for line in fh:
-                    if line.startswith('>'):
-                        if curr_hdr:
-                            hdr_id = curr_hdr[1:].split()[0]
-                            orig = hdr_id.rsplit('|', 1)[0] if is_provirus else hdr_id
-                            trimmed[orig].append((curr_hdr, curr_seq))
-                        curr_hdr = line; curr_seq = []
-                    else:
-                        curr_seq.append(line)
-                if curr_hdr:
-                    hdr_id = curr_hdr[1:].split()[0]
-                    orig = hdr_id.rsplit('|', 1)[0] if is_provirus else hdr_id
-                    trimmed[orig].append((curr_hdr, curr_seq))
-
-        # Fallback: original sequences for anything CheckV didn't process
+        # O consenso e lido PRIMEIRO: os ids originais dele sao o conjunto
+        # `known` contra o qual o header de provirus e resolvido. Ordem
+        # invertida ate 2026-08-19, quando o `orig` era adivinhado por
+        # delimitador -- ver scripts/checkv_provirus.py para o que isso
+        # custou.
         orig_seqs = {}
         with open(str(input.viral)) as fh:
             curr_hdr, curr_seq = None, []
@@ -278,6 +256,36 @@ rule viral_nonredundant:
                     curr_seq.append(line)
             if curr_hdr:
                 orig_seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
+
+        # Build CheckV trimmed dict: orig_contig_id -> list of (header_line, seq_lines)
+        # viruses.fna    : header = id original.
+        # proviruses.fna : header = "{contig}_{n}" (so a regiao aparada).
+        def _iter_fna(path, is_provirus):
+            if not os.path.exists(path) or os.path.getsize(path) == 0:
+                return
+            curr_hdr, curr_seq = None, []
+            with open(path) as fh:
+                for line in fh:
+                    if line.startswith('>'):
+                        if curr_hdr:
+                            yield (curr_hdr, curr_seq, is_provirus)
+                        curr_hdr = line; curr_seq = []
+                    else:
+                        curr_seq.append(line)
+                if curr_hdr:
+                    yield (curr_hdr, curr_seq, is_provirus)
+
+        _entries = list(_iter_fna(str(input.checkv_viruses), False)) + \
+                   list(_iter_fna(str(input.checkv_proviruses), True))
+        trimmed, _unresolved = build_trimmed_index(_entries, set(orig_seqs))
+        _n_prov = sum(1 for e in _entries if e[2])
+        if _n_prov and _unresolved == _n_prov:
+            raise RuntimeError(
+                "nenhum dos %d headers de provirus do CheckV foi resolvido "
+                "para um contig do consenso -- o formato do proviruses.fna "
+                "mudou. Sem isto o DNA de hospedeiro flanqueando profagos "
+                "seria emitido como viral, em silencio. Ver "
+                "scripts/checkv_provirus.py." % _n_prov)
 
         def entries_for(name):
             """(header, seq_lines) pairs that represent this original contig id
@@ -371,6 +379,8 @@ rule viral_nonredundant:
         with open(str(log[0]), 'w') as lf:
             lf.write(f'vRhyme bins: {n_bins} ({len(binned)} binned contigs)\n')
             lf.write(f'CheckV-trimmed sequences: {n_trimmed}\n')
+            lf.write(f'proviroses do CheckV: {_n_prov} '
+                     f'({_unresolved} sem contig de origem resolvido)\n')
             lf.write(f'composite gate: input={counts["total"]} '
                      f'kept_via_bin={counts["binned"]} '
                      f'kept_via_quality={counts["quality"]} '
