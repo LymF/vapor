@@ -1049,48 +1049,89 @@ desta. Ganhou também um WARNING explícito para o caso "bins carregados mas
 nenhum contig casou como já binado", que é a assinatura exata do
 descasamento.
 
-- **`eggnog_viral` roda um Prodigal próprio** sobre o mesmo `mq_fasta`
-  (`votu_catalog.smk`), duplicando o `votu_prodigal` que o (h) tornou global.
-  Achado pela auditoria do (h) em 2026-08-18. Pequeno e no mesmo espírito do
-  (h): trocar pelo `.faa` global e conferir se o eggNOG precisa de algum flag
-  de predição que o `votu_prodigal` não usa (prodigal-gv vs prodigal padrão —
-  **verificar antes de assumir que são intercambiáveis**).
+- ~~**`eggnog_viral` roda um Prodigal próprio**~~ — **FEITO em 2026-08-19**
+  (commit `d2e5cfe`). Confirmado: mesmo `mq_fasta`, mesma ferramenta, mesmo
+  `-p meta` — recomputava byte a byte o que o `votu_prodigal` já produzia.
+  Agora consome `rules.votu_prodigal.output.faa`.
 
-- **Catálogo global de MAGs procarióticos** — o análogo do (h) do lado
-  procariótico, e o maior item em aberto. Verificado em 2026-08-18: o
-  `galah_derep` é **por amostra** (desreplica os bins da própria amostra) e
-  alimenta **só o GTDB-Tk** (`prok_binning.smk:711`). Não existe nada
-  equivalente ao `votu_catalog`. Consequência: MAGs da mesma espécie
-  recuperados em amostras diferentes são anotados repetidamente por bakta,
-  eggNOG e pelas ferramentas de AMR, e nada garante que dois deles recebam a
-  mesma anotação.
+  **A instrução de "verificar antes de assumir" achou um segundo defeito, maior
+  que o primeiro.** O `env_viral.yaml` instala `prodigal-gv=2.11.0` e três
+  documentos (`CLAUDE.md`, `VAPOR_TOOLS_MAP.md`, `ANALISE_TOOLS`) afirmavam que
+  a pipeline usa prodigal-gv para ORFs virais — **mas nenhuma regra o
+  chamava**. O `votu_prodigal` rodava `prodigal` puro. O prodigal padrão não
+  conhece os códigos genéticos alternativos dos vírus: em Caudovirales com
+  recodificação de TAG as ORFs saem truncadas no primeiro stop em frame, e
+  essas proteínas quebradas alimentavam a taxonomia MMseqs2, o DefenseFinder
+  viral, o dbAPIS e o eggNOG. Consertar a duplicação primeiro foi o que tornou
+  isto uma linha só: há uma fonte de ORF viral agora, não duas.
 
-  A biologia que justifica o (h) vale igual — 95% ANI é nível de espécie para
-  procarioto também. Mas o custo é outro: no viral o catálogo global já
-  existia e a metade difícil estava pronta; aqui seria preciso **construir** um
-  galah cruzando amostras, com provenance e herança próprios.
+  O container `prodigal:2.6.3` não tem o binário, então entrou `prodigal_gv`
+  em `containers.yaml`. Até rodarem `pin_containers.py`, `CONTAINERS.get`
+  devolve `None` e a regra cai no conda, que tem o binário — degrada em vez de
+  quebrar o caminho apptainer.
 
-  **Diferença qualitativa que importa para priorizar: aqui nada está saindo
-  errado.** É redundância de compute e risco de inconsistência entre anotações
-  do mesmo organismo — não resultado zerado passando por resultado biológico,
-  que era o caso do `pharokka`. Não tem a urgência que o (h) tinha.
+- **Catálogo global de MAGs procarióticos** — **PARCIALMENTE FEITO em
+  2026-08-19** (commit `1a54e54`). Entrou `rules/mag_catalog.smk`, o análogo
+  procariótico do (h).
 
-  Não confundir com as regras de AMR e anotação procariótica em si
-  (`amrfinderplus`, `rgi_card`, `deeparg`, `abricate`, `defensefinder`,
-  `bakta`, `eggnog_prok`): elas consomem `prok_bin_proteins`, que é derivado
-  dos bins **daquela** amostra — conteúdo genuinamente diferente por amostra.
-  Rodar N vezes ali não é desperdício, é o trabalho. E não há ali a classe de
-  bug do (h): o consumo é por amostra e o dado é por amostra, sem espaço para
-  ID nu bater contra namespaced.
+  **Feito:**
 
-- **Retirar os genome maps** (`genome_map_phage`, `genome_map_virus`,
-  `genome_map_prok`, `scripts/genome_map*.py`, painel do relatório) — intenção
-  declarada pelo usuário em 2026-08-18. Enquanto isso não acontece, fica uma
-  dívida conhecida e aceita: com os mapas globalizados em (h), o
-  `load_genome_maps` devolve a mesma lista sob toda chave de amostra e o
-  `renderer.py` serializa com `json.dumps`, que não deduplica — os SVGs inline
-  passam a ser replicados N vezes no `report.html`. Com 32 amostras isso são
-  dezenas de MB de HTML. **Não consertar**: some junto com os mapas.
+  | regra | o que faz |
+  |---|---|
+  | `mag_catalog_pool` | namespaceia todo bin como `{source}__{bin}`, escreve `provenance.tsv` |
+  | `mag_catalog_quality` | um `quality_report` do CheckM2 re-chaveado |
+  | `mag_catalog_derep` | **um** galah global a `MAG_DEREP_ANI` |
+  | `mag_catalog_membership` | a vista `source_id / bin / member / representative` |
+  | `mag_catalog_gtdbtk` | `classify_wf` uma vez, só nas representantes |
+
+  `rule gtdbtk` e `gtdbtk_group` viraram **vistas** sobre a tabela global,
+  unidas pelo provenance e escrevendo o nome ORIGINAL do bin. Nomes e caminhos
+  preservados de propósito — `phist`, `finalize` e o relatório os referenciam.
+  O catálogo muda quem computa, não o contrato de quem lê, exatamente como
+  `viral_taxonomy` sobre o catálogo de vOTU. Saíram `galah_derep` e
+  `coassembly_galah_derep`.
+
+  Efeito medido no DAG da Amazônia: **39 execuções de GTDB-Tk (32 amostras + 7
+  grupos) viraram 1.**
+
+  Dois detalhes que não são cosméticos e estão cobertos por teste:
+  o Binette emite `binette_bin1` em TODA amostra e o VAMB emite números nus
+  (`1`, `136`), então juntar num diretório só sem prefixar sobrescreveria
+  organismos diferentes em silêncio; e o galah casa
+  `--checkm2-quality-report` pelo nome do genoma, então concatenar os
+  relatórios crus (sem re-chavear) deixaria o galah **sem qualidade para
+  nenhum genoma** — trocando "o melhor MAG da espécie" por "algum MAG da
+  espécie", sem erro.
+
+  **Falta: migrar as demais análises para as representantes.** `bakta`,
+  `eggnog_prok`, `extract_kegg_kos`, `prok_bin_proteins` e os cinco
+  consumidores dele (`defensefinder`, `amrfinderplus`, `rgi_card`, `deeparg`,
+  `abricate`) ainda rodam por amostra sobre todos os bins. Não foi feito junto
+  por duas razões concretas, ambas decisão de desenho:
+
+  1. **`prok_bin_proteins` tem dois caminhos**, e só um pode ser globalizado.
+     Com `low_depth_mode: true` ele ignora bins e trata os contigs como um
+     único `contigs_pseudogenome` — conteúdo genuinamente por amostra, que não
+     pertence a catálogo nenhum. Globalizar exige um fork explícito no módulo
+     (`if LOW_DEPTH_MODE:`), duplicando as definições de regra dos cinco
+     consumidores.
+  2. **As vistas do relatório precisam de escolha.** As abas prokaryotic e
+     hostdefense chaveiam por `sample::Bin`. Com anotação no representante, ou
+     se faz uma vista por amostra via membership (mais informativa: "esta
+     amostra tem os MAGs X e Y") ou se replica a lista global sob toda chave
+     (o que o (h) fez do lado viral). Do lado procariótico a primeira é a
+     certa, mas é mais código.
+
+  A trilha `multisplit` fica fora do catálogo: seus bins não estão no pool, e
+  é um experimento de co-binning alternativo, não uma fonte de MAGs finais.
+
+- ~~**Retirar os genome maps**~~ — **FEITO em 2026-08-19** (commit `cfd5497`),
+  2097 linhas removidas. Saíram as três regras, `scripts/genome_map*.py`, o
+  painel do relatório, as 5 chaves `genome_map_*` do config e as constantes
+  `GENOME_MAP_*`. Levaram junto duas regras que só existiam para alimentá-los,
+  verificadas como órfãs por grep antes de sair: `votu_catalog_quality_summary`
+  e `votu_catalog_genomad_genes`. Some também a dívida do (h): os SVGs inline
+  replicados N vezes no `report.html`.
 
 - **dbCAN** (CAZymes) — lacuna real, o metaFun tem e a vapor não. Disponível:
   bioconda 5.2.9, quay.io `5.2.9--pyhdfd78af_0`.
