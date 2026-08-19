@@ -198,3 +198,95 @@ rule mag_pangenome_proteins:
                          "failed: %d membros, 0 proteomas" % len(names))
         else:
             write_status(str(output.done), "ok")
+
+
+# Defesa e AMR por membro, herdadas das regras globais do catalogo.
+# use rule ... as ... with: substitui apenas input/output/log/benchmark; o
+# corpo (run:) vem inteiro da regra original e referencia input.<nome>
+# literalmente. Os corpos ja consomem manifesto e nao conhecem wildcard,
+# por isso apontam sem alteracao para o manifesto dos MEMBROS em vez do
+# manifesto das representantes.
+
+use rule mag_defensefinder as mag_pangenome_defensefinder with:
+    input:
+        manifest = rules.mag_pangenome_proteins.output.manifest,
+        done     = rules.mag_pangenome_proteins.output.done,
+    output:
+        done        = f"{PANGENOME_DIR}/defensefinder/done.txt",
+        systems     = f"{PANGENOME_DIR}/defensefinder/defensefinder_systems.tsv",
+        antisystems = f"{PANGENOME_DIR}/defensefinder/antidefensefinder_systems.tsv",
+    log:
+        f"{OUTDIR}/logs/mag_pangenome_defensefinder.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/mag_pangenome_defensefinder.tsv"
+
+
+use rule mag_amrfinderplus as mag_pangenome_amrfinderplus with:
+    input:
+        manifest = rules.mag_pangenome_proteins.output.manifest,
+        done     = rules.mag_pangenome_proteins.output.done,
+    output:
+        done    = f"{PANGENOME_DIR}/amrfinderplus/done.txt",
+        results = f"{PANGENOME_DIR}/amrfinderplus/amrfinder_results.tsv",
+    log:
+        f"{OUTDIR}/logs/mag_pangenome_amrfinderplus.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/mag_pangenome_amrfinderplus.tsv"
+
+
+use rule mag_rgi_card as mag_pangenome_rgi_card with:
+    input:
+        manifest = rules.mag_pangenome_proteins.output.manifest,
+        done     = rules.mag_pangenome_proteins.output.done,
+    output:
+        done    = f"{PANGENOME_DIR}/rgi/done.txt",
+        results = f"{PANGENOME_DIR}/rgi/rgi_results.txt",
+    log:
+        f"{OUTDIR}/logs/mag_pangenome_rgi.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/mag_pangenome_rgi.tsv"
+
+
+use rule mag_deeparg as mag_pangenome_deeparg with:
+    input:
+        manifest = rules.mag_pangenome_proteins.output.manifest,
+        done     = rules.mag_pangenome_proteins.output.done,
+    output:
+        done    = f"{PANGENOME_DIR}/deeparg/done.txt",
+        results = f"{PANGENOME_DIR}/deeparg/deeparg_results.mapping.ARG",
+    log:
+        f"{OUTDIR}/logs/mag_pangenome_deeparg.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/mag_pangenome_deeparg.tsv"
+
+
+use rule mag_argnorm_normalize as mag_pangenome_argnorm with:
+    input:
+        amrfinder      = rules.mag_pangenome_amrfinderplus.output.results,
+        amrfinder_done = rules.mag_pangenome_amrfinderplus.output.done,
+        deeparg        = rules.mag_pangenome_deeparg.output.results,
+        deeparg_done   = rules.mag_pangenome_deeparg.output.done,
+    output:
+        done             = f"{PANGENOME_DIR}/argnorm/done.txt",
+        amrfinder_normed = f"{PANGENOME_DIR}/argnorm/amrfinderplus_normed.tsv",
+        deeparg_normed   = f"{PANGENOME_DIR}/argnorm/deeparg_normed.tsv",
+    log:
+        f"{OUTDIR}/logs/mag_pangenome_argnorm.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/mag_pangenome_argnorm.tsv"
+
+
+use rule mag_amr_consensus as mag_pangenome_amr_consensus with:
+    input:
+        argnorm_done     = rules.mag_pangenome_argnorm.output.done,
+        rgi_done         = rules.mag_pangenome_rgi_card.output.done,
+        amrfinder_normed = rules.mag_pangenome_argnorm.output.amrfinder_normed,
+        deeparg_normed   = rules.mag_pangenome_argnorm.output.deeparg_normed,
+        rgi_results      = rules.mag_pangenome_rgi_card.output.results,
+    output:
+        done      = f"{PANGENOME_DIR}/amr_consensus/done.txt",
+        consensus = f"{PANGENOME_DIR}/amr_consensus/amr_consensus.tsv",
+    log:
+        f"{OUTDIR}/logs/mag_pangenome_amr_consensus.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/mag_pangenome_amr_consensus.tsv"
