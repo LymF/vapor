@@ -606,6 +606,22 @@ revisar se `hybrid` ainda faz sentido ou se vira `score` puro.
    `hybrid` = `count ∪ score`. São duas linhas de código que sustentam um
    meio-termo real ("as duas concordam, OU uma está muito confiante").
 
+   **Mas com os cortes de hoje, trocar `score` por `hybrid`+2 é um no-op.** O
+   geNomad roda com `--min-score 0.7` (`viral_detection.smk:87`) e o portão do
+   consenso é `score_genomad_min: 0.7` — todo `virus_summary` já vem ≥ 0.7,
+   então **toda** chamada do geNomad passa por construção e
+   `geNomad ⊆ high_conf`. Daí:
+
+       count(2)  = VS2 ∩ geNomad ⊆ geNomad ⊆ score
+       hybrid(2) = count(2) ∪ score = score
+
+   Idênticos. O VS2 é o oposto: roda a 0.5 contra um portão de 0.7, então ali o
+   portão filtra de verdade. **A alavanca não é o modo, é `score_genomad_min`** —
+   para o geNomad ser seletivo no consenso ele teria de subir acima de 0.7
+   (0.8, espelhando o vão 0.5→0.7 do VS2). Mantido em 0.7 de propósito: vírus
+   novos de ambiente pontuam baixo, e o portão composto do item (e) + CheckV já
+   controlam FP a jusante.
+
 2. **O modo `score` era geNomad sozinho** (commit `c87e13c`). O bloco
    `high_conf` guardava os nomes crus dos TSV de score, enquanto as chaves de
    `tool_hits` já vinham normalizadas. Como o `seqname` do VirSorter2 carrega
