@@ -1184,20 +1184,58 @@ descasamento.
      consumidor ver; depois disso o corte no primeiro `__` volta a estar certo,
      porque nomes de bin (`binette_binN`, inteiros do VAMB) não contêm `__`.
 
-  ### A tensão que sobra, e precisa de decisão
+  ### `low_depth_mode` sai da ferramenta — DECIDIDO 2026-08-19
 
-  "Não ativável" colide com o que ficou combinado sobre `low_depth_mode`: ali o
+  A tensão abaixo some pela raiz: **o `low_depth_mode` não vai existir na
+  versão final.** Ele existe hoje porque os dados da Amazônia não têm cobertura
+  suficiente para binning, não porque seja um modo de operação da pipeline. Com
+  ele fora, o catálogo é o caminho único e não há pseudo-genoma sem
+  representante — nada a gatear, nada a decidir.
+
+  **Antes de remover, preservar uma versão que ainda o tenha**, porque a
+  próxima rodada nesses dados vai precisar dele.
+
+  > **Nota de método, aprendida nesta mesma sessão:** copiar a pipeline para
+  > outra pasta é exatamente o que produziu dois dos bugs de hoje. O `~/vapor`
+  > é um checkout separado 57 commits atrás; rodar `vapor` pelo PATH em vez de
+  > `./vapor` deu `KeyError: 'spades_mem'`, e a correção do bind do sylph
+  > existia num arquivo que ninguém executava. Uma cópia em pasta é uma cópia
+  > que envelhece em silêncio.
+  >
+  > O mecanismo equivalente sem esse risco é uma **tag ou branch** —
+  > `git tag v-lowdepth` (ou `git branch legacy/low-depth`) no commit anterior
+  > à remoção. Recupera-se com `git worktree add ../vapor-lowdepth v-lowdepth`
+  > quando quiser rodar, fica rastreável, e não há como confundir qual é a
+  > principal. Se ainda assim preferir a pasta, vale ao menos deixar um
+  > `README` nela dizendo de qual commit saiu e que está congelada.
+
+  ### Superfície da remoção (medida em 2026-08-19)
+
+  | arquivo | ocorrências |
+  |---|---|
+  | `rules/prok_binning.smk` | 15 — o caminho `contigs_pseudogenome` do `prok_bin_proteins`, mais o gate dos binners |
+  | `scripts/report/data_loaders.py` | 14 — `_LOW_DEPTH_PSEUDO_GENOME`, `_prok_genome_unit`, e os loaders de AMR/defesa que tratam o pseudo-genoma como unidade |
+  | `rules/coassembly.smk` | 4 — o gate do VAMB (é o único binner da trilha de grupo, então `low_depth_mode: true` desliga o co-binning inteiro) |
+  | `scripts/report/renderer.py` | 3 |
+  | `rules/mag_catalog.smk` | 3 — `MAG_CATALOG_ANALYSES`, que deixa de ser condicional |
+  | `taxonomy.smk`, `report.smk`, `defense_amr.smk`, `Snakefile`, `config.yaml`, `hostdefense.js` | 1 cada |
+
+  Ao remover, `MAG_CATALOG_ANALYSES` deixa de existir como flag: o catálogo
+  passa a ser incondicional, que é o ponto.
+
+  ### ~~A tensão que sobra~~ — RESOLVIDA pela remoção do low_depth_mode
+
+  Registro do que era, porque explica por que o plano acima ficou como ficou:
+  "não ativável" colidia com o `low_depth_mode`; ali o
   `prok_bin_proteins` ignora bins e trata os contigs da amostra como um
   `contigs_pseudogenome`, que não tem representante do qual herdar. Se as
   regras por amostra forem apagadas, esse modo fica sem caminho nenhum.
 
-  Saída provável, a confirmar: **o pseudo-genoma entra no pool como mais uma
-  fonte**. `_mag_sources()` passaria a emitir, em `low_depth_mode`, um
-  "genoma" por amostra (os contigs), e o catálogo segue sendo o caminho único
-  — sem toggle, sem regra por amostra, e com a desreplicação global operando
-  também sobre eles. Precisa ser verificado antes de assumir: o galah sobre
-  pseudo-genomas de metagenoma inteiro não é a mesma operação que sobre MAGs,
-  e pode não fazer sentido biológico.
+  A saída que eu havia proposto — pôr o pseudo-genoma no pool como mais uma
+  fonte — **está descartada**, e ainda bem: rodar galah sobre pseudo-genomas de
+  metagenoma inteiro não é a mesma operação que sobre MAGs, e provavelmente não
+  teria sentido biológico. Com o modo fora da ferramenta, o problema não
+  precisa de solução.
 
   **Falta, então: migrar as demais análises para as representantes.** `bakta`,
   `eggnog_prok`, `extract_kegg_kos`, `prok_bin_proteins` e os cinco
