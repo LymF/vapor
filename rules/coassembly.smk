@@ -413,49 +413,11 @@ if not LONG_READS:
             """
 
 
-    use rule bakta as coassembly_bakta with:
-        input:
-            checkm2 = rules.checkm2_group.output.report,
-            binette = rules.vamb_cobinning.output.done,
-        output:
-            done    = f"{OUTDIR}/coassembly/{{group}}/annotation/bakta/done.txt",
-            summary = f"{OUTDIR}/coassembly/{{group}}/annotation/bakta/bakta_summary.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/bakta.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/bakta.tsv"
-        params:
-            outdir    = lambda wc, output: os.path.dirname(output.done),
-            bins_dir  = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
-            bin_ext   = ".fna",
-            min_comp  = BAKTA_MIN_COMPLETENESS,
-            max_cont  = BAKTA_MAX_CONTAMINATION,
-
-    # EggNOG-mapper nos MAGs do grupo. Herda `rule eggnog_prok`
-    # (rules/annotation.smk) — a copia anterior divergia apenas no docstring.
-    use rule eggnog_prok as coassembly_eggnog_prok with:
-        input:
-            bakta_done = rules.coassembly_bakta.output.done,
-        output:
-            done      = f"{OUTDIR}/coassembly/{{group}}/annotation/eggnog/done.txt",
-            annot_tsv = f"{OUTDIR}/coassembly/{{group}}/annotation/eggnog/eggnog_annotations.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/eggnog_prok.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/eggnog_prok.tsv"
-
-
-    use rule extract_kegg_kos as coassembly_extract_kegg_kos with:
-        input:
-            eggnog_done = rules.coassembly_eggnog_prok.output.done,
-            annot_tsv   = rules.coassembly_eggnog_prok.output.annot_tsv,
-        output:
-            done     = f"{OUTDIR}/coassembly/{{group}}/annotation/kegg_decoder/done.txt",
-            ko_table = f"{OUTDIR}/coassembly/{{group}}/annotation/kegg_decoder/ko_per_mag.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/extract_kegg_kos.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/extract_kegg_kos.tsv"
+    # `coassembly_bakta`, `coassembly_eggnog_prok` e
+    # `coassembly_extract_kegg_kos` foram APAGADAS em 2026-08-19: bakta,
+    # eggNOG e a extracao de KO rodam uma vez nas representantes do catalogo
+    # (rules/annotation.smk) e `mag_views_group` (rules/defense_amr.smk)
+    # escreve o sumario do Bakta no caminho de sempre.
 
 if LONG_READS:
 

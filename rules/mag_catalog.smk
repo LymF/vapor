@@ -687,6 +687,7 @@ _MAG_VIEW_PREFIX_COLS = {
     "deeparg_normed":   "#ARG",
     "consensus":        "locus",
     "mmseqs":           "qseqid",
+    "eggnog":           "#query",
 }
 
 
@@ -699,7 +700,8 @@ def _mag_write_views(source_id, membership, inp, outp, log_path):
     _mag_status_view(str(inp["proteins_done"]), str(outp["proteins_done"]))
 
     for key, genome_col in (("df_systems", "genome"), ("df_anti", "genome"),
-                            ("vfdb", "genome"), ("plasmidfinder", "genome")):
+                            ("vfdb", "genome"), ("plasmidfinder", "genome"),
+                            ("bakta", "bin"), ("kegg", "mag")):
         if key in outp:
             _mag_view_by_genome(str(inp[key]), membership, source_id,
                                 str(outp[key]), log_path, genome_col=genome_col)
@@ -711,7 +713,7 @@ def _mag_write_views(source_id, membership, inp, outp, log_path):
 
     for key in ("df_done", "amr_done", "rgi_done", "deeparg_done",
                 "abricate_done", "argnorm_done", "consensus_done",
-                "mmseqs_done"):
+                "mmseqs_done", "bakta_done", "eggnog_done", "kegg_done"):
         if key in outp:
             _mag_status_view(str(inp[key]), str(outp[key]))
 
@@ -738,6 +740,12 @@ def _mag_view_io(base):
         "argnorm_done":     f"{base}/bins/argnorm/done.txt",
         "consensus":        f"{base}/bins/amr_consensus/amr_consensus.tsv",
         "consensus_done":   f"{base}/bins/amr_consensus/done.txt",
+        "bakta":            f"{base}/annotation/bakta/bakta_summary.tsv",
+        "bakta_done":       f"{base}/annotation/bakta/done.txt",
+        "eggnog":           f"{base}/annotation/eggnog/eggnog_annotations.tsv",
+        "eggnog_done":      f"{base}/annotation/eggnog/done.txt",
+        "kegg":             f"{base}/annotation/kegg_decoder/ko_per_mag.tsv",
+        "kegg_done":        f"{base}/annotation/kegg_decoder/done.txt",
     }
 
 
@@ -763,4 +771,10 @@ _MAG_VIEW_GLOBAL = lambda: {
     "consensus_done":   rules.mag_amr_consensus.output.done,
     "mmseqs":           rules.mag_mmseqs_taxonomy_prok.output.hits,
     "mmseqs_done":      rules.mag_mmseqs_taxonomy_prok.output.done,
+    "bakta":            rules.mag_bakta.output.summary,
+    "bakta_done":       rules.mag_bakta.output.done,
+    "eggnog":           rules.mag_eggnog_prok.output.annot_tsv,
+    "eggnog_done":      rules.mag_eggnog_prok.output.done,
+    "kegg":             rules.mag_extract_kegg_kos.output.ko_table,
+    "kegg_done":        rules.mag_extract_kegg_kos.output.done,
 }

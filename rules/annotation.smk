@@ -22,12 +22,16 @@
 # ══════════════════════════════════════════════════════════════════════
 
 
-rule bakta:
+rule mag_bakta:
     """
     Bakta — prokaryotic MAG annotation (replaces Prokka).
-    Annotates HQ/MQ bins from CheckM2/Binette that pass quality thresholds.
-    Loops over all qualifying MAGs within a single rule execution.
-    Generates GBK (for genome maps) and TSV (for EggNOG/functional analysis).
+
+    GLOBAL desde 2026-08-19: anota as REPRESENTANTES do catálogo
+    (rules/mag_catalog.smk) que passam no corte de qualidade, uma vez cada,
+    e as vistas por amostra/grupo distribuem o sumário. O corte usa o
+    `checkm2_quality_report.tsv` re-chaveado do catálogo, cuja coluna `Name`
+    já são os IDs namespaced — os mesmos nomes dos FASTAs em
+    `representatives/`.
 
     Thresholds (config.yaml):
       bakta_min_completeness:  70.0  (%)
@@ -35,26 +39,24 @@ rule bakta:
     Skipped if BAKTA_DB is not configured (empty string).
     """
     input:
-        checkm2 = rules.checkm2.output.report,
-        binette = rules.binette.output.done,
+        checkm2 = rules.mag_catalog_quality.output.tsv,
+        derep   = rules.mag_catalog_derep.output.done,
     output:
-        done    = f"{OUTDIR}/{{sample}}/annotation/bakta/done.txt",
-        summary = f"{OUTDIR}/{{sample}}/annotation/bakta/bakta_summary.tsv",
+        done    = f"{MAG_CATALOG_DIR}/bakta/done.txt",
+        summary = f"{MAG_CATALOG_DIR}/bakta/bakta_summary.tsv",
     log:
-        f"{OUTDIR}/{{sample}}/logs/bakta.log"
+        f"{OUTDIR}/logs/mag_bakta.log"
     benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/bakta.tsv"
+        f"{OUTDIR}/benchmarks/mag_bakta.tsv"
     conda: "../envs/env_annotation.yaml"
     container:  CONTAINERS.get("bakta")
     threads: THREADS
     params:
-        # derivado do output, nao de {{sample}} (requisito da heranca).
         outdir    = lambda wc, output: os.path.dirname(output.done),
-        # bins_dir/bin_ext sao os dois pontos onde a trilha de grupo difere:
-        # per-sample usa bins do Binette (*.fa), co-assembly usa VAMB (*.fna).
-        # Parametrizados para coassembly.smk poder herdar esta regra via
-        # `use rule ... as ... with:` em vez de manter uma segunda copia.
-        bins_dir  = f"{OUTDIR}/{{sample}}/bins/binette/final_bins",
+        # O pool normaliza toda extensao para .fa, entao aqui nao ha mais a
+        # bifurcacao Binette (*.fa) / VAMB (*.fna) que existia quando esta
+        # regra era herdada pela trilha de grupo.
+        bins_dir  = f"{MAG_CATALOG_DIR}/representatives",
         bin_ext   = ".fa",
         min_comp  = BAKTA_MIN_COMPLETENESS,
         max_cont  = BAKTA_MAX_CONTAMINATION,
@@ -123,7 +125,7 @@ PYEOF
         """
 
 
-rule eggnog_prok:
+rule mag_eggnog_prok:
     """
     EggNOG-mapper v2 — COG/KEGG/CAZy/GO functional annotation of MAG proteins.
     Concatenates FAA files from all Bakta-annotated MAGs, then runs emapper.py.
@@ -132,14 +134,14 @@ rule eggnog_prok:
     Skipped if EGGNOG_DB is not configured or no Bakta FAA files exist.
     """
     input:
-        bakta_done = rules.bakta.output.done,
+        bakta_done = rules.mag_bakta.output.done,
     output:
-        done      = f"{OUTDIR}/{{sample}}/annotation/eggnog/done.txt",
-        annot_tsv = f"{OUTDIR}/{{sample}}/annotation/eggnog/eggnog_annotations.tsv",
+        done      = f"{MAG_CATALOG_DIR}/eggnog/done.txt",
+        annot_tsv = f"{MAG_CATALOG_DIR}/eggnog/eggnog_annotations.tsv",
     log:
-        f"{OUTDIR}/{{sample}}/logs/eggnog_prok.log"
+        f"{OUTDIR}/logs/mag_eggnog_prok.log"
     benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/eggnog_prok.tsv"
+        f"{OUTDIR}/benchmarks/mag_eggnog_prok.tsv"
     conda: "../envs/env_annotation.yaml"
     container:  CONTAINERS.get("eggnog_mapper")
     threads: THREADS
@@ -158,10 +160,18 @@ rule eggnog_prok:
             touch {output.annot_tsv} {output.done}; exit 0
         fi
 
-        # Concatenate Bakta FAA files (one per MAG subdirectory)
+        # Concatena os FAA do Bakta (um subdiretorio por MAG) PREFIXANDO
+        # cada proteina com o nome do genoma. Sem isso o ID e o locus tag do
+        # Bakta ("LLOGBO_00001"), que nao carrega vinculo nenhum com o MAG:
+        # a saida do eggNOG ficaria sem atribuicao de genoma e nem a vista
+        # por amostra nem o ko_per_mag.tsv teriam como saber de quem e cada
+        # linha. Mesma convencao do _concat_proteins do lado AMR.
         rm -f {params.all_faa}
         for FAA in {params.bakta_dir}/*/*.faa; do
-            [ -f "$FAA" ] && [ -s "$FAA" ] && cat "$FAA" >> {params.all_faa}
+            [ -f "$FAA" ] && [ -s "$FAA" ] || continue
+            GENOME=$(basename $(dirname "$FAA"))
+            awk -v g="$GENOME" '/^>/ {{ sub(/^>/, ">" g "__"); print; next }} {{ print }}' \
+                "$FAA" >> {params.all_faa}
         done
 
         if [ ! -s {params.all_faa} ]; then
@@ -183,8 +193,16 @@ rule eggnog_prok:
             --override \
             >> {log} 2>&1
 
+        # Grava um TSV de verdade: o .emapper.annotations vem com 4 linhas
+        # "##" antes do cabecalho e mais algumas no fim. Qualquer leitor de
+        # TSV que tome a primeira linha como cabecalho (o load_tsv do
+        # relatorio, o csv.DictReader das vistas) leria "## <data>" como
+        # cabecalho e devolveria None para TODA coluna -- foi o que fez a
+        # aba de COG do relatorio contar tudo como "Function unknown".
+        # O arquivo original fica ao lado, intacto.
         [ -f {params.outdir}/eggnog_annotations.emapper.annotations ] && \
-            cp {params.outdir}/eggnog_annotations.emapper.annotations {output.annot_tsv} || \
+            sed '/^##/d' {params.outdir}/eggnog_annotations.emapper.annotations \
+                > {output.annot_tsv} || \
             touch {output.annot_tsv}
 
         touch {output.done}
@@ -192,23 +210,29 @@ rule eggnog_prok:
         """
 
 
-rule extract_kegg_kos:
+rule mag_extract_kegg_kos:
     """
     Extrai KO numbers por MAG a partir do output do EggNOG-mapper.
-    Produz ko_per_mag.tsv (gene_id TAB KO) pronto para KEGG-Decoder,
-    IPATH3, ou qualquer análise downstream de vias metabólicas.
-    Skipped if eggnog annotations are empty.
+    Produz ko_per_mag.tsv (mag TAB KO) pronto para KEGG-Decoder, IPATH3, ou
+    qualquer análise downstream de vias metabólicas.
+
+    A coluna `mag` é o nome do genoma, recuperado do prefixo `{genome}__`
+    que o `mag_eggnog_prok` põe em cada proteína. Antes de 2026-08-19 ela era
+    derivada por regex do ID (`LLOGBO_00001` -> `LLOGBO`), ou seja, o
+    prefixo de locus tag que o Bakta sorteia — um proxy ilegível do MAG,
+    apesar do nome do arquivo. Skipped if eggnog annotations are empty.
     """
     input:
-        eggnog_done = rules.eggnog_prok.output.done,
-        annot_tsv   = rules.eggnog_prok.output.annot_tsv,
+        eggnog_done = rules.mag_eggnog_prok.output.done,
+        annot_tsv   = rules.mag_eggnog_prok.output.annot_tsv,
+        bakta       = rules.mag_bakta.output.summary,
     output:
-        done     = f"{OUTDIR}/{{sample}}/annotation/kegg_decoder/done.txt",
-        ko_table = f"{OUTDIR}/{{sample}}/annotation/kegg_decoder/ko_per_mag.tsv",
+        done     = f"{MAG_CATALOG_DIR}/kegg/done.txt",
+        ko_table = f"{MAG_CATALOG_DIR}/kegg/ko_per_mag.tsv",
     log:
-        f"{OUTDIR}/{{sample}}/logs/extract_kegg_kos.log"
+        f"{OUTDIR}/logs/mag_extract_kegg_kos.log"
     benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/extract_kegg_kos.tsv"
+        f"{OUTDIR}/benchmarks/mag_extract_kegg_kos.tsv"
     conda: "../envs/env_annotation.yaml"
     threads: 1
     params:
@@ -216,8 +240,12 @@ rule extract_kegg_kos:
         # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
         outdir = lambda wc, output: os.path.dirname(output.done),
     run:
+        import csv as _csv
         import re, os, sys
         from pathlib import Path
+
+        sys.path.insert(0, SCRIPTS_DIR)
+        from mag_catalog import resolve_prefixed_id
 
         os.makedirs(params.outdir, exist_ok=True)
         log_path = str(log[0])
@@ -230,7 +258,17 @@ rule extract_kegg_kos:
             Path(str(output.done)).touch()
             return
 
-        records = []
+        # Genomas conhecidos = as representantes que o Bakta anotou. O ID do
+        # catalogo ja contem "__" ({source}__{bin}), entao cortar a proteina
+        # no primeiro separador devolveria a AMOSTRA em vez do MAG.
+        genomes = set()
+        with open(str(input.bakta), newline="") as bf:
+            for row in _csv.DictReader(bf, delimiter="\t"):
+                name = (row.get("bin") or "").strip()
+                if name:
+                    genomes.add(name)
+
+        records, unresolved = [], 0
         with open(str(input.annot_tsv)) as f:
             for line in f:
                 if line.startswith("#") or not line.strip():
@@ -242,8 +280,10 @@ rule extract_kegg_kos:
                 kegg_ko = cols[11]
                 if kegg_ko == "-" or not kegg_ko.strip():
                     continue
-                mag = re.sub(r"_CDS_\d+$", "", query)
-                mag = re.sub(r"_\d+$", "", mag)
+                mag, _rest = resolve_prefixed_id(query, genomes)
+                if mag is None:
+                    unresolved += 1
+                    continue
                 for ko_entry in kegg_ko.split(","):
                     ko = ko_entry.strip().replace("ko:", "")
                     if re.match(r"K\d{5}", ko):
@@ -257,6 +297,10 @@ rule extract_kegg_kos:
         n_mags = len({r[0] for r in records})
         with open(log_path, "w") as lf:
             lf.write(f"[extract_kegg_kos] {len(records)} KO entries, {n_mags} MAGs\n")
+            if unresolved:
+                lf.write(f"[extract_kegg_kos] AVISO: {unresolved} proteinas sem "
+                         "prefixo de genoma conhecido -- descartadas. Se for a "
+                         "maioria, o mag_eggnog_prok rodou sem prefixar.\n")
             lf.write(f"[extract_kegg_kos] Output: {output.ko_table}\n")
 
         Path(str(output.done)).touch()

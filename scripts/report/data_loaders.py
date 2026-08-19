@@ -1419,13 +1419,38 @@ _COG_LABEL = {
 }
 
 
+def load_emapper_tsv(path):
+    """eggNOG-mapper annotations, tolerating the '##' preamble.
+
+    emapper writes 4 '##' comment lines BEFORE the real header (which starts
+    '#query') and a few more after the last row. A plain DictReader takes
+    '## <date>' as the header and every column lookup returns None -- which
+    is how the report's COG chart came to count every protein as 'Function
+    unknown'. The pipeline now strips those lines when it writes
+    eggnog_annotations.tsv (rule mag_eggnog_prok), but results produced
+    before 2026-08-19 still have them on disk, so skip them here too.
+    """
+    rows = []
+    try:
+        with open(path) as f:
+            lines = [ln for ln in f if not ln.startswith('##')]
+        rdr = csv.DictReader(lines, delimiter='\t')
+        for row in rdr:
+            if not any(row.values()):
+                continue
+            rows.append(row)
+    except Exception:
+        pass
+    return rows
+
+
 def load_eggnog(outdir, samples):
     """Aggregate COG categories from eggnog_annotations.tsv per sample."""
     result = {}
     for s in samples:
         p = os.path.join(outdir, s, "annotation", "eggnog", "eggnog_annotations.tsv")
         cnt = Counter()
-        for row in load_tsv(p):
+        for row in load_emapper_tsv(p):
             cog = str(row.get('COG_category', '') or row.get('cog_category', '') or 'S').strip()
             for c in cog:
                 if c in _COG_LABEL:

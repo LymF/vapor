@@ -199,3 +199,23 @@ def test_every_global_done_file_is_status_tracked():
         "regras globais escrevem done.txt sem rastreio no relatorio: "
         + ", ".join(sorted(untracked))
     )
+
+
+# ── eggNOG-mapper: o preambulo "##" nao pode virar cabecalho ──────────────
+
+def test_emapper_tsv_ignora_o_preambulo_de_comentarios(tmp_path):
+    """Com o preambulo lido como cabecalho, COG_category some e o relatorio
+    contava toda proteina como 'Function unknown'."""
+    from report.data_loaders import load_emapper_tsv
+    p = tmp_path / "eggnog_annotations.tsv"
+    p.write_text(
+        "## Thu Jul  9 10:18:39 2026\n"
+        "## emapper-2.1.13\n"
+        "#query\tseed_ortholog\tCOG_category\n"
+        "S1__binette_bin1__LLOGBO_00001\t1158612.I580_00126\tC\n"
+        "## 1 queries scanned\n"
+    )
+    rows = load_emapper_tsv(str(p))
+    assert len(rows) == 1
+    assert rows[0]["COG_category"] == "C"
+    assert rows[0]["#query"] == "S1__binette_bin1__LLOGBO_00001"
