@@ -1176,10 +1176,28 @@ descasamento.
   3. **`prok_bin_proteins` foi apagada junto.** Com o `low_depth_mode` fora,
      ela não tinha mais nada de por-amostra; o manifesto virou vista.
 
-  Fica de fora, ainda por amostra: `bakta`, `eggnog_prok` e
-  `extract_kegg_kos`. Não consomem o manifesto de proteínas (leem os bins e a
-  saída do bakta direto), então não vieram junto nesta leva — são o próximo
-  alvo natural.
+  **`bakta`, `eggnog_prok` e `extract_kegg_kos` foram na leva seguinte, no
+  mesmo dia** (commit `bed6ab5`): DAG de 1538 para **1424 jobs**, delta exato
+  (−3×32 por amostra, −3×7 por grupo, +3 globais). Com isso **nada de
+  procariótico a jusante do binning roda mais por amostra** — só binning,
+  CheckM2 e GUNC, que têm de rodar (a cobertura que separa os bins é daquela
+  amostra).
+
+  A migração dessas três esbarrou em dois bugs de tratamento de dados, ambos
+  consertados no mesmo commit:
+
+  - **A aba de COG do relatório contava TODA proteína como "Function
+    unknown".** O `eggnog_annotations.tsv` era o `.emapper.annotations`
+    copiado cru, e o emapper põe quatro linhas `##` ANTES do cabeçalho. O
+    `load_tsv` toma a primeira linha como cabeçalho, então `COG_category`
+    não existia e o `or 'S'` do loader mandava tudo para "Function unknown".
+    A regra passa a gravar um TSV de verdade e o loader a ignorar `##`
+    (resultados já em disco continuam legíveis).
+  - **O `ko_per_mag.tsv` não tinha MAG nenhum.** A coluna `mag` vinha de um
+    regex sobre o ID do Bakta (`LLOGBO_00001` → `LLOGBO`), que é o prefixo de
+    locus tag sorteado, não o genoma. Agora o `mag_eggnog_prok` prefixa cada
+    proteína com o genoma na concatenação (mesma convenção do
+    `_concat_proteins`) e o KO é atribuído ao MAG de verdade.
 
   ### Plano executado
 
