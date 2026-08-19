@@ -226,7 +226,12 @@ GUNC_ENABLED = config.get("use_gunc", True)
 GUNC_DB      = _expand(config.get("gunc_db", "")) if config.get("gunc_db", "") else ""
 
 # ── vOTU clustering (skani / ICTV) ─────────────────────────────────────
-VOTU_CLUSTERING_ENABLED = config.get("use_votu", True)
+# `use_votu` deixou de existir em 2026-08-19. O catalogo global de vOTU e o
+# hub do lado viral -- representantes, taxonomia, anotacao, abundancia e
+# hospedeiro saem todos dele --, entao um flag para desliga-lo nao desligava
+# uma etapa opcional: derrubava a trilha inteira. Quem o lia era a cadeia
+# skani LOCAL dos grupos, removida no mesmo dia. Os limiares seguem
+# configuraveis.
 VOTU_ANI                = config.get("votu_ani", 95.0)
 VOTU_AF                 = config.get("votu_af", 85.0)
 
@@ -573,7 +578,9 @@ def _t_coassembly():
             for g in GROUPS:
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/taxonomy/taxonomy_done.txt")
                 t.append(f"{OUTDIR}/coassembly/{g}/viral/checkv/quality_summary.tsv")
-                t.append(f"{OUTDIR}/coassembly/{g}/viral/votu/votu_all_reps.fasta")
+                # votu_all_reps saiu em 2026-08-19 com a cadeia skani local
+                # do grupo: os representantes de vOTU sao do catalogo global,
+                # que ja tem o grupo como fonte.
                 # pharokka/phold/defensefinder_viral/dbapis_viral: moved to
                 # the global catalog on 2026-08-18 (second half of "(h)")
                 # -- the catalog already includes every coassembly group as

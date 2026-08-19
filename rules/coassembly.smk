@@ -1325,284 +1325,23 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and not LONG_READS:
 #
 if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
 
-    # _coas_skani_source: single source of truth for the group's internal
-    # skani chain, mirroring _catalog_sources()'s (rules/votu_catalog.smk)
-    # LR/SR branch:
-    #   - short reads: past vRhyme's bins-first + composite length/quality
-    #     gate (rule coassembly_viral_nonredundant) — item (e) unification,
-    #     so the group's own vOTU clustering sees the SAME set the global
-    #     catalog does.
-    #   - long reads: no group-level vRhyme exists (see `not LONG_READS`
-    #     above), so this falls back to the pre-binning CheckV-trimmed set,
-    #     unchanged.
-    # Evaluated only inside this guard (both rules.coassembly_viral_trimmed
-    # and, when not LONG_READS, rules.coassembly_viral_nonredundant require
-    # COASSEMBLY_ENABLED and COASSEMBLY_VIRAL to exist at all) and only the
-    # branch matching LONG_READS is ever touched, so the unbuilt rule object
-    # for the other track never raises AttributeError.
-    _coas_skani_source = (
-        rules.coassembly_viral_nonredundant.output.fasta if not LONG_READS
-        else rules.coassembly_viral_trimmed.output.fasta
-    )
-
-    rule coassembly_skani_votu:
-        """
-        skani triangle — pairwise ANI matrix for group co-assembly viral genomes.
-        Mirrors `rule skani_votu` (rules/viral_binning.smk), operating on
-        `_coas_skani_source` (defined above): the post-vRhyme, post-length-gate
-        `coassembly_viral_nonredundant` set for short-read groups (item (e)
-        unification, docs/ROADMAP_SIMPLIFICACAO.md), or the pre-binning
-        `coassembly_viral_trimmed` set for long-read groups (no group-level
-        vRhyme there). This is the SAME fasta `_catalog_sources()`
-        (rules/votu_catalog.smk) feeds to the global vOTU catalog for this
-        group — one source of truth for every group-level consumer.
-        Clustering is done by the downstream coassembly_skani_cluster rule (pure
-        Python, runs in Snakemake's own interpreter — no container needed).
-        """
-        input:
-            fasta = _coas_skani_source,
-        output:
-            ani = f"{OUTDIR}/coassembly/{{group}}/viral/votu/skani_ani.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/skani_votu.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/skani_votu.tsv"
-        conda: "../envs/env_derep.yaml"
-        container: CONTAINERS.get("skani")
-        threads: THREADS
-        params:
-            outdir  = f"{OUTDIR}/coassembly/{{group}}/viral/votu",
-            enabled = VOTU_CLUSTERING_ENABLED,
-        shell:
-            """
-            mkdir -p {params.outdir}
-            if [ "{params.enabled}" != "True" ]; then
-                echo "[skani_votu] Disabled via config" | tee {log}
-                printf "Ref_file\tQuery_file\tANI\tAlign_fraction_ref\tAlign_fraction_query\tRef_name\tQuery_name\n" > {output.ani}
-                exit 0
-            fi
-            N_SEQ=$(grep -c '^>' {input.fasta} 2>/dev/null || echo 0)
-            if [ "$N_SEQ" -eq 0 ]; then
-                echo "[skani_votu] Empty viral set" | tee {log}
-                printf "Ref_file\tQuery_file\tANI\tAlign_fraction_ref\tAlign_fraction_query\tRef_name\tQuery_name\n" > {output.ani}
-                exit 0
-            fi
-            skani triangle \
-                -i {input.fasta} \
-                -o {output.ani} \
-                -t {threads} \
-                --slow \
-                --sparse \
-                >> {log} 2>&1 || echo "[skani_votu] WARNING: triangle failed" | tee -a {log}
-            """
-
-
-    rule coassembly_skani_cluster:
-        """
-        Greedy single-linkage vOTU clustering from the skani ANI matrix, for the
-        group co-assembly viral set. Mirrors `rule skani_cluster`
-        (rules/viral_binning.smk). Pure Python (stdlib only) — runs in
-        Snakemake's interpreter, no container needed.
-        ICTV / Roux 2019 definition: ANI >= VOTU_ANI AND max(af_q, af_r) >= VOTU_AF.
-        The cluster representative is the member with the highest CheckV
-        completeness (ties broken by FASTA order) — not simply the first contig
-        encountered, since that's an arbitrary assembly-order artifact and the
-        representative's sequence/length is what downstream genome maps and
-        vOTU abundance use.
-        """
-        input:
-            ani    = rules.coassembly_skani_votu.output.ani,
-            fasta  = _coas_skani_source,
-            checkv = rules.coassembly_checkv.output.summary,
-        output:
-            clusters = f"{OUTDIR}/coassembly/{{group}}/viral/votu/vOTU_clusters.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/skani_cluster.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/skani_cluster.tsv"
-        params:
-            ani_min = VOTU_ANI,
-            af_min  = VOTU_AF,
-            enabled = VOTU_CLUSTERING_ENABLED,
-        run:
-            import csv
-            import sys as _sys
-            _sys.path.insert(0, SCRIPTS_DIR)
-            from votu_catalog import (
-                parse_skani_sparse, cluster_votus, write_clusters,
-            )
-
-            with open(log[0], "w") as _lf:
-                if not params.enabled:
-                    _lf.write("[skani_cluster] Disabled via config\n")
-                    with open(output.clusters, "w") as f:
-                        f.write("votu_id\trepresentative\tmember\n")
-                else:
-                    ids = []
-                    with open(input.fasta) as f:
-                        for line in f:
-                            if line.startswith(">"):
-                                ids.append(line[1:].strip().split()[0])
-
-                    # Completude POR ID QUE ESTA NO FASTA. O conjunto viral
-                    # do grupo ja passou pelo aparo do CheckV, entao um
-                    # profago aparece como "{contig}_{n}" enquanto o
-                    # quality_summary tem uma linha por contig ORIGINAL.
-                    # Chavear so pelo id original dava completude 0.0 a todo
-                    # profago e o representante do cluster caia para "o
-                    # primeiro do FASTA" -- ordem de montagem, nao qualidade.
-                    # Mesma resolucao de _load_catalog_completeness
-                    # (votu_catalog.smk).
-                    from checkv_provirus import inherit_from_original
-
-                    raw_comp, known = {}, set()
-                    with open(input.checkv) as f:
-                        for row in csv.DictReader(f, delimiter="\t"):
-                            cid = (row.get("contig_id") or "").strip()
-                            if not cid:
-                                continue
-                            known.add(cid)
-                            try:
-                                raw_comp[cid] = float(row.get("completeness", "0") or 0)
-                            except (TypeError, ValueError):
-                                raw_comp[cid] = 0.0
-
-                    _map, _st = inherit_from_original(ids, known)
-                    completeness = {i: raw_comp.get(o, 0.0)
-                                    for i, o in _map.items()}
-                    _lf.write(f"[skani_cluster] completude: {len(completeness)}/"
-                              f"{len(ids)} genomas ({_st['trimmed']} via aparo "
-                              f"de provirus, {_st['unresolved']} sem linha no "
-                              f"CheckV)\n")
-
-                    edges = parse_skani_sparse(str(input.ani), params.ani_min,
-                                               params.af_min, set(ids))
-                    clusters = cluster_votus(ids, edges, completeness)
-                    n_clusters = write_clusters(clusters, len(ids),
-                                                str(output.clusters), completeness)
-
-                    msg = (f"[skani_cluster] genomes={len(ids)} edges={len(edges)} "
-                           f"clusters={n_clusters} ani>={params.ani_min} "
-                           f"af>={params.af_min}\n")
-                    _lf.write(msg)
-                    print(msg, end="")
-
-
-    rule coassembly_viral_votu_reps:
-        """
-        Extract vOTU representative sequences from the group co-assembly viral
-        consensus fasta and produce quality-filtered subsets used by downstream
-        analyses. Mirrors `rule viral_votu_reps` (rules/viral_binning.smk).
-
-        Outputs:
-          all_fasta      — all representatives (one per vOTU cluster), for reporting
-          mq_fasta       — MQ+ (Complete/HQ/MQ or completeness>=50%) representatives,
-                           for prodigal_viral, PHIST, Pharokka, genome maps
-
-        Why only representatives?
-          skani_cluster picks the highest-completeness member per cluster as the
-          canonical genome. Running taxonomy/PHIST/etc. on all members would inflate
-          compute by ~20–40% and produce duplicate annotations for near-identical
-          sequences, with no scientific gain.
-        """
-        input:
-            fasta    = _coas_skani_source,
-            clusters = rules.coassembly_skani_cluster.output.clusters,
-            checkv   = rules.coassembly_checkv.output.summary,
-        output:
-            all_fasta     = f"{OUTDIR}/coassembly/{{group}}/viral/votu/votu_all_reps.fasta",
-            mq_fasta      = f"{OUTDIR}/coassembly/{{group}}/viral/votu/votu_mq_reps.fasta",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/viral_votu_reps.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/viral_votu_reps.tsv"
-        run:
-            import csv, os
-
-            # Collect unique representatives from cluster TSV
-            reps = set()
-            with open(str(input.clusters)) as fh:
-                for row in csv.DictReader(fh, delimiter='\t'):
-                    reps.add(row['representative'])
-
-            # CheckV quality sets for filtering — see `rule viral_votu_reps`
-            # (rules/viral_binning.smk). keep_mq is gated by config
-            # `viral_min_quality` (VIRAL_KEEP_TIERS).
-            # keep_mq e chaveado pelo contig ORIGINAL do CheckV, mas o FASTA
-            # do grupo carrega os ids APARADOS ("{contig}_{n}"): sem desfazer
-            # o sufixo, todo profago caia fora do votu_mq_reps -- em silencio,
-            # e o mq_fasta e o que alimenta o PHIST e a anotacao do grupo.
-            import sys as _sys
-            _sys.path.insert(0, SCRIPTS_DIR)
-            from checkv_provirus import inherit_from_original
-
-            keep_mq = set()
-            known_cv = set()
-            _comp_fallback = VIRAL_MIN_QUALITY_RANK == 2
-            with open(str(input.checkv)) as fh:
-                for row in csv.DictReader(fh, delimiter='\t'):
-                    cid = row.get('contig_id', '').strip()
-                    q   = row.get('checkv_quality', '').strip()
-                    if not cid:
-                        continue
-                    known_cv.add(cid)
-                    try:
-                        comp = float(row.get('completeness', '0') or 0)
-                    except (ValueError, TypeError):
-                        comp = 0.0
-                    if q in VIRAL_KEEP_TIERS or (_comp_fallback and comp >= 50):
-                        keep_mq.add(cid)
-
-            # Parse viral consensus fasta into dict
-            seqs = {}
-            with open(str(input.fasta)) as fh:
-                curr_hdr, curr_seq = None, []
-                for line in fh:
-                    if line.startswith('>'):
-                        if curr_hdr:
-                            seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
-                        curr_hdr = line; curr_seq = []
-                    else:
-                        curr_seq.append(line)
-                if curr_hdr:
-                    seqs[curr_hdr[1:].split()[0]] = (curr_hdr, curr_seq)
-
-            def write_filtered(names, path, length_min=0):
-                written = 0
-                with open(path, 'w') as out:
-                    for name in names:
-                        if name not in seqs:
-                            continue
-                        hdr, seq_lines = seqs[name]
-                        if length_min > 0:
-                            length = sum(len(s.rstrip()) for s in seq_lines)
-                            if length < length_min:
-                                continue
-                        out.write(hdr)
-                        out.writelines(seq_lines)
-                        written += 1
-                return written
-
-            # Desfaz o aparo do CheckV: um representante "{contig}_{n}" herda
-            # a decisao do seu contig de origem (ver comentario em keep_mq).
-            _map, _st = inherit_from_original(reps, known_cv)
-            mq_reps = {rid for rid, orig in _map.items() if orig in keep_mq}
-            n_trimmed = sum(1 for rid, orig in _map.items()
-                            if rid != orig and orig in keep_mq)
-            n_unresolved = _st["unresolved"]
-
-            n_all      = write_filtered(reps, str(output.all_fasta))
-            n_mq       = write_filtered(mq_reps, str(output.mq_fasta))
-
-            with open(str(log[0]), 'w') as lf:
-                lf.write(f'[viral_votu_reps] Total vOTU reps: {n_all}\n')
-                lf.write(f'[viral_votu_reps] min quality gate: {VIRAL_MIN_QUALITY} '
-                         f'(tiers kept: {sorted(VIRAL_KEEP_TIERS)})\n')
-                lf.write(f'[viral_votu_reps] annotation subset (taxonomy/PHIST/Pharokka): {n_mq}\n')
-                lf.write(f'[viral_votu_reps] {n_trimmed} representantes entraram '
-                         f'via aparo de provirus; {n_unresolved} sem linha no '
-                         f'CheckV (nao confunda com reprovados)\n')
-
+    # A cadeia skani LOCAL do grupo (coassembly_skani_votu /
+    # coassembly_skani_cluster / coassembly_viral_votu_reps) foi APAGADA em
+    # 2026-08-19. O catalogo global ja cobre estas sequencias: desde 18/08 o
+    # `_catalog_sources()` (rules/votu_catalog.smk) pooleia exatamente o mesmo
+    # FASTA que esta cadeia consumia, e a clusterizacao por amostra ja tinha
+    # saido antes. Manter as duas significava duas definicoes de vOTU no mesmo
+    # resultado -- uma global e uma por grupo, com IDs em espacos diferentes
+    # (namespaced vs contig nu) e representantes possivelmente distintos.
+    #
+    # Quem lia a saida dela agora le o catalogo:
+    #   coassembly_phist          -> votu_catalog_reps.mq_fasta (igual a
+    #                                per-amostra: mesmo conjunto viral, MAGs
+    #                                locais como candidatos a hospedeiro)
+    #   relatorio (n_votus, vlen,
+    #   curva de acumulacao)      -> vOTU_clusters.tsv do catalogo, filtrado
+    #                                pela fonte do grupo
+    #   final/viral/votu_*        -> final/votu_catalog/ (finalize_votu_catalog)
 
     # Taxonomia viral do grupo: passou a ser so uma VIEW da tabela global
     # (rule votu_taxonomy, rules/votu_catalog.smk) -- desde 2026-08-18 o
@@ -1683,7 +1422,13 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL and COASSEMBLY_BINNING and not LONG_R
     # bin_ext e sobrescrito -- unica diferenca de corpo entre as duas.
     use rule phist as coassembly_phist with:
         input:
-            viral  = rules.coassembly_viral_votu_reps.output.mq_fasta,
+            # Mesmo conjunto viral do per-amostra (catalogo global), com os
+            # MAGs DESTE grupo como candidatos a hospedeiro. Ate 2026-08-19
+            # aqui entrava o votu_mq_reps do proprio grupo, o que deixava os
+            # IDs de fago num espaco diferente (contig nu) do resto do
+            # resultado -- e a documentacao afirmava o contrario do que o
+            # codigo fazia.
+            viral  = rules.votu_catalog_reps.output.mq_fasta,
             gtdbtk = rules.gtdbtk_group.output.done,
         output:
             done    = f"{OUTDIR}/coassembly/{{group}}/viral/phist/done.txt",
@@ -1732,7 +1477,6 @@ if COASSEMBLY_ENABLED and GROUPS:
         if COASSEMBLY_VIRAL:
             d["checkv"]   = f"{b}/viral/checkv/quality_summary.tsv"
             d["taxonomy"] = f"{b}/viral/taxonomy/taxonomy_done.txt"
-            d["votu_all"] = f"{b}/viral/votu/votu_all_reps.fasta"
             # vdef/dbapis removed 2026-08-18 (second half of "(h)"): viral
             # defense/anti-defense now lives only in the global vOTU
             # catalog (votu_defensefinder_viral/votu_dbapis_viral,
@@ -1826,10 +1570,10 @@ if COASSEMBLY_ENABLED and GROUPS:
                            f"{final}/viral/viral_nonredundant.fasta")
                     cp(f"{b}/viral/checkv/quality_summary.tsv",
                        f"{final}/viral/checkv_quality.tsv")
-                    cp(f"{b}/viral/votu/votu_all_reps.fasta",
-                       f"{final}/viral/votu_all_reps.fasta")
-                    cp(f"{b}/viral/votu/votu_mq_reps.fasta",
-                       f"{final}/viral/votu_annotation_reps.fasta")
+                    # votu_all_reps/votu_annotation_reps sairam daqui em
+                    # 2026-08-19 com a cadeia skani local: os representantes
+                    # de vOTU sao do catalogo global e ja vao para
+                    # final/votu_catalog/ (rule finalize_votu_catalog).
                     cp(f"{b}/viral/taxonomy/viral_taxonomy_merged.tsv",
                        f"{final}/viral/taxonomy/viral_taxonomy_merged.tsv")
 

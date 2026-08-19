@@ -15,7 +15,6 @@
 use_cobra:         false   # viral contig extension via k-mer overlap (PE only)
 use_gunc:          true    # chimera detection on MAGs
 use_mag_derep:     true    # MAG dereplication with galah before GTDB-Tk
-use_votu:          true    # vOTU clustering with skani (95% ANI + 85% AF)
 
 use_pharokka:      true    # phage annotation with PHROGS
 use_phold:         true    # structure-based annotation of hypothetical proteins
@@ -102,7 +101,8 @@ score_genomad_min:    0.5
 
 # ══ VIRAL QC + vOTU ════════════════════════════════════════════════════
 
-# vOTU clustering thresholds (ignored when use_votu: false)
+# vOTU clustering thresholds (the global catalog always runs — it is the
+# hub of the viral track, not an optional step)
 votu_ani: 95.0   # % ANI threshold (ICTV standard)
 votu_af:  85.0   # % aligned fraction
 

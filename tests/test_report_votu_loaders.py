@@ -326,23 +326,61 @@ def test_reads_classify_nao_confunde_amostras_com_prefixo_comum(tmp_path):
 
 # ── Curva de acumulacao de vOTU do grupo ─────────────────────────────────
 
+def _catalog(tmp_path, rows):
+    d = tmp_path / "votu_catalog"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "vOTU_clusters.tsv").write_text(
+        "votu_id\trepresentative\tmember\n" +
+        "".join("\t".join(r) + "\n" for r in rows))
+    return d
+
+
 def test_acumulacao_conta_votu_de_provirus(tmp_path):
     """A matriz de abundancia e chaveada pelo contig da montagem
     ("k141_10"); o membro do vOTU vem do conjunto aparado pelo CheckV
     ("k141_10_1"). Sem desfazer o sufixo, todo vOTU de provirus some da
-    curva -- em silencio."""
+    curva -- em silencio. A pertinencia vem do catalogo global desde que a
+    cadeia skani local do grupo foi removida."""
     from report.data_loaders import load_votu_accumulation
     g = tmp_path / "coassembly" / "G1"
     (g / "vamb").mkdir(parents=True)
-    (g / "viral" / "votu").mkdir(parents=True)
     (g / "vamb" / "abundance.tsv").write_text(
         "contigname\tS1\tS2\n"
         "k141_10\t5.0\t0.0\n"
         "k141_77\t0.0\t4.0\n")
-    (g / "viral" / "votu" / "vOTU_clusters.tsv").write_text(
-        "votu_id\trepresentative\tmember\n"
-        "vOTU_1\tk141_10_1\tk141_10_1\n"
-        "vOTU_2\tk141_77\tk141_77\n")
+    _catalog(tmp_path, [
+        ["vOTU_1", "G1|k141_10_1", "G1|k141_10_1"],
+        ["vOTU_2", "G1|k141_77", "G1|k141_77"],
+    ])
     out = load_votu_accumulation(str(tmp_path), ["G1"], min_depth=1.0, n_perm=5)
     assert out["G1"]["total"] == 2, "o vOTU do provirus tem de aparecer"
     assert out["G1"]["mean"][-1] == 2.0
+
+
+def test_acumulacao_ignora_membros_de_outra_fonte(tmp_path):
+    """O catalogo e global: um membro de outra amostra nao pode entrar na
+    curva do grupo, mesmo que o nome do contig coincida."""
+    from report.data_loaders import load_votu_accumulation
+    g = tmp_path / "coassembly" / "G1"
+    (g / "vamb").mkdir(parents=True)
+    (g / "vamb" / "abundance.tsv").write_text(
+        "contigname\tS1\tS2\n" "k141_10\t5.0\t3.0\n")
+    _catalog(tmp_path, [
+        ["vOTU_1", "G1|k141_10", "G1|k141_10"],
+        ["vOTU_9", "S7|k141_10", "S7|k141_10"],
+    ])
+    out = load_votu_accumulation(str(tmp_path), ["G1"], min_depth=1.0, n_perm=5)
+    assert out["G1"]["total"] == 1
+
+
+def test_contagem_de_votus_do_grupo_vem_do_catalogo(tmp_path):
+    from report.data_loaders import load_coassembly
+    _catalog(tmp_path, [
+        ["vOTU_1", "S2|k141_5", "G1|k141_10"],
+        ["vOTU_1", "S2|k141_5", "S2|k141_5"],
+        ["vOTU_2", "G1|k141_77", "G1|k141_77"],
+        ["vOTU_3", "S2|k141_9", "S2|k141_9"],
+    ])
+    (tmp_path / "coassembly" / "G1" / "checkm2").mkdir(parents=True)
+    out = load_coassembly(str(tmp_path), ["G1"])
+    assert out["groups"][0]["n_votus"] == 2, "so os vOTUs com membro do G1"

@@ -1612,11 +1612,70 @@ def collect_tool_versions():
     }
 
 
+# ── Catálogo global visto por fonte ───────────────────────────────────────
+
+def load_catalog_clusters_by_source(outdir):
+    """Pertinência do catálogo global, agrupada por fonte (amostra ou grupo).
+
+    Devolve {source_id: {"members": {membro_nu: representante_namespaced},
+                         "votus": set(votu_id)}}.
+
+    Existe porque a cadeia skani LOCAL dos grupos foi removida em 2026-08-19:
+    o catálogo global já cobria as mesmas sequências, e manter as duas
+    significava duas definições de vOTU no mesmo relatório. Quem contava
+    vOTUs do grupo lendo `votu_all_reps.fasta` passa a contar aqui.
+
+    O `member` do catálogo é "{source}|{contig}"; o `representative` fica
+    NAMESPACED de propósito (pode ser de outra fonte), enquanto o membro sai
+    nu para casar com as tabelas locais do grupo (matriz do VAMB, CheckV).
+    """
+    path = os.path.join(outdir, "votu_catalog", "vOTU_clusters.tsv")
+    by_source = defaultdict(lambda: {"members": {}, "votus": set()})
+    for row in load_tsv(path):
+        votu = (row.get("votu_id") or "").strip()
+        rep = (row.get("representative") or "").strip()
+        member = (row.get("member") or "").strip()
+        if not (votu and member):
+            continue
+        source, sep, bare = member.partition("|")
+        if not sep:
+            continue
+        by_source[source]["members"][bare] = rep or member
+        by_source[source]["votus"].add(votu)
+    return dict(by_source)
+
+
+def load_catalog_rep_lengths(outdir):
+    """{representante_namespaced: comprimento_bp} do catalog_all_reps.fasta."""
+    path = os.path.join(outdir, "votu_catalog", "catalog_all_reps.fasta")
+    lengths, curr, n = {}, None, 0
+    if not os.path.exists(path):
+        return lengths
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith(">"):
+                if curr:
+                    lengths[curr] = n
+                curr, n = line[1:].split()[0], 0
+            else:
+                n += len(line.strip())
+    if curr:
+        lengths[curr] = n
+    return lengths
+
+
 # ── Co-assembly track (Plano 2) ────────────────────────────────────────────
 
 def load_coassembly(outdir, groups):
     """Collect group-level CheckM2 + GTDB MAGs and CheckV/taxonomy vOTUs into
-    report records (empty if none)."""
+    report records (empty if none).
+
+    A contagem de vOTUs do grupo vem do CATÁLOGO GLOBAL desde 2026-08-19
+    (a cadeia skani local do grupo foi removida): é o número de vOTUs com
+    pelo menos um membro montado neste grupo — a mesma definição de
+    "assembled" da matriz de presença.
+    """
+    catalog = load_catalog_clusters_by_source(outdir)
     out = []
     for g in groups:
         checkm2 = os.path.join(outdir, "coassembly", g, "checkm2", "quality_report.tsv")
@@ -1637,12 +1696,9 @@ def load_coassembly(outdir, groups):
                     if m["bin"] == name:
                         m["classification"] = row.get("classification", "")
 
-        # Group vOTUs (Plano 3): count vOTU representatives + quality tiers + taxonomy family counts
-        n_votus = 0
-        votu_reps = os.path.join(outdir, "coassembly", g, "viral", "votu", "votu_all_reps.fasta")
-        if os.path.exists(votu_reps):
-            with open(votu_reps) as fh:
-                n_votus = sum(1 for line in fh if line.startswith(">"))
+        # Group vOTUs (Plano 3): quantos vOTUs do catálogo têm membro montado
+        # neste grupo, mais os tiers de qualidade e a taxonomia do grupo.
+        n_votus = len(catalog.get(g, {}).get("votus", ()))
 
         quality_tiers = {}
         checkv_summary = os.path.join(outdir, "coassembly", g, "viral", "checkv", "quality_summary.tsv")
@@ -1699,18 +1755,18 @@ def load_votu_accumulation(outdir, groups, min_depth=1.0, n_perm=100, seed=0):
     random orders and reported with a 10-90 percentile band rather than one
     misleading ordering."""
     rng = random.Random(seed)
+    catalog = load_catalog_clusters_by_source(outdir)
     out = {}
     for g in groups or []:
         matrix = os.path.join(outdir, "coassembly", g, "vamb", "abundance.tsv")
-        clusters = os.path.join(outdir, "coassembly", g, "viral", "votu", "vOTU_clusters.tsv")
-        if not (os.path.exists(matrix) and os.path.exists(clusters)):
+        if not os.path.exists(matrix):
             continue
 
-        member_to_rep = {}
-        for row in load_tsv(clusters):
-            m, r = row.get("member", ""), row.get("representative", "")
-            if m and r:
-                member_to_rep[m] = r
+        # Pertinência do CATÁLOGO GLOBAL filtrada a este grupo (a cadeia
+        # skani local saiu em 2026-08-19). Membro nu para casar com os
+        # contigs da matriz do VAMB; representante namespaced, que é a
+        # identidade do vOTU.
+        member_to_rep = catalog.get(g, {}).get("members", {})
         if not member_to_rep:
             continue
 
@@ -1897,10 +1953,15 @@ def load_coassembly_rich(outdir, groups):
             else:                           lq += 1
         mimag[g] = {'HQ': hq, 'MQ': mq, 'LQ': lq, 'total': hq + mq + lq}
 
+    # Comprimentos dos genomas virais do grupo: os REPRESENTANTES (no
+    # catálogo global) dos vOTUs que este grupo montou. Antes vinha do
+    # votu_all_reps.fasta local, que saiu com a cadeia skani do grupo.
+    catalog = load_catalog_clusters_by_source(outdir)
+    rep_len = load_catalog_rep_lengths(outdir)
     vlen = {}
     for g in groups:
-        fa = _g(g, "viral", "votu", "votu_all_reps.fasta")
-        vlen[g] = parse_fasta_lengths(fa) if os.path.exists(fa) else []
+        reps = {r for r in catalog.get(g, {}).get("members", {}).values()}
+        vlen[g] = [rep_len[r] for r in sorted(reps) if r in rep_len]
 
     tax_groups  = {r.get('sample', '') for r in tax}
     gtdb_groups = {r.get('sample', '') for r in gtdb}
