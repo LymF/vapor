@@ -595,6 +595,32 @@ Ou seja o consenso é **≈ união** das ferramentas, e o `min_viral_tools` é
 praticamente decorativo nesse modo. Isso explica o excesso de FP. Depois de (a),
 revisar se `hybrid` ainda faz sentido ou se vira `score` puro.
 
+**RESOLVIDO em 2026-08-19.** Duas conclusões, e a segunda é um bug.
+
+1. **O `hybrid` foi mantido.** Ele não perdeu sentido por sobrarem duas
+   ferramentas — perde sentido com `min_viral_tools: 1`, porque aí
+   `len(t) >= 1 OR high_conf` é literalmente idêntico a `count`, e ambos são a
+   união pura (todo contig em `tool_hits` tem ≥ 1 ferramenta). Com
+   `min_viral_tools: 2` os três modos continuam distintos e ordenados:
+   `count` = interseção, `score` = qualquer um acima do corte,
+   `hybrid` = `count ∪ score`. São duas linhas de código que sustentam um
+   meio-termo real ("as duas concordam, OU uma está muito confiante").
+
+2. **O modo `score` era geNomad sozinho** (commit `c87e13c`). O bloco
+   `high_conf` guardava os nomes crus dos TSV de score, enquanto as chaves de
+   `tool_hits` já vinham normalizadas. Como o `seqname` do VirSorter2 carrega
+   `||full`/`||partial` — documentado em `results-reference/file_schemas.json`
+   — o teste `n in high_conf` **nunca** casava para o VS2. Proviroses do
+   geNomad (`contig|provirus_X_Y`) caíam pelo mesmo motivo. Consequência: o
+   braço de score do `hybrid` nunca acrescentou um contig sequer, e o modo
+   `score` filtrava só pelo geNomad. Mesma família dos bugs de namespace deste
+   roadmap: duas normalizações escritas inline em um lugar só e não repetidas
+   no outro. Viraram `_norm_vs2`/`_norm_genomad`, definidas uma vez.
+
+   Nota para reexecuções: com a correção, `score` e `hybrid` passam a manter
+   **mais** contigs do que mantinham antes (os de score alto só do VS2). Um
+   resultado viral anterior nesses modos não é comparável ao novo.
+
 ### Descartado: strobealign como mapeador — por ora
 
 Avaliado a fundo em 2026-08-18. Ver `docs/ANALISE_TOOLS_VOMIX_METAFUN.md` e as
