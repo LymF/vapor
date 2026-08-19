@@ -1,6 +1,7 @@
 import os
 import pytest
 from report.data_loaders import (
+    STATUS_TRACKED_GLOBAL_TOOLS,
     load_votu_catalog, load_votu_presence,
     load_tool_status, summarize_tool_status, GLOBAL_STATUS_LABEL,
 )
@@ -75,9 +76,13 @@ def test_load_tool_status_reports_failed_global_rule(tmp_path):
 
     rows = summarize_tool_status(status)
     global_rows = [r for r in rows if r["sample"] == GLOBAL_STATUS_LABEL]
-    assert len(global_rows) == 2
+    # Uma linha por ferramenta global rastreada. Nao fixar o numero: o conjunto
+    # cresce a cada regra que migra para o catalogo (bacphlip_votu e
+    # eggnog_viral entraram em 1c66c6c e deixaram este teste quebrado ate
+    # 18/08). Fixar so as duas que este teste de fato exercita.
+    assert len(global_rows) == len(STATUS_TRACKED_GLOBAL_TOOLS)
     tools_reported = {r["tool"] for r in global_rows}
-    assert tools_reported == {"votu_catalog_reps", "votu_catalog_matrices"}
+    assert {"votu_catalog_reps", "votu_catalog_matrices"} <= tools_reported
 
 
 def test_load_tool_status_global_rule_does_not_corrupt_per_sample_counts(tmp_path):

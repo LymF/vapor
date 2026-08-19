@@ -10,6 +10,7 @@ Run 'vapor -h' for full help.
 """
 
 import argparse
+import json as _json
 import os
 import subprocess
 import sys
@@ -40,12 +41,11 @@ Module switches (override config.yaml without editing):
   vapor --set use_phold=false                 skip structure-based annotation
   vapor --set use_bakta=false                 skip prokaryotic MAG annotation
   vapor --set use_eggnog=false                skip COG/KEGG functional annotation
-  vapor --set use_comebin=false               skip COMEBin (no GPU available)
   vapor --set use_gunc=false                  skip chimera detection
   vapor --set use_mag_derep=false             skip MAG dereplication
   vapor --set use_amr_consensus=false         skip AMR consensus step
   vapor --set use_defense_viral=false         skip viral defense annotation
-  vapor --set use_gpu=true                    enable GPU (VAMB/SemiBin2/COMEBin)
+  vapor --set use_gpu=true                    enable GPU (VAMB/SemiBin2)
 
 Performance and thresholds:
   vapor --set threads=40                      override thread count
@@ -65,13 +65,40 @@ See INSTALL.md for database setup instructions.
 # Config keys that hold filesystem paths needing apptainer bind mounts.
 _PATH_KEYS = [
     "fastq_dir", "outdir",
-    "checkv_db", "vs2_db", "vibrant_base", "genomad_db",
-    "checkm2_db", "inphared_db", "vcontact3_db", "gtdbtk_db",
+    "checkv_db", "vs2_db", "genomad_db",
+    "checkm2_db", "inphared_db", "gtdbtk_db",
     "gunc_db", "pharokka_db", "phold_db", "bakta_db", "eggnog_db",
     "card_db", "deeparg_db", "defense_finder_models_db", "apis_db",
     "custom_prok_mmseqs_db", "custom_viral_mmseqs_db",
     "host_genome", "host_index",
+    "reads_classify_tax_dir", "reads_classify_genome_fasta",
 ]
+
+_VALID_TRACKS = ("reads", "viral", "prok")
+
+# Friendly stage name → representative rule for `--until`.
+# NOTA: estes precisam acompanhar rules/. "assembly" apontava para mmseqs2,
+# regra apagada no item (d) do roadmap (o hub virou a propria montagem), o que
+# fazia --until assembly morrer com regra desconhecida.
+_STAGE_ALIASES = {
+    "qc":       "fastp",
+    "assembly": "megahit",
+    "viral":    "viral_consensus",
+    "binning":  "binette",
+}
+
+
+def _track_overrides(track_csv: str) -> list[str]:
+    """Translate --track viral,prok into a Snakemake --config tracks={...} override."""
+    wanted = {t.strip().lower() for t in track_csv.split(",") if t.strip()}
+    unknown = wanted - set(_VALID_TRACKS)
+    if unknown:
+        raise SystemExit(
+            f"ERROR: unknown track(s): {', '.join(sorted(unknown))}. "
+            f"Valid: {', '.join(_VALID_TRACKS)}."
+        )
+    d = {t: (t in wanted) for t in _VALID_TRACKS}
+    return [f"tracks={_json.dumps(d)}"]
 
 
 def find_snakefile(cli_path):
@@ -139,21 +166,31 @@ def _collect_bind_paths(config_path):
     except Exception:
         return []
 
-    raw: set[Path] = set()
-    for key in _PATH_KEYS:
-        val = cfg.get(key, "")
+    def _add(val):
         if not val or not isinstance(val, str):
-            continue
+            return
         p = Path(os.path.expanduser(val)).resolve()
         # Walk up to the first existing ancestor (outdir may not exist yet).
         while not p.exists() and p != p.parent:
             p = p.parent
         if not p.exists():
-            continue
+            return
         # Always bind directories, not individual files.
         if p.is_file():
             p = p.parent
         raw.add(p)
+
+    raw: set[Path] = set()
+    for key in _PATH_KEYS:
+        _add(cfg.get(key, ""))
+
+    # reads_classify databases live under a nested dict (imgvr/uhgv/gtdb/custom)
+    # — flat _PATH_KEYS scanning misses them, so sylph's .syldb parent dir never
+    # gets bound and sylph fails with "No such file" even though the DB exists.
+    rc_dbs = cfg.get("reads_classify_dbs", {})
+    if isinstance(rc_dbs, dict):
+        for val in rc_dbs.values():
+            _add(val)
 
     # Drop any path that is a sub-directory of another path already in the set
     # to prevent redundant / conflicting bind mounts (e.g. fastq_dir + outdir
@@ -203,9 +240,21 @@ def build_command(args, snakefile, config_path):
             flag = "--apptainer-args" if executor == "apptainer" else "--singularity-args"
             cmd += [flag, combined]
 
-    # --set KEY=VALUE overrides passed to Snakemake's --config mechanism.
-    if args.set_config:
-        cmd += ["--config"] + args.set_config
+    # --set KEY=VALUE + --track overrides, both via Snakemake's --config mechanism.
+    config_overrides = list(args.set_config)
+    if getattr(args, "track", None):
+        config_overrides += _track_overrides(args.track)
+    if config_overrides:
+        cmd += ["--config"] + config_overrides
+
+    if getattr(args, "until", None):
+        stage = args.until.strip().lower()
+        if stage not in _STAGE_ALIASES:
+            raise SystemExit(
+                f"ERROR: unknown --until stage '{stage}'. "
+                f"Valid: {', '.join(_STAGE_ALIASES)}."
+            )
+        cmd += ["--until", _STAGE_ALIASES[stage]]
 
     if args.dry_run:
         cmd.append("--dry-run")
@@ -278,6 +327,20 @@ def main():
         default="",
         dest="singularity_args",
         help='Extra args for Singularity/Apptainer, e.g. "--nv" for GPU pass-through',
+    )
+    parser.add_argument(
+        "--track",
+        metavar="LIST",
+        default=None,
+        help="Run only these tracks (comma-separated): reads,viral,prok. "
+             "Overrides config.yaml tracks. Example: --track viral,prok",
+    )
+    parser.add_argument(
+        "--until",
+        metavar="STAGE",
+        default=None,
+        help="Stop after a stage: qc | assembly | viral | binning "
+             "(maps to Snakemake --until on a representative rule).",
     )
 
     # ── Execution control ─────────────────────────────────────────────
