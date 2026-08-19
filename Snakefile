@@ -394,6 +394,7 @@ include: "rules/host_prediction.smk"
 include: "rules/abundance.smk"
 include: "rules/annotation.smk"
 include: "rules/defense_amr.smk"
+include: "rules/pangenome.smk"
 include: "rules/finalize.smk"
 include: "rules/report.smk"
 include: "rules/reads_classify.smk"
@@ -534,6 +535,10 @@ def _t_prok():
     t += expand(f"{OUTDIR}/{{sample}}/annotation/bakta/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/annotation/eggnog/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/annotation/kegg_decoder/done.txt", sample=SAMPLES)
+    # Fase 1 do pangenoma: sem flag de config, roda sempre sobre o catalogo
+    # global (ver rules/pangenome.smk). Sem consumidor por amostra ainda --
+    # precisa deste alvo explicito para entrar no DAG.
+    t.append(f"{OUTDIR}/mag_catalog/pangenome/select_done.txt")
     return t
 
 
