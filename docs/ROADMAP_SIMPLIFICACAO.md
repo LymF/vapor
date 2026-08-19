@@ -837,6 +837,80 @@ quem transformaria o bug latente em perda de dado.
 uma sexta cópia do glob. Verificado: 860 de 860 contigs binados do TAP passam
 a casar (era 0).
 
+### Caça a bugs de tratamento de dados — 2026-08-19
+
+Varredura pedida depois da oitava manifestação, com o mesmo método: **verificar
+cada suposição de formato contra os arquivos reais**, nunca contra o comentário
+do código. Dados usados: `~/global/results` (run completa, com `report.html`) e
+a run da Amazônia em `/media/nas1/.../amazon/results`.
+
+**Cinco defeitos confirmados, todos medidos.**
+
+1. **`build_host_collapse` inventava o gênero do hospedeiro.** Derivava de
+   `host.split('_')[0]`, apoiado no comentário "primeiro token do nome do
+   arquivo (ex. `Bacteroides_fragilis.fa` → `Bacteroides`)". Isso vale para
+   genomas de *referência* nomeados por espécie, não para os MAGs desta
+   pipeline. Prova no `report.html` real: todo `Host` é `binette_binN`, logo o
+   "gênero" de **todos** os hospedeiros era a constante `"binette"` — um único
+   feixe no gráfico. No co-assembly os bins são números e sairiam como gêneros
+   `1`, `136`. O dado certo estava ao lado, no mesmo relatório: o mesmo
+   hospedeiro aparece em `HOST_DEFENSE_LINKS` com `Host_genus: "Neisseria"`,
+   resolvido pelo GTDB-Tk. Passa a usar essa fonte.
+
+2. **`load_phist` não removia `.fna`.** Os bins do VAMB (o track co-assembly usa
+   `bin_ext=".fna"`) chamam-se `1.fna`, então `Host` ficava `1.fna` e a junção
+   com o `user_genome` do GTDB-Tk (`1`) falhava **para o track inteiro** —
+   taxonomia de hospedeiro vazia em todo grupo, sem erro. O track por amostra
+   escapou por acaso: bins do Binette são `.fa`. De quebra, `.fa` era removido
+   antes de `.fasta`, então `x.fasta` virava `xsta`.
+
+3. **BACPHLIP nunca funcionaria com banco IMG/VR.** Os IDs saíam de
+   `basename(Genome_file).split(".")[0]`, o que serve para o GTDB (um arquivo
+   por genoma) mas não para o IMG/VR, onde **todo vírus vem do mesmo arquivo**:
+   nas 111 linhas de sylph da Amazônia, `Genome_file` é `imgvr_reps.fna` em
+   todas as virais. O conjunto detectado colapsava para um id inexistente,
+   `imgvr_reps`, zero sequências eram extraídas e o script abortava. Quem
+   distingue os vírus é `Contig_name`. Dormente na config atual
+   (`reads_classify_genome_fasta` vazio), mas é mina para quem ligar.
+
+4. **O colapso viral por hospedeiro do sylph produzia tabela vazia.** O filtro
+   exigia `d__Viruses` **e** `s__`. A taxonomia do IMG/VR no sylph-tax começa no
+   **realm** (`r__Duplodnaviria`) e as linhagens **pulam espécie** — a folha é
+   `t__IMGVR_UViG_...`. Ou seja, as duas condições falhavam. Medido: 1482 clados
+   virais na tabela mesclada, **zero** casando, e o `viral_abundance_by_host.tsv`
+   em disco tem exatamente **uma linha, o cabeçalho**. Depois da correção, 1407
+   folhas virais. A seleção passou a ser "folha da hierarquia" em vez de um rank
+   fixo, o que funciona nas duas taxonomias sem saber qual banco gerou a tabela.
+
+5. **`enrich_taxonomy_with_checkv` perderia todo profago** — consequência da
+   correção da oitava manifestação: com o aparo do CheckV funcionando, o
+   `Genome` da taxonomia pode ser `k141_9_1` enquanto o `quality_summary` só
+   conhece `k141_9`. Resolvido com o mesmo `checkv_provirus.resolve_original_id`.
+
+**Verificados e CORRETOS** (registrado para não se re-investigar):
+
+- `prok_binning.smk:106` usa `seq.split("|")[0]` para provírus do geNomad — e o
+  geNomad **de fato** usa `contig|provirus_START_END`. Confirmado no único caso
+  do dataset: `k141_251078|provirus_255_24262`. CheckV e geNomad têm convenções
+  diferentes; foi aplicar a do geNomad ao arquivo do CheckV que gerou a oitava
+  manifestação.
+- `votu_abundance` (`abundance.smk`) despreza o prefixo do catálogo
+  explicitamente antes de casar com a tabela do CoverM. Correto.
+- As 4 categorias de `_PHROGS_HALLMARK_CATEGORIES` existem literalmente na saída
+  real do pharokka.
+- `rgi_card`, `galah_derep` e `gtdbtk` escrevem status de verdade — os
+  `done.txt` vazios em disco são de uma run anterior à convenção.
+- `viral_depth` casa `contigName` do depth com `contig_id` do CheckV; ambos nus.
+
+**Aberto, precisa de decisão de layout:** o `sylph-tax merge` não propaga a
+coluna `Virus_host (if viral)` dos `.sylphmpa` por amostra para a tabela
+mesclada, então `has_host` é sempre False e o agrupamento por hospedeiro nunca
+roda de fato — escreve-se a saída em nível de taxon. Os `.sylphmpa` por amostra
+**têm** a coluna (107 linhas com valor na Amazônia), mas todos os valores são
+`UNKNOWN;UNKNOWN;...` — o IMG/VR não atribuiu hospedeiro a esses vírus. Levar o
+host até o `collapse_by_host` exige mudar o merge; com o IMG/VR sozinho o ganho
+seria nulo, com o UHGV não.
+
 ### Oitava manifestação — o aparo de provírus do CheckV nunca acontecia
 
 **Medida contra os dados da Amazônia em 2026-08-19** (7 grupos de co-assembly).
