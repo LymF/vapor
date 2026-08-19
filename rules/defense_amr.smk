@@ -418,7 +418,8 @@ rule mag_deeparg:
         def write_empty(msg):
             with open(str(log[0]), "a") as lf:
                 lf.write(msg + "\n")
-            Path(str(output.results)).write_text("#ARG\tquery-start\n")
+            Path(str(output.results)).write_text(
+                "#ARG\tquery-start\tquery-end\tread_id\n")
             Path(str(output.done)).touch()
 
         if (not params.enabled or not os.path.exists(str(input.manifest))
@@ -448,7 +449,8 @@ rule mag_deeparg:
         )
 
         if not os.path.exists(str(output.results)) or os.path.getsize(str(output.results)) == 0:
-            Path(str(output.results)).write_text("#ARG\tquery-start\n")
+            Path(str(output.results)).write_text(
+                "#ARG\tquery-start\tquery-end\tread_id\n")
         Path(str(output.done)).touch()
 
 

@@ -586,22 +586,27 @@ def _mag_view_by_prefix(global_tsv, membership_path, source_id, out_tsv,
     reps = _mag_source_reps(membership_path, source_id)
     header, by_rep = None, {}
     if _os.path.exists(global_tsv):
+        # Descarta o preambulo de comentario ("## ..." do eggNOG-mapper,
+        # "# argNorm version: ..." do argNorm) sem tocar em cabecalhos que
+        # comecam com "#" sem espaco, como o "#query"/"#ARG".
         with open(global_tsv, newline="") as fh:
-            r = _csv.reader(fh, delimiter="\t")
-            header = next(r, None)
-            idx = None
-            if header:
-                for cand in (id_col, id_col.lstrip("#")):
-                    if cand in header:
-                        idx = header.index(cand)
-                        break
-            if idx is not None:
-                for row in r:
-                    if idx >= len(row):
-                        continue
-                    rep, rest = _mag_resolve_prefixed(row[idx], reps)
-                    if rep is not None:
-                        by_rep.setdefault(rep, []).append((row, idx, rest))
+            lines = [ln for ln in fh
+                     if not (ln.startswith("##") or ln.startswith("# "))]
+        r = _csv.reader(lines, delimiter="\t")
+        header = next(r, None)
+        idx = None
+        if header:
+            for cand in (id_col, id_col.lstrip("#")):
+                if cand in header:
+                    idx = header.index(cand)
+                    break
+        if idx is not None:
+            for row in r:
+                if idx >= len(row):
+                    continue
+                rep, rest = _mag_resolve_prefixed(row[idx], reps)
+                if rep is not None:
+                    by_rep.setdefault(rep, []).append((row, idx, rest))
 
     header = header or [id_col]
     n = 0
@@ -682,9 +687,13 @@ def _mag_status_view(global_done, out_done):
 _MAG_VIEW_PREFIX_COLS = {
     "amrfinder":        "Protein identifier",
     "rgi":              "ORF_ID",
-    "deeparg":          "#ARG",
+    # `read_id`, NAO `#ARG`: no DeepARG a primeira coluna e o nome do gene
+    # ("MDFA"), nao o identificador da proteina. Usar `#ARG` aqui daria uma
+    # vista vazia em silencio, porque nenhum nome de gene casa com um
+    # representante do catalogo.
+    "deeparg":          "read_id",
     "amrfinder_normed": "Protein identifier",
-    "deeparg_normed":   "#ARG",
+    "deeparg_normed":   "read_id",
     "consensus":        "locus",
     "mmseqs":           "qseqid",
     "eggnog":           "#query",

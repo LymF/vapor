@@ -54,6 +54,33 @@ def _has_data(path: str) -> bool:
     return False
 
 
+def _rows(path: str):
+    """DictReader tolerante ao preambulo de comentario.
+
+    O argNorm 1.1.0 escreve "# argNorm version: 1.1.0" ANTES do cabecalho, e
+    um DictReader cru toma essa linha como cabecalho: toda coluna vira None e
+    o arquivo inteiro some sem erro. As linhas de comentario comecam com "##"
+    ou "# " (espaco); o cabecalho do DeepARG comeca com "#ARG", sem espaco,
+    e por isso NAO pode ser descartado por um filtro de "#" generico.
+    """
+    with open(path) as fh:
+        lines = [ln for ln in fh
+                 if not (ln.startswith("##") or ln.startswith("# "))]
+    return csv.DictReader(lines, delimiter="\t")
+
+
+def _locus(raw: str) -> str:
+    """Primeiro token do identificador de CDS.
+
+    O RGI devolve em ORF_ID o CABECALHO INTEIRO do Prodigal
+    ("bin__k141_9_1 # 63 # 314 # -1 # ID=..."), enquanto o AMRFinderPlus
+    devolve so o ID. Sem normalizar, os dois NUNCA casam e o consenso jamais
+    passa de n_tools=1 -- que e exatamente o que o relatorio filtra fora
+    (n_tools >= 2), deixando o painel de AMR vazio sem nenhum erro.
+    """
+    return (raw or "").strip().split()[0] if (raw or "").strip() else ""
+
+
 def _get(row: dict, *keys: str) -> str:
     for k in keys:
         v = row.get(k, "")
@@ -73,17 +100,16 @@ def _parse_amrfinder_normed(path: str) -> dict:
     hits = {}
     if not _has_data(path):
         return hits
-    with open(path) as fh:
-        for row in csv.DictReader(fh, delimiter="\t"):
-            locus = _get(row, "Protein identifier")
-            if not locus:
-                continue
-            hits[locus] = {
-                "aro": _norm_aro(_get(row, "ARO Accession", "ARO")),
-                "gene": _get(row, "Gene symbol", "gene_name", "AMR Gene Family"),
-                "drug_class": _get(row, "Drug Class", "Class"),
-                "resistance_mechanism": _get(row, "Resistance Mechanism"),
-            }
+    for row in _rows(path):
+        locus = _locus(_get(row, "Protein identifier"))
+        if not locus:
+            continue
+        hits[locus] = {
+            "aro": _norm_aro(_get(row, "ARO Accession", "ARO")),
+            "gene": _get(row, "Gene symbol", "gene_name", "AMR Gene Family"),
+            "drug_class": _get(row, "Drug Class", "Class"),
+            "resistance_mechanism": _get(row, "Resistance Mechanism"),
+        }
     return hits
 
 
@@ -96,49 +122,43 @@ def _parse_rgi(path: str) -> dict:
     hits = {}
     if not _has_data(path):
         return hits
-    with open(path) as fh:
-        for row in csv.DictReader(fh, delimiter="\t"):
-            locus = _get(row, "ORF_ID")
-            if not locus:
-                continue
-            hits[locus] = {
-                "aro": _norm_aro(_get(row, "ARO")),
-                "gene": _get(row, "Best_Hit_ARO", "AMR Gene Family"),
-                "drug_class": _get(row, "Drug Class"),
-                "resistance_mechanism": _get(row, "Resistance Mechanism"),
-            }
+    for row in _rows(path):
+        locus = _locus(_get(row, "ORF_ID"))
+        if not locus:
+            continue
+        hits[locus] = {
+            "aro": _norm_aro(_get(row, "ARO")),
+            "gene": _get(row, "Best_Hit_ARO", "AMR Gene Family"),
+            "drug_class": _get(row, "Drug Class"),
+            "resistance_mechanism": _get(row, "Resistance Mechanism"),
+        }
     return hits
 
 
 def _parse_deeparg_normed(path: str) -> dict:
     """
     DeepARG normed output: locus → {aro, gene, drug_class, resistance_mechanism}
-    Header column is '#ARG' (or 'ARG' after stripping '#').
-    argNorm adds same extra columns as for AMRFinderPlus.
+
+    O CDS esta em `read_id`. A coluna `#ARG` e o NOME do gene ("MDFA"), nao o
+    identificador da proteina -- usa-la como chave (o que este parser fazia
+    ate 2026-08-19) tem duas consequencias, as duas silenciosas: o DeepARG
+    nunca compartilha locus com o AMRFinderPlus/RGI, entao nunca soma ao
+    consenso; e todos os hits de um mesmo gene colapsam numa unica entrada.
     """
     hits = {}
     if not _has_data(path):
         return hits
-    with open(path) as fh:
-        reader = csv.DictReader(fh, delimiter="\t")
-        # handle '#ARG' column name produced by DeepARG
-        fieldnames = reader.fieldnames or []
-        locus_col = next(
-            (c for c in fieldnames if c.lstrip("#").strip().upper() == "ARG"),
-            None
-        )
-        if locus_col is None:
-            return hits
-        for row in reader:
-            locus = (row.get(locus_col) or "").strip()
-            if not locus:
-                continue
-            hits[locus] = {
-                "aro": _norm_aro(_get(row, "ARO Accession", "ARO")),
-                "gene": _get(row, "gene_name", "AMR Gene Family", locus_col),
-                "drug_class": _get(row, "Drug Class", "predicted_aro-drug_class"),
-                "resistance_mechanism": _get(row, "Resistance Mechanism"),
-            }
+    for row in _rows(path):
+        locus = _locus(_get(row, "read_id"))
+        if not locus:
+            continue
+        hits[locus] = {
+            "aro": _norm_aro(_get(row, "ARO Accession", "ARO")),
+            "gene": _get(row, "gene_name", "AMR Gene Family", "#ARG", "ARG"),
+            "drug_class": _get(row, "Drug Class", "predicted_aro-drug_class",
+                               "predicted_ARG-class"),
+            "resistance_mechanism": _get(row, "Resistance Mechanism"),
+        }
     return hits
 
 

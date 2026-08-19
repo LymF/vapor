@@ -97,7 +97,7 @@ PYEOF
             touch {output.done}; exit 0
         fi
 
-        echo -e "bin\tstatus" > {output.summary}
+        printf "bin\tstatus\n" > {output.summary}
 
         while IFS= read -r BIN_NAME || [ -n "$BIN_NAME" ]; do
             [ -z "$BIN_NAME" ] && continue
@@ -116,8 +116,8 @@ PYEOF
                 --skip-plot \
                 "$BIN_FA" \
                 >> {log} 2>&1 && \
-                echo "$BIN_NAME\tok" >> {output.summary} || \
-                echo "$BIN_NAME\tfailed" >> {output.summary}
+                printf "%s\tok\n" "$BIN_NAME" >> {output.summary} || \
+                printf "%s\tfailed\n" "$BIN_NAME" >> {output.summary}
         done < {params.outdir}/qualifying_bins.txt
 
         touch {output.done}
