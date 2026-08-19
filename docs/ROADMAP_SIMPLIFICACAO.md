@@ -1103,7 +1103,42 @@ descasamento.
   nenhum genoma** — trocando "o melhor MAG da espécie" por "algum MAG da
   espécie", sem erro.
 
-  **Falta: migrar as demais análises para as representantes.** `bakta`,
+  **Tentado e revertido em 2026-08-19: a migração das demais análises.**
+  O caminho parecia barato — herdar os corpos com
+  `use rule defensefinder as mag_defensefinder with:` apontando para um
+  manifesto global, e escrever vistas por amostra nos mesmos caminhos. As seis
+  regras globais foram construídas e o DAG as aceitou. **As vistas não
+  entraram**, por um obstáculo real:
+
+  `ruleorder: mag_views_sample > amrfinderplus` é **ignorado em silêncio**
+  neste workflow. Testado e descartado: declarar dentro do `if`, fora do `if`,
+  antes dos includes, depois dos includes, e reordenar os pares. Um caso
+  mínimo reproduzindo a mesma estrutura (regra multi-output vs regra
+  single-output, `use rule` sobre a base, definição dentro de `if` num arquivo
+  incluído) **resolve corretamente** — então não é limitação do Snakemake 9.21,
+  é algo específico deste workflow que ainda não foi isolado.
+
+  **Consequência de desenho:** as regras por amostra não podem coexistir com as
+  vistas nos mesmos caminhos. Quando o catálogo está ativo elas não devem
+  existir — o que exige gatear `defensefinder`, `amrfinderplus`, `rgi_card`,
+  `deeparg`, `abricate` (`defense_amr.smk`) e `mmseqs_taxonomy_prok`
+  (`taxonomy.smk`) sob `if not MAG_CATALOG_ANALYSES:`, mais os seis gêmeos de
+  co-assembly, que herdam essas regras com `use rule` e quebram se a base
+  sumir. São ~14 blocos reindentados em três arquivos, e o `argnorm_normalize`
+  / `amr_consensus` precisam continuar valendo por cima das vistas.
+
+  Também levantado e ainda não resolvido: a **colisão de separador**.
+  `_concat_proteins` prefixa proteínas com `{genome}__` e o relatório recupera
+  o genoma cortando no PRIMEIRO `__`; o ID do catálogo é `{source}__{bin}`,
+  que já contém um. Uma proteína de representante sai como
+  `S1__binette_bin1__k141_1_5` e o corte devolveria `S1`, atribuindo todo hit
+  de AMRFinderPlus/RGI/DeepARG à AMOSTRA em vez do MAG. A saída existe (a
+  vista reescreve o prefixo para o nome original do bin antes de qualquer
+  consumidor ver), mas exige duas variantes de vista: coluna `genome`
+  (DefenseFinder, ABRicate) e prefixo-no-ID (AMRFinderPlus, RGI, DeepARG,
+  MMseqs2) — verificado nas saídas reais de `~/global/results`.
+
+  **Falta, então: migrar as demais análises para as representantes.** `bakta`,
   `eggnog_prok`, `extract_kegg_kos`, `prok_bin_proteins` e os cinco
   consumidores dele (`defensefinder`, `amrfinderplus`, `rgi_card`, `deeparg`,
   `abricate`) ainda rodam por amostra sobre todos os bins. Não foi feito junto
