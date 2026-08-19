@@ -3,7 +3,7 @@
 Ported verbatim from generate_report.py with new loaders added for
 alpha diversity, PCoA, KEGG, and eggnog aggregation.
 """
-import os, re, glob, csv, json, random, zipfile
+import os, re, sys, glob, csv, json, random, zipfile
 from collections import Counter, defaultdict
 
 
@@ -1256,14 +1256,34 @@ def load_reads_classify(abundance_path, host_path, samples):
 
     Returns dict: viral, prok, archaea, host, has_data, samples
     """
-    def _fastq_to_sample(col):
-        """Strip directory + fastq extensions to recover sample name."""
+    def _fastq_to_sample(col, known=()):
+        """Recuperar o nome da amostra a partir do cabecalho da tabela mesclada.
+
+        A coluna e o caminho do arquivo de reads que o sylph recebeu
+        (`Sample_file`). Em single-end/long-read isso e "{sample}.fastq.gz" e
+        tirar a extensao basta. Em PAIRED-END o sylph registra o arquivo do
+        `-1`, ou seja "{sample}_R1.fastq.gz" / "{sample}_1.fastq.gz": tirar so
+        a extensao devolve "{sample}_R1", que nao e nome de amostra nenhum, a
+        coluna nao casa com ninguem e TODA a trilha de reads sai zerada no
+        relatorio -- com `has_data` verdadeiro, porque as linhas existem.
+
+        Por isso a resolucao e contra a lista de amostras conhecidas, com o
+        sufixo de par desfeito, e nunca por adivinhacao de formato.
+        """
         name = os.path.basename(col)
         for ext in ('.fastq.gz', '.fq.gz', '.fastq', '.fq'):
             if name.endswith(ext):
                 name = name[:-len(ext)]
                 break
-        return name
+        known = set(known or ())
+        if not known or name in known:
+            return name
+        for suffix in ('_R1_001', '_R1', '_r1', '.R1', '_1', '.1'):
+            if name.endswith(suffix) and name[:-len(suffix)] in known:
+                return name[:-len(suffix)]
+        # ultimo recurso: o nome da amostra mais longo que prefixa a coluna
+        cands = [s for s in known if name.startswith(s)]
+        return max(cands, key=len) if cands else name
 
     def _is_viral(clade):
         # ICTV realm taxonomy: r__Duplodnaviria, r__Monodnaviria, etc.
@@ -1314,14 +1334,24 @@ def load_reads_classify(abundance_path, host_path, samples):
             taxon_col = list(rows[0].keys())[0]
 
             # Build col→sample map (merged headers are full fastq paths)
+            unmapped = []
             for col in rows[0].keys():
                 if col == taxon_col:
                     continue
-                mapped = _fastq_to_sample(col)
+                mapped = _fastq_to_sample(col, samples)
                 if mapped in samples:
                     col_to_sample[col] = mapped
                 elif col in samples:
                     col_to_sample[col] = col
+                else:
+                    unmapped.append(col)
+            if unmapped:
+                # Silencio aqui e o modo de falha: colunas nao casadas viram
+                # zeros e o grafico fica vazio como se nao houvesse taxa.
+                sys.stderr.write(
+                    "[load_reads_classify] AVISO: %d coluna(s) da tabela "
+                    "mesclada nao casaram com amostra nenhuma e viram zero: "
+                    "%s\n" % (len(unmapped), unmapped[:3]))
 
             all_clades = {row.get(taxon_col, '') for row in rows}
             eff_cache = {c: _last_std_rank_seg(c) for c in all_clades}

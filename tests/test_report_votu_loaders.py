@@ -280,3 +280,45 @@ def test_colapso_com_representante_de_outra_amostra(tmp_path):
     ]
     out = collapse_taxonomy_to_votu(recs, outdir, ["S1"])
     assert len(out) == 1 and out[0]["Genome"] == "k141_10"
+
+
+# ── Trilha de reads: coluna do sylph -> amostra ──────────────────────────
+
+def _merged_table(tmp_path, cols, rows):
+    p = tmp_path / "merged_relative_abundance.tsv"
+    p.write_text("clade_name\t" + "\t".join(cols) + "\n" +
+                 "".join("\t".join(r) + "\n" for r in rows))
+    return str(p)
+
+
+def test_reads_classify_casa_colunas_paired_end(tmp_path):
+    """Em PE o sylph registra o arquivo do -1 ("{sample}_R1.fastq.gz"). Tirar
+    so a extensao devolve "{sample}_R1", que nao e amostra nenhuma: a coluna
+    era descartada e TODA a trilha de reads saia zerada, com has_data True."""
+    from report.data_loaders import load_reads_classify
+    p = _merged_table(tmp_path, ["/data/S1_R1.fastq.gz", "/data/S2_1.fastq.gz"],
+                      [["r__Duplodnaviria", "12.5", "3.5"]])
+    out = load_reads_classify(p, "", ["S1", "S2"])
+    assert out["has_data"]
+    v = out["viral"][0]
+    assert v["S1"] == 12.5 and v["S2"] == 3.5
+
+
+def test_reads_classify_casa_colunas_single_end(tmp_path):
+    from report.data_loaders import load_reads_classify
+    p = _merged_table(tmp_path, ["/data/S1.fastq.gz"],
+                      [["r__Duplodnaviria", "9.0"]])
+    out = load_reads_classify(p, "", ["S1"])
+    assert out["viral"][0]["S1"] == 9.0
+
+
+def test_reads_classify_nao_confunde_amostras_com_prefixo_comum(tmp_path):
+    """'S1' prefixa 'S1_extra': a coluna de S1_extra tem de ir para ela, nao
+    para S1."""
+    from report.data_loaders import load_reads_classify
+    p = _merged_table(tmp_path,
+                      ["/data/S1_extra_R1.fastq.gz", "/data/S1_R1.fastq.gz"],
+                      [["r__Duplodnaviria", "1.0", "2.0"]])
+    out = load_reads_classify(p, "", ["S1", "S1_extra"])
+    v = out["viral"][0]
+    assert v["S1_extra"] == 1.0 and v["S1"] == 2.0

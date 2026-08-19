@@ -178,12 +178,18 @@ rule sylph_merge:
         f"{OUTDIR}/logs/sylph_merge.log",
     conda:      "../envs/env_reads_classify.yaml"
     container:  CONTAINERS.get("sylph_tax")
+    params:
+        # Diretorios das amostras DESTA corrida, nao "{OUTDIR}/*/". O glob
+        # varria o disco: um sample renomeado ou removido do config deixa seu
+        # .sylphmpa antigo no OUTDIR e ele entrava na mesclagem em silencio,
+        # como se fosse uma amostra a mais.
+        dirs = [f"{OUTDIR}/{s}/reads_classify" for s in SAMPLES],
     shell:
         """
         mkdir -p {OUTDIR}/reads_classify
 
         mapfile -t sylphmpa_files < <(
-            find {OUTDIR}/*/reads_classify/ -name "*.sylphmpa" 2>/dev/null | sort
+            find {params.dirs} -maxdepth 1 -name "*.sylphmpa" 2>/dev/null | sort
         )
 
         if [ "${{#sylphmpa_files[@]}}" -gt 0 ]; then
@@ -271,10 +277,12 @@ rule reads_host_map:
     container:  CONTAINERS.get("sylph_tax")
     params:
         script = _os.path.join(_RC_SCRIPTS, "build_host_map.py"),
+        # mesma razao do `params.dirs` em sylph_merge: nada de varrer o disco.
+        dirs   = [f"{OUTDIR}/{s}/reads_classify" for s in SAMPLES],
     shell:
         """
         mkdir -p {OUTDIR}/reads_classify
-        mapfile -t mpa < <(find {OUTDIR}/*/reads_classify/ -name "*.sylphmpa" 2>/dev/null | sort)
+        mapfile -t mpa < <(find {params.dirs} -maxdepth 1 -name "*.sylphmpa" 2>/dev/null | sort)
         if [ "${{#mpa[@]}}" -eq 0 ]; then
             printf "clade_name\thost_db\n" > {output}
             echo "[reads_host_map] nenhum .sylphmpa encontrado" > {log}
