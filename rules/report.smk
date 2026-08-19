@@ -105,6 +105,9 @@ rule generate_report:
         min_contig       = MIN_CONTIG,
         semibin_env      = SEMIBIN_ENV,
         min_viral_tools  = MIN_VIRAL_TOOLS,
+        # min_viral_tools sozinho nao descreve o filtro: no modo "score" ele
+        # nao governa nada. O relatorio precisa mostrar os dois juntos.
+        viral_consensus_mode = VIRAL_CONSENSUS_MODE,
         checkv_db        = CHECKV_DB,
         genomad_db       = GENOMAD_DB,
         inphared_db      = INPHARED_DB,

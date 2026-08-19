@@ -144,9 +144,21 @@ rule viral_consensus:
                         names.add(line[1:].strip().split()[0])
             return names
 
+        # Normalizacao de nome, uma definicao so. Antes de 2026-08-19 estas
+        # duas regras estavam escritas inline aqui e NAO se repetiam no bloco
+        # `high_conf` mais abaixo, que lia os TSV de score crus -- ver o
+        # comentario naquele bloco para o efeito.
+        def _norm_vs2(n):
+            """VirSorter2 sufixa ||full / ||partial / ||lt0.5 no seqname."""
+            return n.split("||")[0]
+
+        def _norm_genomad(n):
+            """GeNomad nomeia provirus como "contig|provirus_X_Y"."""
+            return n.split("|")[0]
+
         # ── VirSorter2 ────────────────────────────────────────────────
         vs2_names = {
-            n.split("||")[0]
+            _norm_vs2(n)
             for n in iter_fasta_names(
                 os.path.join(params.vs2_dir, "final-viral-combined.fa")
             )
@@ -180,9 +192,7 @@ rule viral_consensus:
                                 break
                         continue
                     if seq_col < len(parts):
-                        raw = parts[seq_col].strip()
-                        name = raw.split("|")[0] if "|" in raw else raw
-                        genomad_names.add(name)
+                        genomad_names.add(_norm_genomad(parts[seq_col].strip()))
 
         # ── Count tool support per contig ─────────────────────────────
         tool_hits = defaultdict(list)
@@ -195,6 +205,14 @@ rule viral_consensus:
             except: return d
 
         if VIRAL_CONSENSUS_MODE in ("score", "hybrid"):
+            # BUG ate 2026-08-19: este bloco guardava os nomes CRUS dos TSV de
+            # score, enquanto as chaves de `tool_hits` ja vinham normalizadas.
+            # Como o seqname do VirSorter2 carrega "||full"/"||partial"
+            # (documentado em results-reference/file_schemas.json), o teste
+            # `n in high_conf` NUNCA casava para o VS2: o modo "score" era, na
+            # pratica, geNomad sozinho, e o braco de score do "hybrid" nao
+            # acrescentava nada. Proviroses do geNomad ("contig|provirus_X_Y")
+            # caiam pelo mesmo motivo.
             high_conf = set()
 
             # VirSorter2: final-viral-score.tsv — column max_score (0-1)
@@ -203,12 +221,12 @@ rule viral_consensus:
                 with open(vs2_sf) as _f:
                     for _r in csv.DictReader(_f, delimiter="\t"):
                         if _safe_float(_r.get("max_score",0)) >= SCORE_VS2_MIN:
-                            high_conf.add(_r.get("seqname","").strip())
+                            high_conf.add(_norm_vs2(_r.get("seqname","").strip()))
             for _gf in glob.glob(os.path.join(params.genomad_dir,"**","*_virus_summary.tsv"),recursive=True):
                 with open(_gf) as _f:
                     for _r in csv.DictReader(_f, delimiter="\t"):
                         if _safe_float(_r.get("virus_score",0)) >= SCORE_GENOMAD_MIN:
-                            high_conf.add(_r.get("seq_name", "").strip())
+                            high_conf.add(_norm_genomad(_r.get("seq_name", "").strip()))
         else:
             high_conf = set()
 
@@ -251,6 +269,9 @@ rule viral_consensus:
             lf.write(f"\nVirSorter2 : {len(vs2_names)}\n")
             lf.write(f"GeNomad    : {len(genomad_names)}\n")
             lf.write(f"Union total: {len(tool_hits)}\n")
+            if VIRAL_CONSENSUS_MODE in ("score", "hybrid"):
+                lf.write(f"High-confidence (score) : {len(high_conf & set(tool_hits))}"
+                         f" de {len(high_conf)} acima do corte\n")
             lf.write(f"Consensus mode={VIRAL_CONSENSUS_MODE} (min_tools={MIN_VIRAL_TOOLS}): {len(consensus)}\n")
             lf.write(f"FASTA output: {kept} → {output.fasta}\n")
 

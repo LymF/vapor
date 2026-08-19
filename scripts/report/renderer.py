@@ -335,7 +335,10 @@ def _build(snakemake):
         "Min contig length":           f"{getattr(_p, 'min_contig',       '?')} bp",
         "MEGAHIT memory":              f"{getattr(_p, 'megahit_mem',      '?')} GB",
         "SemiBin2 environment":        str(getattr(_p, "semibin_env",     "?")),
-        "Viral consensus (min tools)": f"{getattr(_p, 'min_viral_tools', '?')} / 3",
+        # "/ 3" era VIBRANT + VirSorter2 + geNomad; o VIBRANT saiu em
+        # 2026-08-18 e o rotulo continuou dizendo 3.
+        "Viral consensus (min tools)": f"{getattr(_p, 'min_viral_tools', '?')} / 2",
+        "Viral consensus (mode)":      str(getattr(_p, "viral_consensus_mode", "?")),
     }
 
     # ── Benchmark data ────────────────────────────────────────────────────────
