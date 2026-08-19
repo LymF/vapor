@@ -1,8 +1,17 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/reads_classify.smk — BLOCK 14: Reads-only classification
 #
-# Ultrafast taxonomic profiling directly from raw reads using Sylph.
-# Runs independently of the assembly pipeline — no contigs required.
+# Ultrafast taxonomic profiling from reads using Sylph — sem montagem, mas
+# NAO sem pre-processamento: o perfil roda sobre os reads APARADOS (fastp /
+# filtlong) e, quando `host_genome` esta configurado, sobre os reads SEM
+# HOSPEDEIRO. E a mesma entrada que a montagem usa, pelos mesmos helpers
+# (`_clean_r1`/`_clean_r2`/`_clean_lr`, Snakefile).
+#
+# Ate 2026-08-19 esta trilha lia os FASTQ CRUS: adaptadores, caudas de baixa
+# qualidade e reads de hospedeiro entravam no perfil, e o `host_genome`
+# configurado nao tinha efeito nenhum aqui. Consequencia pratica: rodar so a
+# trilha de reads agora dispara o trimming (e o mapeamento contra o hospedeiro,
+# se configurado) -- e assim que tem de ser.
 #
 # Supported databases (configured in config.yaml):
 #   imgvr   — IMG/VR 4.1  (2.9M viral genomes,  ~2 GB)
@@ -80,14 +89,16 @@ rule sylph_tax_download:
 
 rule sylph_profile:
     """
-    Profile raw reads against configured sylph databases.
+    Profile reads against configured sylph databases.
     Handles PE short reads, SE short reads, and long reads (ONT/HiFi).
+
+    Entrada: reads aparados e, se `host_genome` estiver configurado, sem
+    hospedeiro -- os mesmos `_clean_*` que alimentam a montagem. Ver a nota
+    no topo deste arquivo.
     """
     input:
-        r1   = lambda wc: (
-            SAMPLES[wc.sample].get("LR") or SAMPLES[wc.sample]["R1"]
-        ),
-        r2   = lambda wc: SAMPLES[wc.sample].get("R2", []),
+        r1   = lambda wc: _clean_lr(wc) if LONG_READS else _clean_r1(wc),
+        r2   = lambda wc: [] if LONG_READS else _clean_r2(wc),
         dbs  = _RC_DB_PATHS,
     output:
         tsv  = f"{OUTDIR}/{{sample}}/reads_classify/sylph_results.tsv",

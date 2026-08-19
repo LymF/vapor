@@ -1278,7 +1278,13 @@ def load_reads_classify(abundance_path, host_path, samples):
         known = set(known or ())
         if not known or name in known:
             return name
-        for suffix in ('_R1_001', '_R1', '_r1', '.R1', '_1', '.1'):
+        # Os sufixos da propria pipeline vem primeiro: desde 2026-08-19 o
+        # sylph roda sobre os reads aparados / sem hospedeiro, entao a coluna
+        # e "{sample}_R1_fastp.fq.gz", "{sample}_R1_clean.fq.gz" ou
+        # "{sample}_filtered.fastq.gz" -- e nao mais o FASTQ cru.
+        for suffix in ('_R1_fastp', '_R2_fastp', '_R1_clean', '_R2_clean',
+                       '_lr_clean', '_filtered',
+                       '_R1_001', '_R1', '_r1', '.R1', '_1', '.1'):
             if name.endswith(suffix) and name[:-len(suffix)] in known:
                 return name[:-len(suffix)]
         # ultimo recurso: o nome da amostra mais longo que prefixa a coluna
