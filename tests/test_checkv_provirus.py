@@ -63,3 +63,22 @@ def test_o_bug_original_e_reproduzido_pelo_rsplit_de_pipe():
     assert hdr.rsplit("|", 1)[0] == hdr          # nao havia "|" -- no-op
     assert hdr not in KNOWN                       # logo a chave nunca batia
     assert resolve_original_id(hdr, KNOWN)[0] in KNOWN
+
+
+# ── heranca em lote (usada pelas regras de grupo) ─────────────────────────
+
+def test_inherit_separa_direto_de_aparado_e_nao_resolvido():
+    from checkv_provirus import inherit_from_original
+    known = {"k141_10", "k141_99"}
+    mapping, stats = inherit_from_original(
+        ["k141_10", "k141_99_1", "k141_777_3"], known)
+    assert mapping == {"k141_10": "k141_10", "k141_99_1": "k141_99"}
+    assert stats == {"direct": 1, "trimmed": 1, "unresolved": 1}
+
+
+def test_inherit_nao_atribui_contig_inexistente():
+    """'k141_5_2' com 'k141_5' ausente nao pode virar 'k141_5' -- seria
+    inventar completude/qualidade para uma sequencia que o CheckV nao viu."""
+    from checkv_provirus import inherit_from_original
+    mapping, stats = inherit_from_original(["k141_5_2"], {"k141_9"})
+    assert mapping == {} and stats["unresolved"] == 1

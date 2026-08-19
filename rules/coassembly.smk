@@ -1444,13 +1444,36 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                             if line.startswith(">"):
                                 ids.append(line[1:].strip().split()[0])
 
-                    completeness = {}
+                    # Completude POR ID QUE ESTA NO FASTA. O conjunto viral
+                    # do grupo ja passou pelo aparo do CheckV, entao um
+                    # profago aparece como "{contig}_{n}" enquanto o
+                    # quality_summary tem uma linha por contig ORIGINAL.
+                    # Chavear so pelo id original dava completude 0.0 a todo
+                    # profago e o representante do cluster caia para "o
+                    # primeiro do FASTA" -- ordem de montagem, nao qualidade.
+                    # Mesma resolucao de _load_catalog_completeness
+                    # (votu_catalog.smk).
+                    from checkv_provirus import inherit_from_original
+
+                    raw_comp, known = {}, set()
                     with open(input.checkv) as f:
                         for row in csv.DictReader(f, delimiter="\t"):
-                            try:
-                                completeness[row["contig_id"]] = float(row.get("completeness", "0") or 0)
-                            except (KeyError, ValueError):
+                            cid = (row.get("contig_id") or "").strip()
+                            if not cid:
                                 continue
+                            known.add(cid)
+                            try:
+                                raw_comp[cid] = float(row.get("completeness", "0") or 0)
+                            except (TypeError, ValueError):
+                                raw_comp[cid] = 0.0
+
+                    _map, _st = inherit_from_original(ids, known)
+                    completeness = {i: raw_comp.get(o, 0.0)
+                                    for i, o in _map.items()}
+                    _lf.write(f"[skani_cluster] completude: {len(completeness)}/"
+                              f"{len(ids)} genomas ({_st['trimmed']} via aparo "
+                              f"de provirus, {_st['unresolved']} sem linha no "
+                              f"CheckV)\n")
 
                     edges = parse_skani_sparse(str(input.ani), params.ani_min,
                                                params.af_min, set(ids))
@@ -1505,12 +1528,24 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
             # CheckV quality sets for filtering — see `rule viral_votu_reps`
             # (rules/viral_binning.smk). keep_mq is gated by config
             # `viral_min_quality` (VIRAL_KEEP_TIERS).
+            # keep_mq e chaveado pelo contig ORIGINAL do CheckV, mas o FASTA
+            # do grupo carrega os ids APARADOS ("{contig}_{n}"): sem desfazer
+            # o sufixo, todo profago caia fora do votu_mq_reps -- em silencio,
+            # e o mq_fasta e o que alimenta o PHIST e a anotacao do grupo.
+            import sys as _sys
+            _sys.path.insert(0, SCRIPTS_DIR)
+            from checkv_provirus import inherit_from_original
+
             keep_mq = set()
+            known_cv = set()
             _comp_fallback = VIRAL_MIN_QUALITY_RANK == 2
             with open(str(input.checkv)) as fh:
                 for row in csv.DictReader(fh, delimiter='\t'):
                     cid = row.get('contig_id', '').strip()
                     q   = row.get('checkv_quality', '').strip()
+                    if not cid:
+                        continue
+                    known_cv.add(cid)
                     try:
                         comp = float(row.get('completeness', '0') or 0)
                     except (ValueError, TypeError):
@@ -1548,8 +1583,15 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                         written += 1
                 return written
 
+            # Desfaz o aparo do CheckV: um representante "{contig}_{n}" herda
+            # a decisao do seu contig de origem (ver comentario em keep_mq).
+            _map, _st = inherit_from_original(reps, known_cv)
+            mq_reps = {rid for rid, orig in _map.items() if orig in keep_mq}
+            n_trimmed = sum(1 for rid, orig in _map.items()
+                            if rid != orig and orig in keep_mq)
+            n_unresolved = _st["unresolved"]
+
             n_all      = write_filtered(reps, str(output.all_fasta))
-            mq_reps    = reps & keep_mq
             n_mq       = write_filtered(mq_reps, str(output.mq_fasta))
 
             with open(str(log[0]), 'w') as lf:
@@ -1557,6 +1599,9 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
                 lf.write(f'[viral_votu_reps] min quality gate: {VIRAL_MIN_QUALITY} '
                          f'(tiers kept: {sorted(VIRAL_KEEP_TIERS)})\n')
                 lf.write(f'[viral_votu_reps] annotation subset (taxonomy/PHIST/Pharokka): {n_mq}\n')
+                lf.write(f'[viral_votu_reps] {n_trimmed} representantes entraram '
+                         f'via aparo de provirus; {n_unresolved} sem linha no '
+                         f'CheckV (nao confunda com reprovados)\n')
 
 
     # Taxonomia viral do grupo: passou a ser so uma VIEW da tabela global

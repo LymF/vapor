@@ -71,3 +71,33 @@ def build_trimmed_index(fasta_entries, known):
             orig = hdr_id
         index[orig].append((header_line, seq_lines))
     return index, unresolved
+
+
+def inherit_from_original(ids, known):
+    """Resolve varios ids de uma vez contra `known`.
+
+    Devolve ({id: orig_id}, {"direct": n, "trimmed": n, "unresolved": n}).
+    `direct` conta os ids que ja existem em `known` (sem aparo), `trimmed` os
+    que so casaram depois de desfazer o sufixo "{contig}_{n}", e `unresolved`
+    os que nao casaram com nada -- estes ultimos TEM de ser contados pelo
+    chamador e registrados no log: um formato novo do CheckV aparece
+    exatamente como um monte de nao resolvidos, nao como um erro.
+
+    Existe para os chamadores nao repetirem o laco: as tres copias inline de
+    `hdr_id.rsplit('|', 1)[0]` foram o que produziu o bug que este modulo
+    documenta no topo.
+    """
+    mapping = {}
+    stats = {"direct": 0, "trimmed": 0, "unresolved": 0}
+    for i in ids:
+        if i in known:
+            mapping[i] = i
+            stats["direct"] += 1
+            continue
+        orig, ok = resolve_original_id(i, known)
+        if ok:
+            mapping[i] = orig
+            stats["trimmed"] += 1
+        else:
+            stats["unresolved"] += 1
+    return mapping, stats

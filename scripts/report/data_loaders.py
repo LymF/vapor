@@ -1719,18 +1719,41 @@ def load_votu_accumulation(outdir, groups, min_depth=1.0, n_perm=100, seed=0):
         samples = []
         try:
             with open(matrix) as fh:
-                header = fh.readline().rstrip("\n").split("\t")
-                samples = header[1:]
-                for line in fh:
-                    parts = line.rstrip("\n").split("\t")
-                    rep = member_to_rep.get(parts[0])
-                    if not rep:
-                        continue
-                    for i, s in enumerate(samples, start=1):
-                        if i < len(parts) and safe_float(parts[i]) >= min_depth:
-                            present[rep].add(s)
+                rows = [ln.rstrip("\n").split("\t") for ln in fh]
         except Exception:
             continue
+        if not rows:
+            continue
+        samples = rows[0][1:]
+
+        # A matriz de abundancia e chaveada pelos contigs da MONTAGEM
+        # ("k141_10"), mas os membros do vOTU vem do conjunto viral ja
+        # APARADO pelo CheckV, onde um provirus e "k141_10_1". Sem desfazer o
+        # sufixo, todo vOTU derivado de provirus fica sem presenca nenhuma e
+        # some da curva de acumulacao -- em silencio.
+        try:
+            from checkv_provirus import inherit_from_original
+        except ImportError:
+            inherit_from_original = None
+        contig_names = {r[0] for r in rows[1:] if r}
+        if inherit_from_original is not None:
+            resolved, _st = inherit_from_original(member_to_rep, contig_names)
+        else:
+            resolved = {m: m for m in member_to_rep if m in contig_names}
+        contig_to_reps = defaultdict(set)
+        for member, contig in resolved.items():
+            contig_to_reps[contig].add(member_to_rep[member])
+
+        for parts in rows[1:]:
+            if not parts:
+                continue
+            reps = contig_to_reps.get(parts[0])
+            if not reps:
+                continue
+            for i, s in enumerate(samples, start=1):
+                if i < len(parts) and safe_float(parts[i]) >= min_depth:
+                    for rep in reps:
+                        present[rep].add(s)
         if not present or len(samples) < 2:
             continue
 

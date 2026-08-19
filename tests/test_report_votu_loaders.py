@@ -322,3 +322,27 @@ def test_reads_classify_nao_confunde_amostras_com_prefixo_comum(tmp_path):
     out = load_reads_classify(p, "", ["S1", "S1_extra"])
     v = out["viral"][0]
     assert v["S1_extra"] == 1.0 and v["S1"] == 2.0
+
+
+# ── Curva de acumulacao de vOTU do grupo ─────────────────────────────────
+
+def test_acumulacao_conta_votu_de_provirus(tmp_path):
+    """A matriz de abundancia e chaveada pelo contig da montagem
+    ("k141_10"); o membro do vOTU vem do conjunto aparado pelo CheckV
+    ("k141_10_1"). Sem desfazer o sufixo, todo vOTU de provirus some da
+    curva -- em silencio."""
+    from report.data_loaders import load_votu_accumulation
+    g = tmp_path / "coassembly" / "G1"
+    (g / "vamb").mkdir(parents=True)
+    (g / "viral" / "votu").mkdir(parents=True)
+    (g / "vamb" / "abundance.tsv").write_text(
+        "contigname\tS1\tS2\n"
+        "k141_10\t5.0\t0.0\n"
+        "k141_77\t0.0\t4.0\n")
+    (g / "viral" / "votu" / "vOTU_clusters.tsv").write_text(
+        "votu_id\trepresentative\tmember\n"
+        "vOTU_1\tk141_10_1\tk141_10_1\n"
+        "vOTU_2\tk141_77\tk141_77\n")
+    out = load_votu_accumulation(str(tmp_path), ["G1"], min_depth=1.0, n_perm=5)
+    assert out["G1"]["total"] == 2, "o vOTU do provirus tem de aparecer"
+    assert out["G1"]["mean"][-1] == 2.0
