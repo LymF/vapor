@@ -925,6 +925,54 @@ junta sistemas de contigs diferentes** — verificados todos os
 atravessa contig. Era a suspeita óbvia, dado que o lado procariótico roda
 por genoma justamente para evitar isso; a evidência diz que não acontece.
 
+#### Auditoria do lado viral (commit `bda9731`)
+
+Mesma varredura, quatro achados. Os três primeiros são a mesma família de
+bug: uma junção por ID em que as duas pontas falam convenções diferentes,
+sem erro nenhum.
+
+1. **geNomad sumia da taxonomia de todo provírus.** `_load_catalog_genomad`
+   chaveava por `{source}|{seq_name}` cru. O geNomad nomeia provírus
+   `{contig}|provirus_X_Y` — e o `|` é o próprio separador de namespace do
+   catálogo — enquanto o que chega ao pool é o fragmento **aparado pelo
+   CheckV**, `{contig}_{n}`. Nenhuma das duas casava. Consertado com
+   `resolve_genomad_key`, que desfaz o aparo contra contigs conhecidos, como
+   `_load_catalog_completeness` já fazia do lado do CheckV — o próprio
+   docstring dela avisava que consertar uma camada sem a outra só mudaria o
+   descasamento de lugar.
+2. **`host_bin` da tabela de vOTU sempre vazio.** `split_viral_fastas.py`
+   grava `contig_{id}.fasta`; o loader do `make_votu_table` não tirava o
+   prefixo `contig_` (o do relatório tirava). E o PHIST só pontua as
+   REPRESENTANTES, então o hospedeiro tem de ser **herdado** do
+   representante — buscar pelo ID do membro deixa sem hospedeiro todo membro
+   que não é representante, que é a maioria.
+3. **O colapso de taxonomia por vOTU não acontecia no relatório.**
+   `collapse_taxonomy_to_votu` lia `{sample}/viral/votu/vOTU_clusters.tsv`,
+   arquivo que **ninguém escreve** desde que o catálogo global substituiu a
+   clusterização por amostra. `load_tsv` devolvia lista vazia, cada contig
+   virava seu próprio representante, e a mesma população viral era contada
+   várias vezes nas tabelas e gráficos (`vOTU_members` sempre 1). Passa a
+   ler a vista por amostra.
+4. **O nível "mq" do catálogo não é MQ+.** `is_mq()` segue
+   `VIRAL_KEEP_TIERS`, isto é `viral_min_quality`, que vem `not_determined`
+   e expande para os CINCO níveis do CheckV: com o config padrão — e com o
+   da Amazônia — `catalog_mq_reps.fasta` é **idêntico** ao `all_reps`. É
+   escolha de config legítima (assembly fragmentado raramente alcança MQ),
+   mas `docs/PIPELINE_METHODS.md` afirmava "MQ+ representatives" para o
+   PHIST. Comportamento preservado; corrigidos docstring, métodos e log, que
+   agora avisa quando os dois níveis coincidem. **A armadilha é a mesma que
+   `viral_length_gate.py` documenta do outro lado** — lá o portão usa um
+   `MQ_TIERS` fixo justamente para não virar no-op sob o config padrão.
+
+**Checado e correto:** as colunas do `skani triangle --sparse` conferem com a
+saída real do skani 0.3.1 (cabeçalho + 7 colunas, nomes por registro com
+`-i`, `|` nos nomes sem efeito) — testado ponta a ponta com um pool
+sintético; o `filter_putative_amgs.py` já trata o preâmbulo `##` do emapper
+(só o lado procariótico não tratava); as matrizes de presença casam por
+representante e a fração coberta do CoverM está em [0,1] como o código
+assume; o consenso VS2+geNomad normaliza `||` e `|provirus` nos dois blocos
+desde 19/08; e o `viral_length_gate` usa o conjunto fixo de propósito.
+
 
 Varredura pedida depois da oitava manifestação, com o mesmo método: **verificar
 cada suposição de formato contra os arquivos reais**, nunca contra o comentário
