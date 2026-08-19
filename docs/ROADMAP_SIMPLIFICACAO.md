@@ -1138,6 +1138,67 @@ descasamento.
   (DefenseFinder, ABRicate) e prefixo-no-ID (AMRFinderPlus, RGI, DeepARG,
   MMseqs2) — verificado nas saídas reais de `~/global/results`.
 
+  **DECIDIDO em 2026-08-19 (usuário), a fazer numa próxima sessão: as análises
+  por amostra devem ser APAGADAS, não gateadas.** O catálogo é o padrão da
+  ferramenta, não uma opção. Depois dele existe uma única análise por
+  organismo — a da representante — e todo bin/vOTU membro *carrega o resultado
+  da sua representante*.
+
+  **Isto dissolve o obstáculo do `ruleorder` descrito acima.** A ambiguidade só
+  existia porque eu tentei manter os dois produtores dos mesmos caminhos; com
+  as regras por amostra removidas não há par ambíguo, e nenhum `ruleorder` é
+  necessário. A tentativa anterior estava preservando um caminho que não deve
+  existir — o erro foi de escopo, não de Snakemake.
+
+  ### Plano para a próxima sessão
+
+  1. **Apagar** `defensefinder`, `amrfinderplus`, `rgi_card`, `deeparg`,
+     `abricate` (`defense_amr.smk`) e `mmseqs_taxonomy_prok` (`taxonomy.smk`),
+     mais os seis gêmeos `coassembly_*` que os herdam com `use rule`.
+     Apagar também `bakta`, `eggnog_prok`, `extract_kegg_kos` e seus gêmeos.
+  2. **Recriar cada um como regra global** sobre
+     `mag_catalog_proteins.output.manifest` — os corpos podem ser movidos
+     inteiros, já que consomem manifesto e não conhecem `{sample}`. (A única
+     exceção medida: os `params` de `mmseqs_taxonomy_prok` citam `{sample}`
+     literalmente em vez de derivar do output, e precisam ser reescritos.)
+  3. **`argnorm_normalize` e `amr_consensus` viram globais também** — hoje
+     consomem as saídas por amostra do AMR.
+  4. **As vistas por fonte** passam a ser a única coisa que escreve em
+     `{sample}/bins/...`, usando `_mag_view_by_genome` /
+     `_mag_view_by_prefix` (já implementados e documentados em
+     `rules/mag_catalog.smk`). Duas variantes porque as ferramentas discordam
+     sobre onde fica o genoma — verificado nas saídas reais de
+     `~/global/results`:
+
+     | onde vive o genoma | ferramentas |
+     |---|---|
+     | coluna `genome` | DefenseFinder, ABRicate |
+     | prefixo do ID | AMRFinderPlus (`Protein identifier`), RGI (`ORF_ID`), DeepARG (`#ARG`), MMseqs2 (`qseqid`) |
+
+  5. **A colisão de separador tem de ser resolvida na vista**, não ignorada:
+     `_concat_proteins` prefixa `{genome}__` e o relatório corta no PRIMEIRO
+     `__`, mas o ID do catálogo é `{source}__{bin}` e já contém um. Uma
+     proteína de representante sai `S1__binette_bin1__k141_1_5` e o corte
+     devolveria `S1` — todo hit de AMR atribuído à AMOSTRA em vez do MAG. A
+     vista reescreve o prefixo para o nome original do bin antes de qualquer
+     consumidor ver; depois disso o corte no primeiro `__` volta a estar certo,
+     porque nomes de bin (`binette_binN`, inteiros do VAMB) não contêm `__`.
+
+  ### A tensão que sobra, e precisa de decisão
+
+  "Não ativável" colide com o que ficou combinado sobre `low_depth_mode`: ali o
+  `prok_bin_proteins` ignora bins e trata os contigs da amostra como um
+  `contigs_pseudogenome`, que não tem representante do qual herdar. Se as
+  regras por amostra forem apagadas, esse modo fica sem caminho nenhum.
+
+  Saída provável, a confirmar: **o pseudo-genoma entra no pool como mais uma
+  fonte**. `_mag_sources()` passaria a emitir, em `low_depth_mode`, um
+  "genoma" por amostra (os contigs), e o catálogo segue sendo o caminho único
+  — sem toggle, sem regra por amostra, e com a desreplicação global operando
+  também sobre eles. Precisa ser verificado antes de assumir: o galah sobre
+  pseudo-genomas de metagenoma inteiro não é a mesma operação que sobre MAGs,
+  e pode não fazer sentido biológico.
+
   **Falta, então: migrar as demais análises para as representantes.** `bakta`,
   `eggnog_prok`, `extract_kegg_kos`, `prok_bin_proteins` e os cinco
   consumidores dele (`defensefinder`, `amrfinderplus`, `rgi_card`, `deeparg`,
