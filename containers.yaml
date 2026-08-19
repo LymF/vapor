@@ -191,6 +191,10 @@ eggnog_mapper:
   image: eggnog-mapper
   version: "2.1.13"
 
+kegg_pathways_completeness:
+  image: kegg-pathways-completeness
+  version: "1.4.4"
+
 # Custom multi-tool image for circular genome maps (pycirclize + matplotlib + biopython).
 # Built from docker/Dockerfile.genome-map and pushed to GHCR.
 # Run: docker build -t ghcr.io/LymF/vapor-genome-map:1.0 docker/Dockerfile.genome-map

@@ -50,6 +50,11 @@ STATUS_TRACKED_GLOBAL_TOOLS = {
     "votu_phold":              "votu_catalog/annotation/phold/done.txt",
     "votu_defensefinder_viral": "votu_catalog/defensefinder/done.txt",
     "votu_dbapis_viral":       "votu_catalog/dbapis/done.txt",
+    # Completude de modulo KEGG sobre as representantes (2026-08-19). Uma
+    # falha aqui tem de aparecer como lacuna: "nenhum modulo completo" e um
+    # resultado biologico possivel e nao pode ser confundido com o tool ter
+    # quebrado.
+    "mag_kegg_completeness":   "mag_catalog/kegg_modules/done.txt",
 }
 
 GLOBAL_STATUS_LABEL = "(global)"
@@ -1521,6 +1526,99 @@ def load_eggnog(outdir, samples):
         result[s] = dict(cnt)
     return result
 
+
+
+def load_cazy(outdir, samples):
+    """Familias CAZy por amostra, agregadas por classe.
+
+    Le a vista `annotation/kegg_decoder/cazy_per_mag.tsv`, que o
+    `mag_extract_kegg_kos` extrai da coluna CAZy do proprio eggNOG (coluna
+    19) -- ela existia no arquivo desde sempre e nenhum consumidor a lia ate
+    2026-08-19. Nao ha ferramenta nem banco novo por tras deste painel.
+
+    Devolve, por amostra, contagem por classe (GH/GT/PL/CE/AA/CBM/Other) e as
+    familias mais frequentes, ja que a familia -- GH13, GT51 -- e o que
+    carrega o significado enzimatico; a classe so agrupa.
+    """
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))))
+    try:
+        from annotation_tables import cazy_class
+    except ImportError:
+        return {}
+
+    result = {}
+    for s in samples:
+        p = os.path.join(outdir, s, "annotation", "kegg_decoder",
+                         "cazy_per_mag.tsv")
+        by_class, by_family = Counter(), Counter()
+        for row in load_tsv(p):
+            fam = (row.get("cazy_family") or "").strip()
+            if not fam:
+                continue
+            by_class[cazy_class(fam)] += 1
+            by_family[fam] += 1
+        if by_class:
+            result[s] = {
+                "by_class": dict(by_class),
+                "top_families": by_family.most_common(15),
+                "total": sum(by_class.values()),
+            }
+    return result
+
+
+def load_kegg_modules(outdir, samples, min_complete=80.0):
+    """Completude de modulo KEGG por amostra (rule mag_kegg_completeness).
+
+    A tabela por MAG traz uma linha por (MAG, modulo) com `completeness` em
+    PERCENTUAL e a lista de `missing_ko`. Aqui o resumo e: quantos MAGs
+    fecham cada modulo (>= min_complete) e a completude media, mais o
+    ranking dos modulos por numero de MAGs completos.
+
+    `missing_ko` viaja junto do topo do ranking de propositol: uma via a 80%
+    so e interpretavel se der para ver o passo que falta.
+    """
+    result = {}
+    for s in samples:
+        p = os.path.join(outdir, s, "annotation", "kegg_modules",
+                         "module_completeness.tsv")
+        stats = {}
+        for row in load_tsv(p):
+            mod = (row.get("module_accession") or "").strip()
+            if not mod:
+                continue
+            try:
+                comp = float(row.get("completeness") or 0)
+            except ValueError:
+                continue
+            d = stats.setdefault(mod, {
+                "name":    (row.get("pathway_name") or "").strip(),
+                "cls":     (row.get("pathway_class") or "").strip(),
+                "values":  [],
+                "missing": (row.get("missing_ko") or "").strip(),
+            })
+            d["values"].append(comp)
+
+        if not stats:
+            continue
+
+        rows = []
+        for mod, d in stats.items():
+            vals = d["values"]
+            n_complete = sum(1 for v in vals if v >= min_complete)
+            rows.append({
+                "module":      mod,
+                "name":        d["name"],
+                "cls":         d["cls"],
+                "n_mags":      len(vals),
+                "n_complete":  n_complete,
+                "mean":        round(sum(vals) / len(vals), 1),
+                "max":         round(max(vals), 1),
+                "missing_ko":  d["missing"],
+            })
+        rows.sort(key=lambda r: (-r["n_complete"], -r["mean"]))
+        result[s] = rows[:30]
+    return result
 
 
 def load_phrogs(outdir, samples):

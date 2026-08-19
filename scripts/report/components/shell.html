@@ -374,6 +374,20 @@
       <div id="sub-ann-functional" class="sub-panel active">
         <div class="chart-card"><div id="ann-cog-chart"  class="echarts-box"></div></div>
         <div class="chart-card mt-md"><div id="ann-phrogs-chart" class="echarts-box"></div></div>
+        <div class="grid-2 mt-md">
+          <div class="chart-card"><div id="ann-cazy-chart" class="echarts-box"></div></div>
+          <div class="chart-card"><div id="ann-cazy-family-chart" class="echarts-box"></div></div>
+        </div>
+        <div class="chart-card mt-md">
+          <h3 class="section-title">KEGG Module Completeness</h3>
+          <p class="muted">Módulos KEGG por MAG (kegg-pathways-completeness, 573 módulos).
+             <code>Complete</code> conta MAGs com completude &ge; 80%. <code>Missing KO</code>
+             lista os passos ausentes — uma via a 80% só é interpretável com eles à vista.</p>
+          <div class="toolbar">
+            <label>Sample: <select id="sample-sel-kegg-mod"></select></label>
+          </div>
+          <div id="kegg-modules-table" class="table-wrap"></div>
+        </div>
       </div>
     </section>
 

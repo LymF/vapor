@@ -23,6 +23,7 @@ from .data_loaders import (
     build_host_defense_links, build_bin_annotation_summary,
     enrich_taxonomy_with_checkv, collapse_taxonomy_to_votu, merge_prok_taxonomy,
     load_alpha_diversity, load_pcoord, load_eggnog, load_phrogs,
+    load_cazy, load_kegg_modules,
     load_reads_classify, load_coassembly, load_coassembly_rich,
     load_votu_accumulation,
     load_votu_catalog, load_votu_presence,
@@ -229,6 +230,8 @@ def _build(snakemake):
     # ── Annotation ───────────────────────────────────────────────────────────
     eggnog_data  = load_eggnog(outdir, samples)
     phrogs_data  = load_phrogs(outdir, samples)
+    cazy_data    = load_cazy(outdir, samples)
+    kegg_modules = load_kegg_modules(outdir, samples)
 
     # ── Prokaryotic merged taxonomy ───────────────────────────────────────────
     merged_prok = merge_prok_taxonomy(gtdb_data, mmseqs_prok_data, checkm2_data)
@@ -408,6 +411,8 @@ def _build(snakemake):
         "MIMAG":        mimag_data,
         "EGGNOG_DATA":  eggnog_data,
         "PHROGS_DATA":  phrogs_data,
+        "CAZY_DATA":    cazy_data,
+        "KEGG_MODULES": kegg_modules,
         "ALPHA_DATA":   alpha_rows,
         "PCOA_VIRAL":   pcoa_viral,
         "PCOA_PROK":    pcoa_prok,

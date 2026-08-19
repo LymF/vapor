@@ -710,7 +710,8 @@ def _mag_write_views(source_id, membership, inp, outp, log_path):
 
     for key, genome_col in (("df_systems", "genome"), ("df_anti", "genome"),
                             ("vfdb", "genome"), ("plasmidfinder", "genome"),
-                            ("bakta", "bin"), ("kegg", "mag")):
+                            ("bakta", "bin"), ("kegg", "mag"),
+                            ("cazy", "mag"), ("modules", "mag")):
         if key in outp:
             _mag_view_by_genome(str(inp[key]), membership, source_id,
                                 str(outp[key]), log_path, genome_col=genome_col)
@@ -722,7 +723,8 @@ def _mag_write_views(source_id, membership, inp, outp, log_path):
 
     for key in ("df_done", "amr_done", "rgi_done", "deeparg_done",
                 "abricate_done", "argnorm_done", "consensus_done",
-                "mmseqs_done", "bakta_done", "eggnog_done", "kegg_done"):
+                "mmseqs_done", "bakta_done", "eggnog_done", "kegg_done",
+                "modules_done"):
         if key in outp:
             _mag_status_view(str(inp[key]), str(outp[key]))
 
@@ -754,7 +756,10 @@ def _mag_view_io(base):
         "eggnog":           f"{base}/annotation/eggnog/eggnog_annotations.tsv",
         "eggnog_done":      f"{base}/annotation/eggnog/done.txt",
         "kegg":             f"{base}/annotation/kegg_decoder/ko_per_mag.tsv",
+        "cazy":             f"{base}/annotation/kegg_decoder/cazy_per_mag.tsv",
         "kegg_done":        f"{base}/annotation/kegg_decoder/done.txt",
+        "modules":          f"{base}/annotation/kegg_modules/module_completeness.tsv",
+        "modules_done":     f"{base}/annotation/kegg_modules/done.txt",
     }
 
 
@@ -785,5 +790,8 @@ _MAG_VIEW_GLOBAL = lambda: {
     "eggnog":           rules.mag_eggnog_prok.output.annot_tsv,
     "eggnog_done":      rules.mag_eggnog_prok.output.done,
     "kegg":             rules.mag_extract_kegg_kos.output.ko_table,
+    "cazy":             rules.mag_extract_kegg_kos.output.cazy_table,
     "kegg_done":        rules.mag_extract_kegg_kos.output.done,
+    "modules":          rules.mag_kegg_completeness.output.per_mag,
+    "modules_done":     rules.mag_kegg_completeness.output.done,
 }

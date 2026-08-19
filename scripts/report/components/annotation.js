@@ -5,6 +5,8 @@
   window.renderAnnotation = function () {
     const samples = typeof SAMPLES !== 'undefined' ? SAMPLES : [];
     _renderFunctional(samples);
+    _renderCazy(samples);
+    _renderKeggModules();
   };
 
   // ── COG + PHROGS stacked bars ─────────────────────────────────────────────
@@ -65,6 +67,69 @@
       series: phrogsSeries.map(s => ({ name: s.name, data: s.data,
                                        color: s.color || (s.itemStyle || {}).color })),
     }));
+  }
+
+
+  // ── CAZy ──────────────────────────────────────────────────────────────────
+  // A coluna CAZy sempre esteve no eggnog_annotations.tsv (coluna 19) e
+  // nenhum consumidor a lia ate 2026-08-19. Nao ha ferramenta nova aqui: e
+  // o mesmo arquivo do painel de COG acima, uma coluna adiante.
+  function _renderCazy(samples) {
+    const cazy = typeof CAZY_DATA !== 'undefined' ? CAZY_DATA : {};
+    if (!Object.keys(cazy).length) return;
+
+    // As seis classes cabem no orcamento de 8 matizes sem dobrar em "Other",
+    // ao contrario de COG (20 letras) e PHROGS.
+    const classTotals = {};
+    samples.forEach(s => Object.entries((cazy[s] || {}).by_class || {})
+      .forEach(([c, v]) => { classTotals[c] = (classTotals[c] || 0) + v; }));
+    const classes = Object.keys(classTotals).sort((a, b) => classTotals[b] - classTotals[a]);
+
+    mkChart('ann-cazy-chart', samplesBar({
+      samples, title: 'CAZyme Classes (EggNOG CAZy column)',
+      valueName: 'Gene count', stack: true,
+      series: classes.map((cls, i) => ({
+        name: cls,
+        color: cls === 'Other' ? PAL_MUTED : PAL[i % PAL.length],
+        data: samples.map(s => ((cazy[s] || {}).by_class || {})[cls] || 0),
+      })),
+    }));
+
+    // A familia (GH13, GT51) e o que carrega o significado enzimatico; a
+    // classe so agrupa. Somada entre amostras, em barra horizontal.
+    const famTotals = {};
+    samples.forEach(s => ((cazy[s] || {}).top_families || [])
+      .forEach(([fam, n]) => { famTotals[fam] = (famTotals[fam] || 0) + n; }));
+    const fams = Object.entries(famTotals).sort((a, b) => b[1] - a[1]).slice(0, 15).reverse();
+
+    mkChart('ann-cazy-family-chart', Object.assign(echartsTheme(), {
+      title: { text: 'Top CAZyme Families (all samples)', left: 'center' },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: 90, right: 24, top: 48, bottom: 32 },
+      xAxis: { type: 'value', name: 'Gene count' },
+      yAxis: { type: 'category', data: fams.map(d => d[0]) },
+      series: [{ type: 'bar', data: fams.map(d => d[1]), itemStyle: { color: PAL[0] } }],
+    }));
+  }
+
+  // ── Completude de modulo KEGG ─────────────────────────────────────────────
+  function _renderKeggModules() {
+    const mods = typeof KEGG_MODULES !== 'undefined' ? KEGG_MODULES : {};
+    if (!Object.keys(mods).length) return;
+
+    makeSampleDropdown('sample-sel-kegg-mod', function (sample) {
+      const rows = (mods[sample] || []).map(r => Object.assign({}, r, {
+        complete: `${r.n_complete} / ${r.n_mags}`,
+      }));
+      makeTable('kegg-modules-table', rows, [
+        { key: 'module',     label: 'Module' },
+        { key: 'name',       label: 'Pathway' },
+        { key: 'complete',   label: 'Complete (\u2265 80%)' },
+        { key: 'mean',       label: 'Mean %' },
+        { key: 'max',        label: 'Max %' },
+        { key: 'missing_ko', label: 'Missing KO' },
+      ], { pageSize: 30 });
+    });
   }
 
 
