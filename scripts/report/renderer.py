@@ -215,7 +215,10 @@ def _build(snakemake):
             row['rpmpm']    = f"{rpmpm:.4f}"
 
     # Host collapse: viral RPKM aggregated by predicted host genus per sample.
-    host_collapse_data = build_host_collapse(phist_data, votu_abund, samples)
+    # host_links (linha ~142) carrega o genero do GTDB-Tk ja resolvido -- sem
+    # ele o colapso caia para o primeiro token do nome do arquivo do bin.
+    host_collapse_data = build_host_collapse(phist_data, votu_abund, samples,
+                                             host_links=host_defense_links)
 
     # ── Diversity ─────────────────────────────────────────────────────────────
     div_base = os.path.join(outdir, "diversity")

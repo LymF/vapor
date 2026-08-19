@@ -615,6 +615,30 @@ def load_mmseqs_taxonomy_prok(paths_d, samples):
 
 # ── PHIST host prediction ─────────────────────────────────────────────────────
 
+_FASTA_EXTS = ('.fasta', '.fna', '.ffn', '.fa')
+
+
+def _strip_fasta_ext(name):
+    """Remove UMA extensao de fasta do fim do nome, a mais longa primeiro.
+
+    O codigo anterior era `.replace('.fa', '').replace('.fasta', '')` e errava
+    de duas formas, ambas confirmadas contra dados reais em 2026-08-19:
+
+    - `.fna` nao estava na lista. Os bins do VAMB (track co-assembly,
+      rules/coassembly.smk coassembly_phist usa bin_ext=".fna") chamam-se
+      "1.fna", entao o Host ficava "1.fna" e a juncao com o `user_genome` do
+      GTDB-Tk ("1") falhava para o track inteiro -- taxonomia de hospedeiro
+      vazia em todo grupo, sem erro nenhum. O track por amostra escapou por
+      acaso: os bins do Binette sao ".fa".
+    - `.replace` remove a substring em QUALQUER posicao e `.fa` vinha antes
+      de `.fasta`, entao "x.fasta" virava "xsta".
+    """
+    for ext in _FASTA_EXTS:
+        if name.endswith(ext):
+            return name[:-len(ext)]
+    return name
+
+
 def load_phist(paths, samples):
     records = []
     for p, s in zip(paths, samples):
@@ -624,21 +648,40 @@ def load_phist(paths, samples):
             score     = row.get('#common-kmers', row.get('Score', row.get('score', '')))
             pval      = row.get('adj-pvalue', row.get('pvalue', ''))
             if not virus_raw or not host_raw: continue
-            virus_clean = os.path.basename(virus_raw).replace('.fasta', '').replace('.fa', '')
+            virus_clean = _strip_fasta_ext(os.path.basename(virus_raw))
             virus_clean = virus_clean.replace('contig_', '', 1)
-            host_clean  = os.path.basename(host_raw).replace('.fa', '').replace('.fasta', '')
+            host_clean  = _strip_fasta_ext(os.path.basename(host_raw))
             records.append({'sample': s, 'Virus': virus_clean, 'Host': host_clean,
                             'Score': str(score), 'P_value': str(pval)})
     return records
 
 
-def build_host_collapse(phist_data, votu_abund_by_sample, samples):
+def build_host_collapse(phist_data, votu_abund_by_sample, samples,
+                        host_links=None):
     """Collapse viral RPKM by predicted host genus per sample.
 
     Returns {sample: [{genus, n_viruses, total_rpkm}]} sorted desc by total_rpkm.
-    Host genus is the first underscore-delimited token of the PHIST host filename
-    (e.g. 'Bacteroides_fragilis.fa' → 'Bacteroides').
+
+    O genero vem do GTDB-Tk, via `host_links` (build_host_defense_links, que
+    ja resolve Host -> Host_genus). Ate 2026-08-19 vinha de
+    `host.split('_')[0]`, com o comentario "primeiro token do nome do arquivo
+    do hospedeiro (ex. 'Bacteroides_fragilis.fa' -> 'Bacteroides')". Essa
+    premissa vale para genomas de REFERENCIA nomeados por especie -- nao para
+    os MAGs desta pipeline. Confirmado no report.html de ~/global/results:
+    todo Host e "binette_binN", logo o "genero" de TODOS os hospedeiros era a
+    string constante "binette", um unico feixe no grafico. No track
+    co-assembly os bins sao numeros ("1.fna") e sairiam como generos "1",
+    "136". O dado certo ja estava ao lado: o mesmo hospedeiro aparece em
+    HOST_DEFENSE_LINKS com Host_genus "Neisseria".
+
+    Sem `host_links` (chamada antiga) o genero fica 'Unknown' em vez de
+    voltar a inventar um a partir do nome do arquivo.
     """
+    genus_by_host = {}
+    for link in (host_links or ()):
+        g = (link.get('Host_genus') or '').strip()
+        if g:
+            genus_by_host[(link.get('sample', ''), link.get('Host', ''))] = g
     result = {}
     for s in samples:
         abund_by_rep = {}
@@ -657,8 +700,7 @@ def build_host_collapse(phist_data, votu_abund_by_sample, samples):
             if row.get('sample') != s: continue
             virus = row.get('Virus', '')
             host  = row.get('Host', '')
-            genus = host.split('_')[0] if host else 'Unknown'
-            if not genus: genus = 'Unknown'
+            genus = genus_by_host.get((s, host), '') or 'Unknown'
             rpkm  = abund_by_rep.get(virus, 0.0)
             entry = genus_data.setdefault(genus, {'genus': genus, 'n_viruses': 0, 'total_rpkm': 0.0})
             entry['n_viruses']  += 1
