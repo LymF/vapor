@@ -973,6 +973,44 @@ representante e a fração coberta do CoverM está em [0,1] como o código
 assume; o consenso VS2+geNomad normaliza `||` e `|provirus` nos dois blocos
 desde 19/08; e o `viral_length_gate` usa o conjunto fixo de propósito.
 
+#### Auditoria da trilha de reads (commit `d7a9502`)
+
+1. **Paired-end zerava o relatório inteiro.** O cabeçalho de coluna da tabela
+   mesclada do sylph-tax é o `Sample_file` — o caminho do arquivo de reads que
+   o sylph recebeu. Em SE/long-read é `{sample}.fastq.gz` e tirar a extensão
+   basta, que era todo o mapeamento do `load_reads_classify`. Em PE o sylph
+   registra o arquivo do `-1`, `{sample}_R1.fastq.gz`, e o mapeamento devolvia
+   `{sample}_R1`: **nenhuma coluna casava, toda abundância virava 0.0 e
+   `has_data` continuava True** — gráficos vazios apresentados como dados. Os
+   dados da Amazônia são single-end, por isso nunca apareceu. A resolução
+   agora é contra a lista de amostras conhecidas e avisa quando uma coluna não
+   casa.
+2. **`sylph_merge` e `reads_host_map` varriam o disco** (`{OUTDIR}/*/reads_classify/`)
+   em vez de usar as amostras declaradas: um sample renomeado ou removido do
+   config deixa seu `.sylphmpa` no OUTDIR e ele entrava na mesclagem como se
+   fosse mais uma amostra.
+3. **O filtro de prevalência usava `>` onde a documentação diz `>=`** — um
+   corte de 0.25 descartava justamente os taxa em exatamente 25% das amostras.
+   Agora é `>= min_prev` **e** `> 0`, o segundo teste preservando o
+   comportamento útil do default 0.0 (descartar as linhas zeradas em toda
+   amostra que o `sylph-tax merge` emite).
+
+**Checado e correto:** o `touch {output}` depois da ferramenta **não** mascara
+falha — o Snakemake roda o shell com `set -e` (testado com um Snakefile
+mínimo: `false` seguido de `touch` falha o job), então `sylph_tax` propaga o
+erro; o sylph-tax escreve **um** `.sylphmpa` por amostra com todas as
+taxonomias juntas (cabeçalho `Taxonomies_used`), não um por banco, logo não há
+dupla contagem; o `finalize_reads_classify` copia só TSVs nomeados, então
+`final/reads_classify/` nunca entrou no glob; a linha `UNKNOWN` não vira taxon
+procariótico no relatório (cai no filtro de rank efetivo); e o
+`collapse_by_host` seleciona virais por prefixo de realm e mantém só as folhas
+da hierarquia.
+
+**Decisão a confirmar, não mexida:** o sylph roda sobre os reads **crus**, não
+sobre a saída do fastp/host_removal. É coerente com "trilha independente da
+montagem", mas adaptadores e reads de hospedeiro entram no perfil — e a trilha
+não aproveita o `host_genome` quando ele está configurado.
+
 
 Varredura pedida depois da oitava manifestação, com o mesmo método: **verificar
 cada suposição de formato contra os arquivos reais**, nunca contra o comentário
