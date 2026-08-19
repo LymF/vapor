@@ -92,6 +92,10 @@ if LONG_READS:
         params:
             outdir  = f"{OUTDIR}/{{sample}}/assembly/lr/flye",
             overlap = LR_FLYE_OVERLAP,
+            # O Flye nao tem `--min-contig-len`. Sem este filtro, ONT era a
+            # unica trilha em que o `min_contig` do config nao valia -- ver
+            # scripts/filter_min_length.py.
+            filter_script = os.path.join(SCRIPTS_DIR, "filter_min_length.py"),
         shell:
             """
             if [ "{LONG_READS}" != "True" ]; then
@@ -112,9 +116,13 @@ if LONG_READS:
                 --scaffold \
                 --iterations 2 \
                 >> {log} 2>&1 && RC=0 || RC=$?
-            [ -f {params.outdir}/assembly.fasta ] && \
-                cp {params.outdir}/assembly.fasta {output.fasta} || \
+            if [ -f {params.outdir}/assembly.fasta ]; then
+                python3 {params.filter_script} \
+                    {params.outdir}/assembly.fasta {output.fasta} {MIN_CONTIG} \
+                    2>> {log}
+            else
                 touch {output.fasta}
+            fi
             if [ "$RC" -ne 0 ]; then
                 echo "failed: flye exit $RC" > {output.done}
             else
@@ -203,17 +211,35 @@ if LONG_READS:
                 --out-dir {params.outdir} \
                 --threads {threads} \
                 --min-contig-length {MIN_CONTIG} \
-                > {log} 2>&1 || true
-            # metaMDBG outputs contigs.fasta or assembly.fasta depending on version
+                > {log} 2>&1 && RC=0 || RC=$?
+            # O nome do arquivo muda com a versao -- e as versoes recentes
+            # gravam COMPRIMIDO (contigs.fasta.gz). Sem cobrir o .gz, uma
+            # montagem boa saia como "0 contigs".
             for CANDIDATE in \
                 {params.outdir}/contigs.fasta \
                 {params.outdir}/assembly.fasta \
-                {params.outdir}/*.fasta; do
-                [ -f "$CANDIDATE" ] && [ -s "$CANDIDATE" ] && \
-                    cp "$CANDIDATE" {output.fasta} && break
+                {params.outdir}/*.fasta \
+                {params.outdir}/contigs.fasta.gz \
+                {params.outdir}/assembly.fasta.gz \
+                {params.outdir}/*.fasta.gz; do
+                [ -f "$CANDIDATE" ] && [ -s "$CANDIDATE" ] || continue
+                case "$CANDIDATE" in
+                    *.gz) gunzip -c "$CANDIDATE" > {output.fasta} ;;
+                    *)    cp "$CANDIDATE" {output.fasta} ;;
+                esac
+                break
             done
             [ -f {output.fasta} ] || touch {output.fasta}
-            touch {output.done}
             N=$(grep -c '^>' {output.fasta} 2>/dev/null || echo 0)
             echo "[metaMDBG] $N contigs assembled" | tee -a {log}
+            # Status real: um metaMDBG que quebrou nao pode ser lido como
+            # "esta amostra nao tinha nada montavel" -- e o mesmo criterio
+            # que o flye_lr ja aplicava, e que esta gemea nao aplicava.
+            if [ "$RC" -ne 0 ]; then
+                echo "failed: metaMDBG exit $RC" > {output.done}
+            elif [ "$N" -eq 0 ]; then
+                echo "failed: metaMDBG terminou sem contigs" > {output.done}
+            else
+                echo "ok" > {output.done}
+            fi
             """

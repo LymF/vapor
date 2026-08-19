@@ -1442,9 +1442,17 @@ def load_alpha_diversity(path):
         if not sample:
             continue
         for col, index in _ALPHA_INDEX_MAP.items():
-            if col in row:
-                rows.append({'sample': sample, 'domain': domain, 'index': index,
-                             'value': safe_float(row.get(col, 0))})
+            if col not in row:
+                continue
+            raw = (row.get(col) or '').strip()
+            if raw == '':
+                # Celula vazia = indice NAO calculado (Simpson e Chao1 saem
+                # vazios quando nao ha contagens de reads -- ver
+                # scripts/compute_diversity.py). Passar por safe_float faria
+                # virar 0.0, que no grafico e um valor, nao uma lacuna.
+                continue
+            rows.append({'sample': sample, 'domain': domain, 'index': index,
+                         'value': safe_float(raw)})
     return rows
 
 

@@ -95,6 +95,13 @@ def shannon(abundances):
 
 
 def simpson(abundances):
+    """Simpson (1 - D) na forma NAO ENVIESADA, que so vale para CONTAGENS.
+
+    O termo a*(a-1) e o numero de pares que se pode tirar de `a` individuos:
+    aplicado a RPKM/TPM ele nao significa nada. Por isso o chamador passa
+    contagens de reads aqui, nao a metrica normalizada -- ver
+    `compute_alpha`.
+    """
     total = sum(abundances)
     if total <= 1:
         return 0.0
@@ -103,7 +110,14 @@ def simpson(abundances):
 
 
 def chao1(abundances):
-    """Chao1 richness estimator. Requires integer counts; floors floats."""
+    """Chao1. So faz sentido sobre CONTAGENS de reads.
+
+    O estimador e inteiramente construido sobre f1 e f2 -- quantos taxa
+    aparecem UMA e DUAS vezes. Sobre RPKM, "aparecer uma vez" vira "ter RPKM
+    entre 1 e 2 depois do int()", que nao e raridade nenhuma: e so uma faixa
+    da escala de normalizacao. Ate 2026-08-19 era exatamente isso que o
+    relatorio publicava como Chao1.
+    """
     counts = [int(a) for a in abundances if a > 0]
     n_obs = len(counts)
     if n_obs == 0:
@@ -117,18 +131,33 @@ def chao1(abundances):
     return round(chao, 1)
 
 
-def compute_alpha(features, sample_data, domain):
+def compute_alpha(features, sample_data, domain, count_data=None):
+    """Alfa por amostra.
+
+    `sample_data` traz a metrica configurada (RPKM/TPM/mean) e `count_data`,
+    quando disponivel, as CONTAGENS de reads do proprio CoverM.
+
+    A divisao nao e cosmetica: riqueza e Shannon sao funcoes das proporcoes e
+    ficam corretas sobre a metrica normalizada, mas Simpson (na forma
+    a*(a-1)) e Chao1 (f1/f2) sao estimadores de CONTAGEM -- calcula-los sobre
+    RPKM nao aproxima o indice, produz outro numero, que era o que saia no
+    relatorio ate 2026-08-19. Sem contagens, os dois saem vazios em vez de
+    sair errados.
+    """
     rows = []
     for sample, abund in sample_data.items():
         vals = [abund.get(f, 0.0) for f in features]
         richness = sum(1 for v in vals if v > 0)
+        counts = None
+        if count_data is not None:
+            counts = [count_data.get(sample, {}).get(f, 0.0) for f in features]
         rows.append({
             "sample":   sample,
             "domain":   domain,
             "richness": richness,
             "shannon":  shannon(vals),
-            "simpson":  simpson(vals),
-            "chao1":    chao1(vals),
+            "simpson":  simpson(counts) if counts is not None else "",
+            "chao1":    chao1(counts) if counts is not None else "",
         })
     return rows
 
@@ -324,19 +353,36 @@ def main():
     log(f"[compute_diversity] Viral features: {len(vfeats)}")
     log(f"[compute_diversity] Prokaryotic features: {len(pfeats)}")
 
+    # Contagens de reads, para Simpson e Chao1 (ver compute_alpha). O CoverM
+    # emite a coluna "Read Count" junto com a metrica configurada; se ela
+    # nao estiver na tabela, os dois indices saem VAZIOS em vez de errados.
+    _, v_counts = build_matrix(viral_tables, samples, "count")
+    _, p_counts = build_matrix(prok_tables,  samples, "count")
+    v_has = any(v_counts.get(s) for s in samples)
+    p_has = any(p_counts.get(s) for s in samples)
+    log(f"[compute_diversity] contagens disponiveis: viral={v_has} prok={p_has}"
+        " (sem elas, Simpson e Chao1 ficam vazios -- sao estimadores de"
+        " contagem, nao de abundancia normalizada)")
+
     # ── Alpha diversity ───────────────────────────────────────────────
     alpha_rows = []
-    alpha_rows += compute_alpha(vfeats, v_data, "viral")
-    alpha_rows += compute_alpha(pfeats, p_data, "prokaryotic")
+    alpha_rows += compute_alpha(vfeats, v_data, "viral",
+                                v_counts if v_has else None)
+    alpha_rows += compute_alpha(pfeats, p_data, "prokaryotic",
+                                p_counts if p_has else None)
 
     # Combined: merge feature sets
     all_feats = sorted(set(vfeats) | set(pfeats))
-    comb_data = {}
+    comb_data, comb_counts = {}, {}
     for s in samples:
         comb_data[s] = {}
         comb_data[s].update(v_data.get(s, {}))
         comb_data[s].update(p_data.get(s, {}))
-    alpha_rows += compute_alpha(all_feats, comb_data, "combined")
+        comb_counts[s] = {}
+        comb_counts[s].update(v_counts.get(s, {}))
+        comb_counts[s].update(p_counts.get(s, {}))
+    alpha_rows += compute_alpha(all_feats, comb_data, "combined",
+                                comb_counts if (v_has and p_has) else None)
     write_tsv(out_alpha, alpha_rows,
               ["sample", "domain", "richness", "shannon", "simpson", "chao1"])
     log(f"[compute_diversity] Alpha: {len(alpha_rows)} rows")

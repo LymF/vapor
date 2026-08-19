@@ -84,11 +84,23 @@ rule votu_abundance:
     Gracefully degrades to a 1:1 identity mapping when a contig is missing
     from the global vOTU catalog's clusters file, so the table is always
     produced.
+
+    A coluna `representative` sai NAMESPACED ("{source}|{contig}"), que e a
+    identidade do vOTU no catalogo. Ate 2026-08-19 ela era meio-nua: o
+    prefixo era removido quando o representante era desta amostra e mantido
+    quando era de outra. Isso quebrava as duas pontas ao mesmo tempo --
+    o comprimento do representante estrangeiro nao existia no FASTA local, e
+    o valor da metrica saia 0.0 para ele (com 32 amostras, a MAIORIA dos
+    vOTUs); e o relatorio, que junta esta tabela pelo `representative`
+    namespaced da tabela de vOTU e pelo `Virus` do PHIST (tambem namespaced),
+    nao casava justamente as linhas locais. Por isso o comprimento agora vem
+    do FASTA de representantes do CATALOGO.
     """
     input:
         clusters  = rules.votu_catalog_cluster.output.clusters,
         abundance = rules.coverm_viral.output.tsv,
         viral_nr  = rules.viral_nonredundant.output.fasta,
+        cat_reps  = rules.votu_catalog_reps.output.all_fasta,
     output:
         tsv = f"{OUTDIR}/{{sample}}/viral/votu/{{sample}}_vOTU_abundance.tsv",
     log:
@@ -126,23 +138,46 @@ rule votu_abundance:
                 if member:
                     raw_member_to_rep[member] = rep
 
-        # Catalog IDs are namespaced ("<sample>|<contig>"), while this rule's
-        # CoverM table uses the sample's own bare contig IDs. Strip the
-        # prefix of THIS sample's members and ignore members from other
-        # samples.
+        # Comprimento dos REPRESENTANTES, do FASTA do catalogo (headers
+        # namespaced). O FASTA local so tem os contigs desta amostra, entao
+        # todo representante de outra amostra ficava com comprimento 0 -- e
+        # com ele a metrica ia a 0.0 em silencio.
+        rep_lengths = {}
+        cur = None
+        with open(input.cat_reps) as f:
+            for line in f:
+                if line.startswith(">"):
+                    cur = line[1:].strip().split()[0]
+                    rep_lengths[cur] = 0
+                elif cur is not None:
+                    rep_lengths[cur] += len(line.strip())
+
+        # A tabela do CoverM usa os IDs NUS desta amostra; o catalogo usa os
+        # namespaced. Casa-se pelo membro nu, mas o representante fica como
+        # esta no catalogo -- e a identidade do vOTU, e e por ela que o
+        # relatorio junta esta tabela com a de vOTU e com o PHIST.
         prefix = f"{wildcards.sample}|"
         cluster_member_to_rep = {
-            m[len(prefix):]: r[len(prefix):] if r.startswith(prefix) else r
+            m[len(prefix):]: r
             for m, r in raw_member_to_rep.items()
             if m.startswith(prefix)
         }
 
-        # member -> representative; default to self (singleton) so any
-        # contig missing from the clusters file still works.
-        member_to_rep = {cid: cid for cid in lengths}
+        # member -> representative; default to self (singleton, namespaced)
+        # so any contig missing from the clusters file still works.
+        member_to_rep = {cid: prefix + cid for cid in lengths}
         member_to_rep.update({
-            m: r for m, r in cluster_member_to_rep.items() if m in member_to_rep
+            m: r for m, r in cluster_member_to_rep.items() if m in lengths
         })
+
+        def _rep_length(rep):
+            """Comprimento do representante: catalogo primeiro, FASTA local
+            depois (para o contig que nao entrou no pool)."""
+            if rep in rep_lengths:
+                return rep_lengths[rep]
+            if rep.startswith(prefix):
+                return lengths.get(rep[len(prefix):], 0)
+            return 0
 
         def _metric(row, suffix):
             suffix_l = suffix.lower()
@@ -195,10 +230,13 @@ rule votu_abundance:
             a["total_reads"]     += _metric(row, "count")
             a["covered_fraction"] = max(a["covered_fraction"], _metric(row, "covered fraction"))
 
+        n_no_length = 0
         with open(str(output.tsv), "w") as out:
             out.write(f"representative\tn_members\ttotal_reads\tcovered_fraction\t{params.method}\n")
             for rep, a in agg.items():
-                length = lengths.get(rep, 0)
+                length = _rep_length(rep)
+                if length == 0:
+                    n_no_length += 1
                 if is_covered_fraction:
                     value = a["covered_fraction"]
                 else:
@@ -207,6 +245,12 @@ rule votu_abundance:
                           f"{a['covered_fraction']:.4f}\t{value:.4f}\n")
 
         log_lines.append(f"[votu_abundance] {len(rows_by_contig)} contigs -> {len(agg)} vOTUs")
+        if n_no_length:
+            log_lines.append(
+                f"[votu_abundance] AVISO: {n_no_length} representantes sem "
+                "comprimento (nem no catalogo, nem no FASTA local) -- a "
+                "metrica deles sai 0.0. Isso e descasamento de ID, nao "
+                "ausencia de sinal.")
         with open(str(log[0]), "w") as lf:
             lf.write("\n".join(log_lines) + "\n")
         print("\n".join(log_lines))
@@ -250,7 +294,7 @@ rule coverm_prok:
             --min-read-percent-identity 95 \
             --min-read-aligned-length 45 \
             --contig-end-exclusion 75 \
-            --methods {params.method} mean covered_fraction \
+            --methods {params.method} mean covered_fraction count \
             --threads {threads} \
             --output-file {output.tsv} \
             > {log} 2>&1

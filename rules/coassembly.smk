@@ -443,6 +443,7 @@ if LONG_READS:
         params:
             outdir  = f"{OUTDIR}/coassembly/{{group}}/flye",
             overlap = LR_FLYE_OVERLAP,
+            filter_script = os.path.join(SCRIPTS_DIR, "filter_min_length.py"),
         shell:
             """
             mkdir -p $(dirname {log})
@@ -467,7 +468,11 @@ if LONG_READS:
                 echo "[flye_coassembly] ERROR: group {wildcards.group} produced no contigs (see {log})." >&2
                 exit 1
             fi
-            cp {params.outdir}/assembly.fasta {output.contigs}.tmp
+            # MIN_CONTIG: o Flye nao tem flag para isso, ao contrario do
+            # MEGAHIT e do metaMDBG (ver scripts/filter_min_length.py).
+            python3 {params.filter_script} \
+                {params.outdir}/assembly.fasta {output.contigs}.tmp {MIN_CONTIG} \
+                2>> {log}
             mv {output.contigs}.tmp {output.contigs}
             """
 
