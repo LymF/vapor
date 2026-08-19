@@ -179,13 +179,22 @@ rule mag_pangenome_proteins:
                 faa = _os.path.join(params.outdir, f"{name}.faa")
                 gff = _os.path.join(params.outdir, f"{name}.gff")
                 shell("prodigal -i {fna} -a {faa} -f gff -o {gff} "
-                      "-p single -q >> {log} 2>&1")
-                rows.append((name, "bin", fna, faa, gff))
+                      "-p single -q >> {log} 2>&1 || true")
+                if _os.path.exists(faa) and _os.path.getsize(faa) > 0:
+                    rows.append((name, "bin", fna, faa, gff))
+                else:
+                    lf.write(f"[pangenome_proteins] FALHOU: {name} "
+                             f"(prodigal nao gerou {faa})\n")
 
             with open(str(output.manifest), "w") as mf:
                 for r in rows:
                     mf.write("\t".join(r) + "\n")
             lf.write(f"[pangenome_proteins] manifesto com {len(rows)} genomas\n")
 
-        write_status(str(output.done),
-                     "ok" if rows else "skipped: no eligible members")
+        if not names:
+            write_status(str(output.done), "skipped: no eligible members")
+        elif not rows:
+            write_status(str(output.done),
+                         "failed: %d membros, 0 proteomas" % len(names))
+        else:
+            write_status(str(output.done), "ok")
