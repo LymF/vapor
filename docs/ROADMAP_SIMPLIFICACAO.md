@@ -1030,6 +1030,49 @@ sem). Como o nome do arquivo vira o cabeçalho de coluna da tabela mesclada, o
 resolvedor do relatório ganhou os sufixos da própria pipeline (`_R1_fastp`,
 `_R1_clean`, `_lr_clean`, `_filtered`).
 
+#### Auditoria da trilha de co-assembly (commit `0b8f7f6`)
+
+A paridade regra a regra já tinha sido auditada em 17/08
+(`docs/AUDITORIA_COASSEMBLY_PARES.md`); esta olhou **tratamento de dados**.
+Três achados, os três a mesma coisa: o conjunto viral do grupo já passou pelo
+aparo do CheckV (`{contig}_{n}`), mas o outro lado do join usa o contig
+ORIGINAL. Nada falha — o provírus simplesmente some.
+
+1. `coassembly_skani_cluster` chaveava a completude pelo contig do CheckV:
+   todo provírus recebia 0.0 e **o representante do cluster caía para "o
+   primeiro do FASTA"** — ordem de montagem em vez de qualidade, que é
+   justamente o critério que o docstring promete.
+2. `coassembly_viral_votu_reps` monta o `keep_mq` pelo contig do CheckV: todo
+   provírus caía fora do `votu_mq_reps.fasta`, que alimenta o PHIST e a
+   anotação do grupo.
+3. `load_votu_accumulation` cruza a matriz de abundância do VAMB (contigs da
+   MONTAGEM) com os membros do vOTU (ids aparados): todo vOTU de provírus
+   ficava sem presença e sumia da curva de acumulação.
+
+Os três passam a usar `inherit_from_original` (novo em `checkv_provirus.py`),
+que resolve em lote e devolve a contagem de diretos/aparados/**não
+resolvidos** — os não resolvidos vão para o log, porque é assim que uma
+mudança de formato do CheckV aparece. O helper existe para não haver uma
+quarta cópia do laço.
+
+**Divergência entre código e documentação, achada aqui:** o `coassembly_phist`
+**não** usa o catálogo global, ao contrário do que `CLAUDE.md` e
+`PIPELINE_METHODS.md` afirmavam. Ele roda o `votu_mq_reps.fasta` do PRÓPRIO
+grupo contra os MAGs do grupo, então seus IDs de fago são contigs nus, não
+`{source}|{contig}`. Documentação corrigida; o comportamento ficou como está,
+mas vale decidir: com o catálogo global sendo o padrão da ferramenta, a cadeia
+skani local do grupo (`coassembly_skani_votu`/`_cluster`/`viral_votu_reps`) é
+hoje a única clusterização de vOTU fora dele — a per-amostra já foi removida.
+É candidata natural à próxima simplificação.
+
+**Checado e correto:** a co-assembly já usava os reads aparados/sem hospedeiro
+(`_clean_*`) — a trilha de reads era a única que não usava; a matriz de
+abundância do VAMB lê a coluna `totalAvgDepth` certa e o `awk` que a reduz aos
+contigs do FASTA viral está correto; a cadeia skani do grupo usa `--sparse` e
+o mesmo parser testado do catálogo, sem drift; e o
+`coassembly_organize_outputs` copia exatamente os caminhos que as vistas do
+catálogo de MAGs agora escrevem.
+
 
 Varredura pedida depois da oitava manifestação, com o mesmo método: **verificar
 cada suposição de formato contra os arquivos reais**, nunca contra o comentário
