@@ -56,6 +56,12 @@ _RC_TAX_DIR = _expand(config.get("reads_classify_tax_dir", "")) \
 _RC_GENOME_FASTA = _expand(config.get("reads_classify_genome_fasta", "")) \
     if config.get("reads_classify_genome_fasta", "") else ""
 
+# Mapa clade_name -> linhagem do hospedeiro vindo de um PHIST sobre os genomas
+# de referencia detectados pelo sylph. Ainda nao ha regra que o produza (ver
+# reads_collapse_host); vazio = coluna host_phist vazia, nao "PHIST sem hits".
+_RC_PHIST_MAP = _expand(config.get("reads_classify_phist_map", "")) \
+    if config.get("reads_classify_phist_map", "") else ""
+
 _RC_VIR_THRESHOLD    = config.get("reads_classify_virulence_threshold", 0.5)
 _RC_MIN_PREVALENCE   = config.get("reads_classify_min_prevalence", 0.0)
 
@@ -254,23 +260,74 @@ rule reads_make_otu:
 
 # ── Collapse viral abundance by host genus ─────────────────────────────
 
-rule reads_collapse_host:
+rule reads_host_map:
     """
-    Aggregate viral relative abundance by predicted bacterial host genus.
-    Requires sylph-tax -a host annotation (available for IMGVR/UHGV databases).
+    Recuperar o hospedeiro anotado pelo BANCO dos .sylphmpa por amostra.
+
+    O `sylph_merge` roda `sylph-tax merge --column relative_abundance`, entao
+    a coluna "Virus_host (if viral)" nao chega a tabela mesclada -- e era so
+    de la que o `reads_collapse_host` tentava ler o hospedeiro, o que fazia o
+    agrupamento nunca acontecer. Esta regra le a fonte original.
     """
     input:
-        f"{OUTDIR}/reads_classify/merged_relative_abundance_filtered.tsv",
+        done = expand(
+            f"{OUTDIR}/{{sample}}/reads_classify/taxprof_done.txt",
+            sample=SAMPLES,
+        ),
     output:
-        f"{OUTDIR}/reads_classify/viral_abundance_by_host.tsv",
+        f"{OUTDIR}/reads_classify/host_map_db.tsv",
+    log:
+        f"{OUTDIR}/logs/reads_host_map.log",
+    conda:      "../envs/env_reads_classify.yaml"
+    container:  CONTAINERS.get("sylph_tax")
+    params:
+        script = _os.path.join(_RC_SCRIPTS, "build_host_map.py"),
+    shell:
+        """
+        mkdir -p {OUTDIR}/reads_classify
+        mapfile -t mpa < <(find {OUTDIR}/*/reads_classify/ -name "*.sylphmpa" 2>/dev/null | sort)
+        if [ "${{#mpa[@]}}" -eq 0 ]; then
+            printf "clade_name\thost_db\n" > {output}
+            echo "[reads_host_map] nenhum .sylphmpa encontrado" > {log}
+        else
+            python {params.script} {output} "${{mpa[@]}}" 2> {log}
+        fi
+        """
+
+
+rule reads_collapse_host:
+    """
+    Agregar abundancia viral por genero do hospedeiro, de DUAS fontes.
+
+    host_db     anotacao do banco (IMG/VR, UHGV), via reads_host_map.
+    host_phist  predicao por k-mer contra MAGs, para os virus que o banco nao
+                anota. `_RC_PHIST_MAP` fica vazio enquanto nao houver PHIST no
+                track de reads -- e a coluna sai vazia, com host_source="none",
+                que e distinguivel de "o PHIST rodou e nao achou".
+
+    O sidecar `viral_host_assignments.tsv` traz as duas fontes lado a lado por
+    taxon, para a proveniencia do numero agregado ser auditavel.
+    """
+    input:
+        table    = f"{OUTDIR}/reads_classify/merged_relative_abundance_filtered.tsv",
+        host_map = rules.reads_host_map.output,
+    output:
+        table       = f"{OUTDIR}/reads_classify/viral_abundance_by_host.tsv",
+        assignments = f"{OUTDIR}/reads_classify/viral_host_assignments.tsv",
     log:
         f"{OUTDIR}/logs/reads_collapse_host.log",
     conda:      "../envs/env_reads_classify.yaml"
     container:  CONTAINERS.get("sylph_tax")
     params:
-        script = _os.path.join(_RC_SCRIPTS, "collapse_by_host.py"),
+        script    = _os.path.join(_RC_SCRIPTS, "collapse_by_host.py"),
+        phist_arg = (f"--phist-map {_RC_PHIST_MAP}" if _RC_PHIST_MAP else ""),
     shell:
-        "python {params.script} {input} {output} 2> {log}"
+        """
+        python {params.script} {input.table} {output.table} \
+            --host-map {input.host_map} \
+            --assignments {output.assignments} \
+            {params.phist_arg} 2> {log}
+        """
 
 
 # ── BACPHLIP lifestyle prediction (optional) ───────────────────────────

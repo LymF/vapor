@@ -837,6 +837,56 @@ quem transformaria o bug latente em perda de dado.
 uma sexta cópia do glob. Verificado: 860 de 860 contigs binados do TAP passam
 a casar (era 0).
 
+### Hospedeiro no track de reads: duas fontes — FEITO (parte) 2026-08-19
+
+Fechado o item que ficara aberto na caça: o `sylph-tax merge` roda com
+`--column relative_abundance`, então a coluna `Virus_host (if viral)` **nunca
+chegava** ao `collapse_by_host`. Entrou `rule reads_host_map`
+(`scripts/reads_classify/build_host_map.py`), que lê a fonte original — os
+`.sylphmpa` por amostra.
+
+Medido nos 32 arquivos da Amazônia: 12.716 linhas, **66 com hospedeiro
+não-nulo, 24 clados únicos**. Depois de resolver por gênero: **8 táxons virais
+com hospedeiro real** (`Acinetobacter` 5, `UBA3064` 3) de 1407. Ou seja, a
+anotação do banco cobre ~0,6% — é exatamente por isso que o PHIST é necessário
+para o resto, e por isso as duas fontes ficam em colunas separadas em vez de
+uma só.
+
+O `viral_abundance_by_host.tsv` passa a ter `host_source` (`db`, `phist`,
+`db,phist`, `none`) e ganha o sidecar `viral_host_assignments.tsv`, com
+`clade_name | host_db | host_phist | host_genus | host_source` — a proveniência
+de cada número agregado, mesma filosofia do sidecar de descarte do item (e).
+
+A agregação é por **gênero só**, não por `(gênero, fonte)`: agrupar pelos dois
+partiria o mesmo gênero em duas linhas quando parte dos seus vírus vem do banco
+e parte do PHIST, e no gráfico isso apareceria como dois táxons homônimos.
+
+Precedência: **banco primeiro, PHIST depois**. O banco é curado e descreve o
+genoma de referência que o sylph de fato detectou; o PHIST entra onde o banco
+cala. O contrário deixaria uma predição por k-mer sobrescrever uma atribuição
+publicada.
+
+**Ainda falta: PHIST no track de reads.** `_RC_PHIST_MAP` /
+`reads_classify_phist_map` já existe e alimenta a coluna; nenhuma regra o
+produz. Duas coisas travam, e a segunda é uma armadilha:
+
+1. **Formato.** O PHIST aqui é `kmer-db build` + `kmer-db new2all` + `phist`.
+   Exige **um FASTA por genoma** dos dois lados (o kmer-db dá uma linha de
+   resultado por ARQUIVO, não por sequência), mais dois arquivos de lista com
+   um caminho por linha. É por isso que existe o `split_viral_fastas.py`.
+2. **Os resultados de PHIST que já existem não servem.** O `rule phist` roda
+   sobre contigs MONTADOS (`k141_...`) contra os MAGs da amostra. Os clados do
+   sylph são genomas de REFERÊNCIA do IMG/VR (`t__IMGVR_UViG_...`) — entidades
+   diferentes, sem chave em comum. Reaproveitar a tabela existente produziria
+   junção vazia (mais um caso da família). É preciso um PHIST novo, sobre os
+   genomas detectados pelo sylph, extraídos do `reads_classify_genome_fasta`
+   pelo `Contig_name` — a mesma extração que o `bacphlip_lifestyle.py` faz, e
+   cujo bug de ID foi corrigido hoje.
+
+Decisão pendente do usuário: quem são os hospedeiros candidatos — os MAGs da
+própria amostragem (liga o perfil por reads às bactérias montadas) ou os
+genomas GTDB que o sylph detectou (independe de montagem)?
+
 ### Caça a bugs de tratamento de dados — 2026-08-19
 
 Varredura pedida depois da oitava manifestação, com o mesmo método: **verificar

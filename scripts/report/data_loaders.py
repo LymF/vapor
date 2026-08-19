@@ -1403,7 +1403,13 @@ def load_reads_classify(abundance_path, host_path, samples):
             h = row.get('host_genus', '')
             if not h:
                 continue
-            record = {'host_genus': h, 'n_viral_taxa': safe_int(row.get('n_viral_taxa', 0))}
+            # host_source: 'db' (anotacao do banco), 'phist' (k-mer contra
+            # MAGs), 'db,phist' ou 'none'. Sem ele, um genero sem hospedeiro
+            # conhecido e um genero cujo hospedeiro foi predito ficam
+            # indistinguiveis no grafico.
+            record = {'host_genus': h,
+                      'host_source': row.get('host_source', ''),
+                      'n_viral_taxa': safe_int(row.get('n_viral_taxa', 0))}
             for col, sname in col_to_sample.items():
                 record[sname] = safe_float(row.get(col, 0.0))
             for s in samples:

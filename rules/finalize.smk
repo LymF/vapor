@@ -321,6 +321,9 @@ if READS_CLASSIFY_ENABLED:
                 "merged_sequence_abundance.tsv",
                 "otu_table.tsv",
                 "viral_abundance_by_host.tsv",
+                # proveniencia por taxon das duas fontes de hospedeiro
+                "viral_host_assignments.tsv",
+                "host_map_db.tsv",
             ]:
                 src_f = os.path.join(src, fname)
                 if os.path.exists(src_f):

@@ -1,26 +1,37 @@
 """
-Collapse viral relative abundances by predicted bacterial host genus.
+Colapsar abundancia viral (sylph) por genero do hospedeiro predito.
 
-Works with the sylph-tax .sylphmpa merged table when the -a flag was used
-(host column present), OR falls back to species-level output without grouping.
+DUAS FONTES DE HOSPEDEIRO, deliberadamente separadas em colunas proprias:
 
-Usage:
-    python collapse_by_host.py <merged_abundance.tsv> <output.tsv>
+  host_db     anotacao do BANCO de referencia (coluna "Virus_host (if viral)"
+              dos .sylphmpa por amostra, recuperada por build_host_map.py --
+              o `sylph-tax merge` descarta essa coluna). Existe para IMG/VR e
+              UHGV; o IMG/VR deixa muita coisa como UNKNOWN.
+  host_phist  predicao por k-mer contra MAGs, para os virus que o banco nao
+              anota. Preenchida a partir de um mapa clade_name -> linhagem.
 
-Input columns:  clade_name | host (optional) | sample1 | sample2 | ...
-Output columns: host_genus | n_viral_taxa | sample1 | sample2 | ...
+Elas nao se substituem: a do banco e curada e vale para o genoma de
+referencia; a do PHIST e computada contra os MAGs DESTA amostragem. Manter as
+duas visiveis deixa a proveniencia auditavel em vez de escondida atras de um
+unico numero. `host_genus` e a resolucao (banco primeiro, PHIST depois) e
+`host_source` diz de onde veio.
 
-NOTA sobre a coluna `host`: o `sylph-tax merge` (rules/reads_classify.smk
-sylph_merge) NAO propaga a coluna "Virus_host (if viral)" dos .sylphmpa por
-amostra para a tabela mesclada. Entao, por este caminho, `has_host` e sempre
-False e o colapso por hospedeiro nunca acontece de fato -- escreve-se a saida
-em nivel de taxon. Verificado nos dados da Amazonia em 2026-08-19: os
-.sylphmpa por amostra TEM a coluna (107 linhas com valor), a mesclada nao.
-Levar o host ate aqui exige mudar o merge, o que e decisao de layout e nao
-foi feito junto.
+Uso:
+    python collapse_by_host.py <merged.tsv> <saida.tsv> [--host-map F]
+                               [--phist-map F] [--assignments F]
+
+Colunas de entrada:  clade_name | sample1 | sample2 | ...
+Colunas de saida:    host_genus | host_source | n_viral_taxa | sample1 | ...
 """
-import pandas as pd
+import argparse
+import csv
 import sys
+
+import pandas as pd
+
+
+_NULL = {"", "na", "nan", "unknown", "none", "-"}
+UNKNOWN = "Unknown"
 
 
 def _is_viral(clade: str) -> bool:
@@ -36,7 +47,7 @@ def _is_viral(clade: str) -> bool:
 
 
 def _leaf_rows(clades):
-    """Indices das linhas que sao folha da hierarquia.
+    """Quais linhas sao folha da hierarquia.
 
     A tabela do sylph-tax traz uma linha por nivel ("r__X", "r__X|k__Y", ...),
     entao somar todas multiplicaria a abundancia. O filtro antigo pegava um
@@ -45,74 +56,136 @@ def _leaf_rows(clades):
     o que sozinho ja zerava a saida.
 
     Escolher a folha em vez de um rank fixo funciona para as duas taxonomias
-    e nao precisa saber qual banco gerou a tabela.
+    e nao exige saber qual banco gerou a tabela.
     """
     clades = list(clades)
     parents = {c.rsplit("|", 1)[0] for c in clades if "|" in c}
     return [c not in parents for c in clades]
 
 
-def _parse_genus(host_str: str) -> str:
-    """Extract genus from a semicolon-delimited GTDB-style lineage."""
-    if not host_str or host_str in ("Unknown", "NA", "nan"):
-        return "Unknown"
+def _parse_genus(host_str) -> str:
+    """Genero a partir de uma linhagem estilo GTDB separada por ';'.
+
+    Devolve UNKNOWN (grafia unica) quando o rank de genero existe mas esta
+    preenchido com "UNKNOWN" -- o IMG/VR faz isso com frequencia, e antes o
+    valor cru vazava para a saida, criando duas grafias de desconhecido na
+    mesma coluna ("Unknown" e "UNKNOWN").
+    """
+    host_str = (host_str or "").strip()
+    if host_str.lower() in _NULL:
+        return UNKNOWN
     parts = host_str.split(";")
-    # genus is index 5 in d__;p__;c__;o__;f__;g__
+    # genero e o indice 5 em d__;p__;c__;o__;f__;g__
     genus_raw = parts[5] if len(parts) > 5 else parts[-1]
-    return genus_raw.replace("g__", "").strip() or "Unknown"
+    genus = genus_raw.replace("g__", "").strip()
+    return UNKNOWN if genus.lower() in _NULL else genus
+
+
+def _load_map(path):
+    """TSV de duas colunas (clade_name, linhagem) -> dict. Vazio se sem path."""
+    if not path:
+        return {}
+    out = {}
+    with open(path, newline="") as fh:
+        for row in csv.reader(fh, delimiter="\t"):
+            if len(row) < 2 or row[0].startswith("#") or row[0] == "clade_name":
+                continue
+            if row[0].strip():
+                out[row[0].strip()] = row[1].strip()
+    return out
+
+
+def resolve_host(clade, db_map, phist_map):
+    """(genero, fonte) para um clado. Banco primeiro, PHIST depois.
+
+    O banco vem primeiro porque e curado e descreve o genoma de referencia que
+    o sylph de fato detectou. O PHIST entra onde o banco cala -- e nao ao
+    contrario, senao uma predicao por k-mer sobrescreveria uma atribuicao
+    publicada.
+    """
+    g_db = _parse_genus(db_map.get(clade, ""))
+    if g_db != UNKNOWN:
+        return g_db, "db"
+    g_ph = _parse_genus(phist_map.get(clade, ""))
+    if g_ph != UNKNOWN:
+        return g_ph, "phist"
+    return UNKNOWN, "none"
 
 
 def main():
-    if len(sys.argv) != 3:
-        sys.exit("Usage: collapse_by_host.py input_merged.tsv output.tsv")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("input")
+    ap.add_argument("output")
+    ap.add_argument("--host-map", default="",
+                    help="TSV clade_name/host_db (build_host_map.py)")
+    ap.add_argument("--phist-map", default="",
+                    help="TSV clade_name/host_phist (PHIST do track de reads)")
+    ap.add_argument("--assignments", default="",
+                    help="TSV auditavel por taxon: as duas fontes lado a lado")
+    args = ap.parse_args()
 
-    df = pd.read_csv(sys.argv[1], sep="\t", comment="#")
+    db_map    = _load_map(args.host_map)
+    phist_map = _load_map(args.phist_map)
+    sys.stderr.write("[collapse_by_host] host_db: %d clados | host_phist: %d clados%s\n"
+                     % (len(db_map), len(phist_map),
+                        "" if args.phist_map else " (nenhum mapa PHIST fornecido)"))
 
+    df = pd.read_csv(args.input, sep="\t", comment="#")
+    taxon_col   = df.columns[0] if len(df.columns) else "clade_name"
+    sample_cols = [c for c in df.columns[1:]]
+
+    out_cols = ["host_genus", "host_source", "n_viral_taxa"] + list(sample_cols)
     if df.empty:
-        df.to_csv(sys.argv[2], sep="\t", index=False)
+        pd.DataFrame(columns=out_cols).to_csv(args.output, sep="\t", index=False)
         return
 
-    taxon_col   = df.columns[0]
-    has_host    = "host" in df.columns
-    sample_cols = [c for c in df.columns if c not in (taxon_col, "host")]
-
-    # Uma linha por taxon viral: folhas da hierarquia, nao um rank fixo.
     is_viral = df[taxon_col].fillna("").map(_is_viral)
-    is_leaf  = _leaf_rows(df[taxon_col].fillna(""))
-    viral = df[is_viral & pd.Series(is_leaf, index=df.index)].copy()
-    sys.stderr.write(
-        "[collapse_by_host] %d linhas, %d virais, %d folhas virais mantidas\n"
-        % (len(df), int(is_viral.sum()), len(viral))
-    )
+    is_leaf  = pd.Series(_leaf_rows(df[taxon_col].fillna("")), index=df.index)
+    viral = df[is_viral & is_leaf].copy()
+    sys.stderr.write("[collapse_by_host] %d linhas, %d virais, %d folhas virais\n"
+                     % (len(df), int(is_viral.sum()), len(viral)))
 
     if viral.empty:
         sys.stderr.write(
             "[collapse_by_host] AVISO: nenhuma linha viral. Se a tabela tem "
             "clados virais, o predicado de _is_viral nao reconhece esta "
-            "taxonomia -- nao trate a saida vazia como ausencia de virus.\n"
-        )
-        pd.DataFrame(columns=["host_genus", "n_viral_taxa"] + list(sample_cols)).to_csv(
-            sys.argv[2], sep="\t", index=False
-        )
+            "taxonomia -- nao trate a saida vazia como ausencia de virus.\n")
+        pd.DataFrame(columns=out_cols).to_csv(args.output, sep="\t", index=False)
         return
 
-    if not has_host:
-        sys.stderr.write(
-            "[collapse_by_host] no 'host' column found "
-            "(re-run sylph-tax with -a for pre-built viral DBs); "
-            "writing species-level output unchanged\n"
-        )
-        viral[[taxon_col] + sample_cols].to_csv(sys.argv[2], sep="\t", index=False)
-        return
+    resolved = [resolve_host(c, db_map, phist_map) for c in viral[taxon_col]]
+    viral["host_genus"]  = [r[0] for r in resolved]
+    viral["host_source"] = [r[1] for r in resolved]
 
-    viral["host_genus"] = viral["host"].fillna("Unknown").apply(_parse_genus)
+    if args.assignments:
+        aud = pd.DataFrame({
+            "clade_name":  viral[taxon_col].values,
+            "host_db":     [db_map.get(c, "") for c in viral[taxon_col]],
+            "host_phist":  [phist_map.get(c, "") for c in viral[taxon_col]],
+            "host_genus":  viral["host_genus"].values,
+            "host_source": viral["host_source"].values,
+        })
+        aud.to_csv(args.assignments, sep="\t", index=False)
 
-    # Sum abundances per host genus, add taxon count
-    agg = viral.groupby("host_genus")[sample_cols].sum()
-    agg.insert(0, "n_viral_taxa", viral.groupby("host_genus")[taxon_col].count())
-    agg = agg.reset_index().sort_values(sample_cols[0], ascending=False)
-    agg.to_csv(sys.argv[2], sep="\t", index=False)
-    print(f"[collapse_by_host] {len(agg)} host genera written to {sys.argv[2]}")
+    # Agrupa por GENERO so. Agrupar por (genero, fonte) partiria o mesmo
+    # genero em duas linhas quando parte dos seus virus vem do banco e parte
+    # do PHIST -- no grafico isso apareceria como dois taxa distintos com o
+    # mesmo nome. A proveniencia vira um campo do grupo ("db", "phist" ou
+    # "db,phist"); o detalhe por taxon fica no sidecar de assignments.
+    grp = viral.groupby("host_genus")
+    agg = grp[sample_cols].sum()
+    agg.insert(0, "n_viral_taxa", grp[taxon_col].count())
+    sources = grp["host_source"].apply(
+        lambda col: ",".join(sorted(set(col) - {"none"}) or ["none"]))
+    agg.insert(0, "host_source", sources)
+    agg = agg.reset_index()
+    if sample_cols:
+        agg = agg.sort_values(sample_cols[0], ascending=False)
+    agg[out_cols].to_csv(args.output, sep="\t", index=False)
+
+    by_src = viral["host_source"].value_counts().to_dict()
+    sys.stderr.write("[collapse_by_host] %d generos; taxa por fonte: %s -> %s\n"
+                     % (len(agg), by_src, args.output))
 
 
 if __name__ == "__main__":
