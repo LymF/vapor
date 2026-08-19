@@ -46,3 +46,20 @@ def test_hospedeiro_sem_taxonomia_vira_unknown_nao_nome_de_arquivo():
     phist = [_phist("S1", "k141_1", "1")]
     out = build_host_collapse(phist, {"S1": []}, ["S1"], host_links=[])
     assert [e["genus"] for e in out["S1"]] == ["Unknown"]
+
+
+def test_enriquecimento_do_checkv_resolve_provirus():
+    """Desde que o aparo do CheckV voltou a funcionar, o Genome da taxonomia
+    pode ser "k141_9_1" enquanto o quality_summary so conhece "k141_9"."""
+    from report.data_loaders import enrich_taxonomy_with_checkv
+
+    checkv = {"S1": [{"contig_id": "k141_9", "completeness": "88.5",
+                      "checkv_quality": "High-quality", "contig_length": "31000"}]}
+    tax = [{"sample": "S1", "Genome": "k141_9_1"},
+           {"sample": "S1", "Genome": "k141_9"},
+           {"sample": "S1", "Genome": "k141_desconhecido"}]
+
+    out = enrich_taxonomy_with_checkv(tax, checkv)
+    assert out[0]["CheckV_quality"] == "High-quality"   # provirus resolvido
+    assert out[1]["CheckV_quality"] == "High-quality"   # contig inteiro
+    assert out[2]["CheckV_quality"] == ""               # desconhecido nao inventa

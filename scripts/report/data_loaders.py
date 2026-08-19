@@ -1135,11 +1135,27 @@ def build_host_defense_links(phist_data, gtdb_data):
 # ── Taxonomy enrichment / merge ───────────────────────────────────────────────
 
 def enrich_taxonomy_with_checkv(tax_records, checkv_dict):
+    """Anexa completude/qualidade do CheckV a cada linha de taxonomia viral.
+
+    O quality_summary.tsv tem uma linha por contig ORIGINAL, mas o `Genome`
+    da taxonomia pode ser um fragmento de provirus aparado ("k141_9_1") desde
+    que o aparo do CheckV voltou a funcionar em 2026-08-19 (ver
+    scripts/checkv_provirus.py). Sem resolver o sufixo, todo profago apareceria
+    no relatorio com completude e qualidade em branco.
+    """
+    try:
+        from checkv_provirus import resolve_original_id
+    except ImportError:          # scripts/ fora do sys.path: degrada para exato
+        resolve_original_id = lambda h, known: (h, h in known)
+
     cv_lookup = {}
     for s, rows in checkv_dict.items():
         cv_lookup[s] = {r.get('contig_id', r.get('contig', '')): r for r in rows}
     for rec in tax_records:
-        cv_row = cv_lookup.get(rec.get('sample', ''), {}).get(rec.get('Genome', ''), {})
+        by_contig = cv_lookup.get(rec.get('sample', ''), {})
+        genome = rec.get('Genome', '')
+        key, _ok = resolve_original_id(genome, set(by_contig))
+        cv_row = by_contig.get(key, {})
         rec['Completeness']   = cv_row.get('completeness', '')
         rec['Genome_length']  = cv_row.get('contig_length', '')
         rec['CheckV_quality'] = cv_row.get('checkv_quality', '')
