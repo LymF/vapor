@@ -96,3 +96,46 @@ def test_votu_with_no_member_in_sample_produces_no_row(tmp_path):
     assert votu_order == ["vOTU_2"]
     assert "vOTU_1" not in votu_rep
     assert "vOTU_1" not in votu_members
+
+
+# ── PHIST: o prefixo do nome do arquivo e a heranca do representante ──────
+
+def _phist_csv(tmp_path, rows):
+    p = tmp_path / "phist_results.csv"
+    with open(p, "w", newline="") as fh:
+        fh.write("phage,host,#common-kmers,pvalue,adj-pvalue\n")
+        for r in rows:
+            fh.write(",".join(r) + "\n")
+    return str(p)
+
+
+def test_phist_ignora_o_prefixo_contig_do_nome_do_arquivo(tmp_path):
+    """split_viral_fastas.py grava 'contig_{id}.fasta'. Sem tirar o prefixo,
+    a chave vira 'contig_S1|k141_10' e nada casa -- host_bin sai vazio em
+    toda amostra, sem erro."""
+    from make_votu_table import load_phist
+    p = _phist_csv(tmp_path, [
+        ["contig_S1|k141_10.fasta", "binette_bin2.fa", "12", "1e-12", "1e-10"],
+    ])
+    hosts = load_phist(p)
+    assert list(hosts) == ["S1|k141_10"]
+    assert hosts["S1|k141_10"]["host_bin"] == "binette_bin2"
+
+
+def test_phist_mantem_o_melhor_hit_por_virus(tmp_path):
+    from make_votu_table import load_phist
+    p = _phist_csv(tmp_path, [
+        ["contig_S1|k141_10.fasta", "binette_bin2.fa", "12", "1e-3", "1e-2"],
+        ["contig_S1|k141_10.fasta", "binette_bin9.fa", "40", "1e-30", "1e-28"],
+    ])
+    assert load_phist(p)["S1|k141_10"]["host_bin"] == "binette_bin9"
+
+
+def test_phist_nao_perde_bins_do_vrhyme(tmp_path):
+    """Os bins do vRhyme entram no PHIST com o proprio nome de arquivo, sem
+    o prefixo 'contig_' -- nao podem ser mutilados pela remocao."""
+    from make_votu_table import load_phist
+    p = _phist_csv(tmp_path, [
+        ["vRhyme_bin_3.fasta", "binette_bin2.fa", "12", "1e-12", "1e-10"],
+    ])
+    assert list(load_phist(p)) == ["vRhyme_bin_3"]

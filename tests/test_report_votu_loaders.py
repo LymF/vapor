@@ -219,3 +219,64 @@ def test_emapper_tsv_ignora_o_preambulo_de_comentarios(tmp_path):
     assert len(rows) == 1
     assert rows[0]["COG_category"] == "C"
     assert rows[0]["#query"] == "S1__binette_bin1__LLOGBO_00001"
+
+
+# ── Colapso da taxonomia por vOTU ────────────────────────────────────────
+
+def _votu_table(tmp_path, sample, rows):
+    d = tmp_path / sample / "viral" / "votu"
+    d.mkdir(parents=True)
+    p = d / f"{sample}_vOTU_table.tsv"
+    p.write_text("votu_id\trepresentative\tmember\n" +
+                 "".join("\t".join(r) + "\n" for r in rows))
+    return str(tmp_path)
+
+
+def test_colapso_agrupa_membros_do_mesmo_votu(tmp_path):
+    """A fonte e o {sample}_vOTU_table.tsv. Ate 2026-08-19 lia-se um
+    vOTU_clusters.tsv por amostra que ninguem escreve mais: nada colapsava e
+    a mesma populacao viral era contada varias vezes."""
+    from report.data_loaders import collapse_taxonomy_to_votu
+    outdir = _votu_table(tmp_path, "S1", [
+        ["vOTU_1", "S1|k141_10", "k141_10"],
+        ["vOTU_1", "S1|k141_10", "k141_55"],
+    ])
+    recs = [
+        {"sample": "S1", "Genome": "k141_10", "Family": "Siphoviridae"},
+        {"sample": "S1", "Genome": "k141_55", "Family": "Myoviridae"},
+    ]
+    out = collapse_taxonomy_to_votu(recs, outdir, ["S1"])
+    assert len(out) == 1
+    assert out[0]["vOTU_members"] == 2
+
+
+def test_colapso_prefere_a_linha_do_representante(tmp_path):
+    """O representante vem NAMESPACED na tabela e o Genome vem nu — comparar
+    os dois cruamente nunca casa e a escolha cai sempre no primeiro membro."""
+    from report.data_loaders import collapse_taxonomy_to_votu
+    outdir = _votu_table(tmp_path, "S1", [
+        ["vOTU_1", "S1|k141_10", "k141_55"],
+        ["vOTU_1", "S1|k141_10", "k141_10"],
+    ])
+    recs = [
+        {"sample": "S1", "Genome": "k141_55", "Family": "Myoviridae"},
+        {"sample": "S1", "Genome": "k141_10", "Family": "Siphoviridae"},
+    ]
+    out = collapse_taxonomy_to_votu(recs, outdir, ["S1"])
+    assert out[0]["Genome"] == "k141_10"
+
+
+def test_colapso_com_representante_de_outra_amostra(tmp_path):
+    """O representante pode ser de outra amostra: agrupa-se por ele mesmo
+    assim, e a linha escolhida e a do primeiro membro local."""
+    from report.data_loaders import collapse_taxonomy_to_votu
+    outdir = _votu_table(tmp_path, "S1", [
+        ["vOTU_1", "S2|k141_99", "k141_10"],
+        ["vOTU_1", "S2|k141_99", "k141_55"],
+    ])
+    recs = [
+        {"sample": "S1", "Genome": "k141_10", "Family": "Siphoviridae"},
+        {"sample": "S1", "Genome": "k141_55", "Family": "Myoviridae"},
+    ]
+    out = collapse_taxonomy_to_votu(recs, outdir, ["S1"])
+    assert len(out) == 1 and out[0]["Genome"] == "k141_10"

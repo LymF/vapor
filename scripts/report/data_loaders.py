@@ -1155,15 +1155,31 @@ def collapse_taxonomy_to_votu(tax_records, outdir, samples):
     skani_cluster) considers the same viral population. Without collapsing,
     taxonomy tables/charts would count a single vOTU more than once.
 
-    Groups records by (sample, representative) using vOTU_clusters.tsv, then
-    picks the representative's own row if it was itself classified; otherwise
-    falls back to the first classified member (the representative is chosen
-    by CheckV completeness, not by confidence of taxonomic assignment, so it
+    Groups records by (sample, representative), then picks the
+    representative's own row if it was itself classified; otherwise falls
+    back to the first classified member (the representative is chosen by
+    CheckV completeness, not by confidence of taxonomic assignment, so it
     can occasionally be the one row in its cluster with no taxonomy hit).
+
+    A pertinencia vem de `{sample}/viral/votu/{sample}_vOTU_table.tsv`, que e
+    a vista por amostra do catalogo global. Ate 2026-08-19 esta funcao lia
+    `{sample}/viral/votu/vOTU_clusters.tsv`, um arquivo que NINGUEM escreve
+    desde que o catalogo global substituiu a clusterizacao por amostra: o
+    `load_tsv` devolvia lista vazia, todo contig virava seu proprio
+    representante e o colapso simplesmente nao acontecia -- a mesma populacao
+    viral era contada varias vezes nas tabelas e graficos de taxonomia, e
+    `vOTU_members` era sempre 1. Sem erro nenhum, que e como esse tipo de
+    defeito sobrevive.
+
+    Nessa tabela o `member` e o ID NU do contig desta amostra e o
+    `representative` continua NAMESPACED ("{source}|{contig}"), porque o
+    representante pode ser de outra amostra. Agrupar pelo ID namespaced e o
+    certo; so a comparacao "esta linha e a do representante?" precisa
+    desfazer o prefixo desta amostra.
     """
     membership = {}
     for s in samples:
-        p = os.path.join(outdir, s, "viral", "votu", "vOTU_clusters.tsv")
+        p = os.path.join(outdir, s, "viral", "votu", f"{s}_vOTU_table.tsv")
         member_to_rep = {}
         for row in load_tsv(p):
             rep, member = row.get('representative', ''), row.get('member', '')
@@ -1179,7 +1195,10 @@ def collapse_taxonomy_to_votu(tax_records, outdir, samples):
 
     collapsed = []
     for (s, rep), recs in by_cluster.items():
-        chosen = next((r for r in recs if r.get('Genome') == rep), recs[0])
+        prefix = f"{s}|"
+        rep_local = rep[len(prefix):] if rep.startswith(prefix) else rep
+        chosen = next((r for r in recs if r.get('Genome') in (rep, rep_local)),
+                      recs[0])
         chosen = dict(chosen)
         chosen['vOTU_members'] = len(recs)
         collapsed.append(chosen)

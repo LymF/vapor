@@ -210,7 +210,18 @@ def load_amg_counts(amg_tsv):
 
 
 def load_phist(phist_csv):
-    """Returns {virus_id: {host_bin, host_score}} — best (lowest adj-pvalue) hit."""
+    """Returns {virus_id: {host_bin, host_score}} — best (lowest adj-pvalue) hit.
+
+    A chave e o ID do genoma viral como o PHIST o conhece: o nome do ARQUIVO
+    que `split_viral_fastas.py` escreveu, sem o prefixo `contig_` que ele
+    poe e sem a extensao. Esse prefixo NAO era removido aqui ate 2026-08-19
+    (o loader do relatorio ja o removia), entao a chave era
+    "contig_S1|k141_10" e nada casava: as colunas host_bin/host_score da
+    tabela de vOTU saiam vazias em toda amostra, sem erro nenhum.
+
+    Os IDs sao NAMESPACED ("{source_id}|{contig_id}"), porque desde
+    2026-08-13 o PHIST roda sobre as representantes do catalogo global.
+    """
     data = {}
     for row in read_csv(phist_csv, required=False):
         phage_path = (row.get("phage") or "").strip()
@@ -221,6 +232,8 @@ def load_phist(phist_csv):
         for ext in (".fasta", ".fa", ".fna"):
             if virus.endswith(ext):
                 virus = virus[:-len(ext)]; break
+        if virus.startswith("contig_"):
+            virus = virus[len("contig_"):]
         host_bin = os.path.basename(host_path)
         for ext in (".fa", ".fasta", ".fna"):
             if host_bin.endswith(ext):
@@ -301,7 +314,16 @@ def main():
                 # inheriting the representative's.
                 cv   = checkv.get(mem, {})
                 tax  = taxonomy.get(mem, {})
-                host = hosts.get(mem, {})
+                # PHIST so pontuou as REPRESENTANTES (roda sobre
+                # votu_catalog_reps), entao o hospedeiro se herda do
+                # representante, como lifestyle e AMG -- procurar pelo ID do
+                # membro deixaria sem hospedeiro todo membro que nao e
+                # representante, que e a maioria. O MAG hospedeiro continua
+                # sendo desta amostra: o PHIST roda contra os bins locais.
+                host = (hosts.get(rep)
+                        or hosts.get(f"{sample}|{mem}")
+                        or hosts.get(mem)
+                        or {})
                 # Lifestyle/AMGs are per-representative, so every member of
                 # a given vOTU reports the same value (the representative's).
                 mem_lifestyle = lifestyle.get(rep, "unknown")

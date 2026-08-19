@@ -198,3 +198,44 @@ def write_clusters(clusters, n_input, path, completeness=None):
         for votu_id, rep, member in assign_votu_ids(clusters, completeness):
             fh.write(f"{votu_id}\t{rep}\t{member}\n")
     return len(clusters)
+
+
+# ── geNomad x IDs do catalogo ─────────────────────────────────────────────
+#
+# Tres convencoes de nome se encontram aqui, e nenhuma e igual a outra:
+#
+#   geNomad (provirus)  "{contig}|provirus_{start}_{end}"
+#   CheckV  (aparado)   "{contig}_{n}"
+#   catalogo            "{source}|{id_que_chegou_ao_pool}"
+#
+# O que chega ao pool e a sequencia APARADA pelo CheckV, entao o ID do
+# catalogo de um profago e "{source}|{contig}_{n}" -- enquanto a linha do
+# geNomad para a mesma sequencia esta sob "{source}|{contig}|provirus_X_Y".
+# Casar as duas exige normalizar as DUAS pontas: e exatamente o que
+# `_load_catalog_completeness` ja faz do lado do CheckV, e o que faltava do
+# lado do geNomad, deixando todo profago sem taxonomia geNomad em silencio.
+
+
+def genomad_base_contig(seq_name):
+    """'k141_10|provirus_1_5000' -> 'k141_10'. Sem sufixo, devolve como veio."""
+    return (seq_name or "").split("|", 1)[0]
+
+
+def resolve_genomad_key(catalog_id, genomad_index, known_by_source):
+    """Chave do geNomad para um ID do catalogo, ou None.
+
+    `genomad_index` e chaveado por "{source}|{contig_base}"; `known_by_source`
+    da, por fonte, os contigs base que o geNomad conhece -- e contra esse
+    conjunto que o sufixo de provirus do CheckV e desfeito, em vez de se
+    adivinhar um delimitador (mesma disciplina de checkv_provirus.py).
+    """
+    if catalog_id in genomad_index:
+        return catalog_id
+    source, sep, bare = (catalog_id or "").partition("|")
+    if not sep:
+        return None
+    known = known_by_source.get(source) or set()
+    base, suffix_sep, suffix = bare.rpartition("_")
+    if suffix_sep and suffix.isdigit() and base in known:
+        return f"{source}|{base}"
+    return None

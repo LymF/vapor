@@ -266,3 +266,36 @@ def test_write_clusters_writes_header_and_rows(tmp_path):
     assert rows[1] == ["vOTU_00001", "b", "a"]
     assert rows[2] == ["vOTU_00001", "b", "b"]
     assert rows[3] == ["vOTU_00002", "c", "c"]
+
+
+# ── geNomad x IDs do catalogo (proviroses) ───────────────────────────────
+
+def test_genomad_base_contig_tira_o_sufixo_de_provirus():
+    from votu_catalog import genomad_base_contig
+    assert genomad_base_contig("k141_10|provirus_1_5000") == "k141_10"
+    assert genomad_base_contig("k141_10") == "k141_10"
+
+
+def test_resolve_genomad_key_desfaz_o_aparo_do_checkv():
+    """O catalogo carrega o fragmento aparado ("_1"); o geNomad so conhece o
+    contig inteiro. Sem desfazer o sufixo, todo profago fica sem taxonomia
+    geNomad -- em silencio."""
+    from votu_catalog import resolve_genomad_key
+    idx = {"S1|k141_10": {}}
+    known = {"S1": {"k141_10"}}
+    assert resolve_genomad_key("S1|k141_10_1", idx, known) == "S1|k141_10"
+
+
+def test_resolve_genomad_key_nao_inventa_contig():
+    """Um sufixo numerico que nao corresponde a contig conhecido nenhum tem
+    de devolver None, nao um palpite."""
+    from votu_catalog import resolve_genomad_key
+    assert resolve_genomad_key("S1|k141_99_1", {"S1|k141_10": {}},
+                               {"S1": {"k141_10"}}) is None
+
+
+def test_resolve_genomad_key_prefere_o_id_exato():
+    from votu_catalog import resolve_genomad_key
+    idx = {"S1|k141_10_1": {"exato": True}, "S1|k141_10": {}}
+    known = {"S1": {"k141_10", "k141_10_1"}}
+    assert resolve_genomad_key("S1|k141_10_1", idx, known) == "S1|k141_10_1"

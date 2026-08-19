@@ -440,13 +440,22 @@ makes the vOTU the reporting unit.
   thresholds), eggNOG (COG/KEGG, `EGGNOG_DB`) → KEGG-Decoder; pharokka + phold (phage
   annotation, `PHAROKKA_DB`/`PHOLD_DB`, `pharokka_min_completeness`).
 - Every AMR/defense/annotation tool consumes a shared **per-genome Prodigal** protein set
-  (`prok_bin_proteins` / `coassembly_prok_bin_proteins`), predicted once per MAG.
+  (`mag_catalog_proteins`), predicted once per MAG **representative** of the global
+  catalog since 2026-08-19; each member bin inherits its representative's result
+  through the per-source views.
+
+> **O nome do arquivo `catalog_mq_reps.fasta` não garante "MQ+".** O corte segue
+> `viral_min_quality`, que vem `not_determined` por padrão e aceita os cinco níveis
+> do CheckV — nesse caso o nível "mq" é idêntico ao "all". Confira o valor no config
+> da corrida (e o log de `votu_catalog_reps`, que avisa quando os dois coincidem)
+> antes de escrever "apenas representantes de qualidade média ou superior" em
+> métodos.
 
 ---
 
 ## 14. Host prediction
-**PHIST** — k-mer phage↔host prediction; the global catalog's MQ+ representatives
-(`catalog_mq_reps.fasta`, §5.1) vs the recovered prokaryotic MAGs as candidate hosts
+**PHIST** — k-mer phage↔host prediction; the global catalog's `catalog_mq_reps.fasta`
+representatives (§5.1) vs the recovered prokaryotic MAGs as candidate hosts
 (per-sample Binette bins; co-assembly: group VAMB MAGs). iPHoP was removed. Co-assembly
 `coassembly_phist` links the same global vOTU representatives → group MAGs (needs both
 viral + prok tracks + short reads).

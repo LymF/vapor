@@ -173,9 +173,25 @@ def _load_catalog_genomad():
     de namespace de ID"). Aggregating and prefixing every source's GeNomad
     output here, once, makes the keys land in the same namespace as the
     representative FASTA headers votu_taxonomy iterates over.
+
+    O nome do geNomad e normalizado ANTES de virar chave: um provirus sai
+    como "{contig}|provirus_X_Y", e o "|" e justamente o separador de
+    namespace do catalogo -- deixa-lo passar produziria uma chave de tres
+    campos que nunca casa com ID nenhum. Quando duas regioes de provirus do
+    mesmo contig colapsam na mesma chave, fica a de maior virus_score.
+
+    Devolve tambem `known_by_source` ({source: {contig_base}}), que
+    `resolve_genomad_key` usa para desfazer o sufixo de aparo do CheckV
+    ("{contig}_{n}") contra contigs que se sabe existirem, em vez de
+    adivinhar delimitador.
     """
     import csv, glob
+    import sys as _sys
+    _sys.path.insert(0, SCRIPTS_DIR)
+    from votu_catalog import genomad_base_contig
+
     genomad_rows = {}
+    known_by_source = {}
     n_sources_with_output = 0
     for source_id, done_path in _catalog_genomad_pairs():
         gdir = os.path.dirname(done_path)
@@ -183,13 +199,26 @@ def _load_catalog_genomad():
         if not gfiles:
             continue
         n_sources_with_output += 1
+        known = known_by_source.setdefault(source_id, set())
         with open(gfiles[0]) as fh:
             for row in csv.DictReader(fh, delimiter="\t"):
                 name = (row.get("seq_name") or "").strip()
                 if not name:
                     continue
-                genomad_rows[f"{source_id}|{name}"] = row
-    return genomad_rows, n_sources_with_output
+                base = genomad_base_contig(name)
+                known.add(base)
+                key = f"{source_id}|{base}"
+                prev = genomad_rows.get(key)
+                if prev is not None:
+                    def _score(r):
+                        try:
+                            return float(r.get("virus_score") or 0)
+                        except ValueError:
+                            return 0.0
+                    if _score(prev) >= _score(row):
+                        continue
+                genomad_rows[key] = row
+    return genomad_rows, n_sources_with_output, known_by_source
 
 
 def _mmseqs_lca_rollup(hits_path, ranks):
@@ -357,8 +386,22 @@ rule votu_catalog_reps:
     Same quality gates as the removed per-sample representative-extraction
     rule, applied once over the global catalog:
       all      — one per vOTU; recruitment reference and report base
-      mq       — MQ+ (Complete/HQ/MQ or completeness >= 50%); taxonomy,
-                 PHIST, annotation
+      mq       — o nivel que alimenta taxonomia, PHIST, pharokka/phold,
+                 BACPHLIP e eggNOG viral
+
+    CUIDADO com o nome "mq": o corte NAO e fixo em Complete/HQ/MQ. Ele segue
+    `VIRAL_KEEP_TIERS`, ou seja, a chave `viral_min_quality` do config -- e
+    ela ja vem `not_determined`, que expande para os CINCO niveis do CheckV
+    (Low-quality e Not-determined incluidos). Com o default, portanto,
+    `is_mq()` e verdadeiro para toda representante que o CheckV tenha visto e
+    **o nivel `mq` fica identico ao `all`**. Isso e uma escolha de config
+    legitima (assemblies fragmentados raramente alcancam MQ), mas nao se pode
+    afirmar "so MQ+" em metodos sem antes olhar `viral_min_quality`. O log
+    abaixo registra os dois tamanhos e avisa quando coincidem.
+
+    A armadilha e a mesma que `scripts/viral_length_gate.py` documenta do
+    outro lado: la o portao usa um MQ_TIERS FIXO justamente para nao virar
+    no-op sob o config padrao.
     """
     input:
         pool     = rules.votu_catalog_pool.output.pool,
@@ -416,7 +459,15 @@ rule votu_catalog_reps:
 
         with open(str(log[0]), "w") as lf:
             lf.write(f"[votu_catalog_reps] all: {n_all}\n")
-            lf.write(f"[votu_catalog_reps] MQ+ (taxonomy/PHIST/annotation): {n_mq}\n")
+            lf.write(f"[votu_catalog_reps] nivel 'mq' (taxonomia/PHIST/anotacao): "
+                     f"{n_mq}\n")
+            lf.write(f"[votu_catalog_reps] niveis aceitos (viral_min_quality): "
+                     f"{sorted(params.keep_tiers)}\n")
+            if n_all and n_mq == n_all:
+                lf.write("[votu_catalog_reps] AVISO: o nivel 'mq' e IDENTICO ao "
+                         "'all'. Com viral_min_quality: not_determined isso e o "
+                         "esperado (os cinco niveis passam) -- mas entao nao se "
+                         "pode dizer 'so MQ+' em metodos.\n")
         if n_all == 0:
             write_status(str(output.done), "skipped: empty catalog")
         else:
@@ -714,7 +765,7 @@ rule votu_taxonomy:
         # Aggregated across every catalog source (sample + group) and
         # namespaced by _load_catalog_genomad() -- see docstring above for
         # why this replaces a single-sample glob.
-        genomad_raw, n_genomad_sources = _load_catalog_genomad()
+        genomad_raw, n_genomad_sources, genomad_known = _load_catalog_genomad()
         lf.write(f"GeNomad: {n_genomad_sources}/{len(_catalog_genomad_pairs())} "
                  f"sources had a virus_summary; {len(genomad_raw)} raw rows "
                  f"(namespaced keys)\n")
@@ -750,9 +801,27 @@ rule votu_taxonomy:
                 "score": float(score or 0),
             }
         lf.write(f"GeNomad parsed: {len(genomad_tax)} contigs (namespaced keys)\n")
-        n_genomad_matched = sum(1 for c in contigs if c in genomad_tax)
+
+        # O ID do catalogo de um profago e o do fragmento APARADO pelo CheckV
+        # ("{source}|{contig}_{n}"); o geNomad so conhece o contig inteiro.
+        # Sem desfazer esse sufixo, todo profago ficava sem taxonomia geNomad
+        # -- em silencio, que e como este mesmo defeito ja apareceu duas
+        # camadas acima (ver _load_catalog_completeness).
+        from votu_catalog import resolve_genomad_key
+        _gmd_key = {}
+        n_direct = n_trimmed = 0
+        for c in contigs:
+            k = resolve_genomad_key(c, genomad_tax, genomad_known)
+            if k is None:
+                continue
+            _gmd_key[c] = k
+            if k == c:
+                n_direct += 1
+            else:
+                n_trimmed += 1
         lf.write(f"GeNomad matched against vOTU representatives: "
-                 f"{n_genomad_matched}/{len(contigs)}\n")
+                 f"{len(_gmd_key)}/{len(contigs)} "
+                 f"({n_direct} diretos, {n_trimmed} via aparo de provirus)\n")
 
         # ── Build final table ─────────────────────────────────────────
         # No fixed tier priority: each source proposes (family, genus, order);
@@ -769,7 +838,7 @@ rule votu_taxonomy:
         rows = []; stats = collections.Counter()
         for contig in contigs:
             mms = mmseqs_tax.get(contig, {})
-            gmd = genomad_tax.get(contig, {})
+            gmd = genomad_tax.get(_gmd_key.get(contig, contig), {})
             cms = custom_tax.get(contig, {})
 
             candidates = []  # (source, ff, fg, fo, lin, conf, best)
