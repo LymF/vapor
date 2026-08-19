@@ -41,20 +41,26 @@ def load_membership(path):
 
 
 def load_completeness(path):
-    """{genome: completeness} do checkm2_quality_report.tsv do catalogo."""
+    """{genome: completeness} do checkm2_quality_report.tsv do catalogo.
+
+    Este arquivo e input DECLARADO do Snakemake, como o de load_membership:
+    se faltar, e bug de pipeline, nao resultado biologico. Nao engolimos
+    OSError aqui -- mascarar um arquivo ausente faria toda a matriz de
+    completude cair para 0.0 em silencio, empurrando todo membro abaixo do
+    piso de 70% sem aviso nenhum (a mesma familia de defeito do done.txt
+    vazio lido como zero biologico). O try/except ValueError abaixo e outra
+    coisa: dado sujo numa linha, nao o arquivo inteiro faltando.
+    """
     out = {}
-    try:
-        with open(path, newline="") as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                name = (row.get("Name") or "").strip()
-                if not name:
-                    continue
-                try:
-                    out[name] = float(row.get("Completeness") or 0)
-                except ValueError:
-                    continue
-    except OSError:
-        pass
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f, delimiter="\t"):
+            name = (row.get("Name") or "").strip()
+            if not name:
+                continue
+            try:
+                out[name] = float(row.get("Completeness") or 0)
+            except ValueError:
+                continue
     return out
 
 

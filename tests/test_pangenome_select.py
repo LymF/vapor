@@ -67,3 +67,86 @@ class TestSelectClusters:
 
     def test_n_members_counts_the_membership_rows(self):
         assert _sel({})["S1__binette_bin1"]["n_members"] == 4
+
+
+import pytest
+
+from pangenome_select import load_completeness, load_membership
+
+
+class TestLoadMembership:
+    def test_groups_members_by_representative(self, tmp_path):
+        # nomes realistas: um bin Binette e um inteiro nu do VAMB, que e o
+        # que o mag_catalog_pool produz para grupos de co-assembly.
+        path = tmp_path / "mag_membership.tsv"
+        path.write_text(
+            "source_id\toriginal_bin_id\tmember_id\trepresentative_id\n"
+            "S1\tbinette_bin1\tS1__binette_bin1\tS1__binette_bin1\n"
+            "S2\tbinette_bin3\tS2__binette_bin3\tS1__binette_bin1\n"
+            "G1\t7\tG1__7\tS1__binette_bin1\n"
+        )
+        out = load_membership(str(path))
+        assert set(out) == {"S1__binette_bin1"}
+        members = out["S1__binette_bin1"]
+        assert len(members) == 3
+        assert members[0] == {
+            "source_id": "S1",
+            "original_bin_id": "binette_bin1",
+            "member_id": "S1__binette_bin1",
+        }
+        assert {m["member_id"] for m in members} == {
+            "S1__binette_bin1", "S2__binette_bin3", "G1__7",
+        }
+
+    def test_skips_row_with_empty_representative_or_member(self, tmp_path):
+        path = tmp_path / "mag_membership.tsv"
+        path.write_text(
+            "source_id\toriginal_bin_id\tmember_id\trepresentative_id\n"
+            "S1\tbinette_bin1\t\tS1__binette_bin1\n"
+            "S2\tbinette_bin2\tS2__binette_bin2\t\n"
+            "S3\tbinette_bin3\tS3__binette_bin3\tS3__binette_bin3\n"
+        )
+        out = load_membership(str(path))
+        assert set(out) == {"S3__binette_bin3"}
+        assert len(out["S3__binette_bin3"]) == 1
+
+    def test_accumulates_multiple_members_same_representative(self, tmp_path):
+        path = tmp_path / "mag_membership.tsv"
+        path.write_text(
+            "source_id\toriginal_bin_id\tmember_id\trepresentative_id\n"
+            "S1\tbinette_bin1\tS1__binette_bin1\tS1__binette_bin1\n"
+            "S2\tbinette_bin1\tS2__binette_bin1\tS1__binette_bin1\n"
+            "S3\tbinette_bin1\tS3__binette_bin1\tS1__binette_bin1\n"
+            "S4\tbinette_bin1\tS4__binette_bin1\tS1__binette_bin1\n"
+        )
+        out = load_membership(str(path))
+        assert len(out["S1__binette_bin1"]) == 4
+
+
+class TestLoadCompleteness:
+    def test_reads_name_and_completeness(self, tmp_path):
+        path = tmp_path / "checkm2_quality_report.tsv"
+        path.write_text(
+            "Name\tCompleteness\tContamination\n"
+            "S1__binette_bin1\t98.5\t1.2\n"
+            "S2__binette_bin3\t76.0\t0.5\n"
+        )
+        out = load_completeness(str(path))
+        assert out == {"S1__binette_bin1": 98.5, "S2__binette_bin3": 76.0}
+
+    def test_skips_row_with_unparseable_completeness_keeps_others(self, tmp_path):
+        path = tmp_path / "checkm2_quality_report.tsv"
+        path.write_text(
+            "Name\tCompleteness\n"
+            "S1__binette_bin1\tNA\n"
+            "S2__binette_bin3\t76.0\n"
+        )
+        out = load_completeness(str(path))
+        assert out == {"S2__binette_bin3": 76.0}
+
+    def test_missing_file_propagates_error(self, tmp_path):
+        # Input declarado do Snakemake: faltar e bug de pipeline, nao deve
+        # ser mascarado como matriz de completude vazia.
+        missing = tmp_path / "does_not_exist.tsv"
+        with pytest.raises(OSError):
+            load_completeness(str(missing))
