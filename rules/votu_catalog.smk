@@ -432,6 +432,16 @@ rule votu_prodigal:
     FASTA (rules.votu_catalog_reps.output.mq_fasta), so every sample ran an
     identical prodigal pass over byte-identical input and produced
     byte-identical output -- see docs/ROADMAP_SIMPLIFICACAO.md "(h)".
+
+    Usa **prodigal-gv**, nao o prodigal padrao. Ate 2026-08-19 chamava
+    `prodigal`, apesar de o env_viral.yaml instalar prodigal-gv=2.11.0 e de
+    tres documentos (CLAUDE.md, VAPOR_TOOLS_MAP.md, ANALISE_TOOLS) afirmarem
+    que a pipeline o usava. O prodigal padrao nao conhece os codigos geneticos
+    alternativos dos virus -- em Caudovirales com recodificacao de TAG as ORFs
+    saem truncadas no primeiro stop em frame, e essas proteinas quebradas
+    alimentam a taxonomia MMseqs2, o DefenseFinder viral, o dbAPIS e o eggNOG.
+    Este .faa e a fonte unica de ORFs virais do catalogo desde que o
+    `eggnog_viral` deixou de rodar o proprio prodigal.
     """
     input:
         viral = rules.votu_catalog_reps.output.mq_fasta,
@@ -441,7 +451,7 @@ rule votu_prodigal:
     log:   f"{OUTDIR}/logs/votu_prodigal.log"
     benchmark: f"{OUTDIR}/benchmarks/votu_prodigal.tsv"
     conda: "../envs/env_viral.yaml"
-    container:  CONTAINERS.get("prodigal")
+    container:  CONTAINERS.get("prodigal_gv")
     threads: 1
     shell:
         """
@@ -450,7 +460,7 @@ rule votu_prodigal:
             touch {output.faa}
             echo "skipped: no viral contigs" > {output.done}; exit 0
         fi
-        prodigal -i {input.viral} -a {output.faa} -p meta -f gff > {log} 2>&1
+        prodigal-gv -i {input.viral} -a {output.faa} -p meta -f gff > {log} 2>&1
         echo "ok" > {output.done}
         """
 
@@ -943,9 +953,16 @@ rule bacphlip_votu:
 
 rule eggnog_viral:
     """
-    eggNOG-mapper over ORF predictions from the MQ+ vOTU representatives,
-    once for the whole catalog (prodigal is cheap, eggNOG is the expensive
-    step, so this runs one pass instead of per-sample).
+    eggNOG-mapper sobre as ORFs das representantes MQ+ de vOTU, uma vez para
+    o catalogo inteiro.
+
+    As proteinas vem de `votu_prodigal` (este arquivo). Ate 2026-08-19 esta
+    regra rodava um prodigal PROPRIO -- mesmo input (`mq_fasta`), mesma
+    ferramenta, mesmo `-p meta` -- ou seja, recomputava byte a byte o que o
+    `votu_prodigal` ja tinha produzido. Pior que o desperdicio: eram duas
+    chamadas independentes, entao trocar a predicao de ORF num lugar e nao no
+    outro faria a anotacao funcional discordar da taxonomia e das buscas de
+    anti-defesa sobre "as mesmas" proteinas, em silencio. Uma fonte so.
 
     Downstream filtering (filter_putative_amgs.py) flags candidates only —
     a KEGG_ko hit landing on a metabolism KEGG pathway map. These are
@@ -954,7 +971,9 @@ rule eggnog_viral:
     pipeline never claims a confirmed AMG anywhere.
     """
     input:
-        fasta = rules.votu_catalog_reps.output.mq_fasta,
+        fasta    = rules.votu_catalog_reps.output.mq_fasta,
+        proteins = rules.votu_prodigal.output.faa,
+        prod_done = rules.votu_prodigal.output.done,
     output:
         annot = f"{CATALOG_DIR}/eggnog_viral/eggnog_annotations.tsv",
         amg   = f"{CATALOG_DIR}/eggnog_viral/putative_amgs.tsv",
@@ -968,7 +987,6 @@ rule eggnog_viral:
     threads: THREADS
     params:
         outdir   = lambda wc, output: os.path.dirname(output.annot),
-        proteins = lambda wc, output: os.path.join(os.path.dirname(output.annot), "votu_proteins.faa"),
         amg_script = os.path.join(SCRIPTS_DIR, "filter_putative_amgs.py"),
     shell:
         """
@@ -992,27 +1010,18 @@ rule eggnog_viral:
             exit 0
         fi
 
-        if [ ! -s {input.fasta} ]; then
-            echo "[eggnog_viral] empty input FASTA (no MQ+ vOTU representatives) — skipping" | tee -a {log}
+        if [ ! -s {input.proteins} ]; then
+            echo "[eggnog_viral] .faa global vazio (votu_prodigal nao produziu ORFs) — skipping" | tee -a {log}
             touch {output.annot}
             printf "$AMG_HEADER\\n" > {output.amg}
-            echo "skipped: empty MQ+ representative FASTA" > {output.done}
-            exit 0
-        fi
-
-        prodigal -i {input.fasta} -a {params.proteins} -p meta >> {log} 2>&1 && RC=0 || RC=$?
-        if [ $RC -ne 0 ]; then
-            echo "[eggnog_viral] prodigal failed (exit $RC)" | tee -a {log}
-            touch {output.annot}
-            printf "$AMG_HEADER\\n" > {output.amg}
-            echo "failed: prodigal exit $RC" > {output.done}
+            echo "skipped: empty global viral_proteins.faa" > {output.done}
             exit 0
         fi
 
         emapper.py \
             -m diamond \
             --itype proteins \
-            -i {params.proteins} \
+            -i {input.proteins} \
             -o eggnog_viral \
             --output_dir {params.outdir} \
             --cpu {threads} \

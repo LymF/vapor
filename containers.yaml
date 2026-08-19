@@ -98,6 +98,21 @@ diamond:
 
 prodigal:
   image: prodigal
+
+# prodigal-gv: fork do prodigal para VIRUS -- reconhece os codigos geneticos
+# alternativos (recodificacao de TAG em Caudovirales tipo crAss, codigo 15/106
+# em outros grupos). Com prodigal padrao esses genomas tem as ORFs truncadas
+# no primeiro TAG em frame, e as proteinas quebradas seguem para a taxonomia
+# MMseqs2, o DefenseFinder viral, o dbAPIS e o eggNOG.
+#
+# Ate 2026-08-19 o env_viral.yaml ja instalava prodigal-gv=2.11.0 e a
+# documentacao (CLAUDE.md, VAPOR_TOOLS_MAP.md) afirmava que a pipeline o usava,
+# mas nenhuma regra o chamava. Rode `python3 scripts/pin_containers.py` para
+# resolver esta entrada no lock; ate la CONTAINERS.get devolve None e a regra
+# cai no conda, que tem o binario.
+prodigal_gv:
+  image: prodigal-gv
+  version: "2.11.0"
   version: "2.6.3"
 
 genomad:
