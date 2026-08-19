@@ -418,65 +418,6 @@ if not LONG_READS:
             """
 
 
-    rule gtdbtk_group:
-        """
-        GTDB-Tk classify_wf — assign GTDB taxonomy to VAMB co-binning MAGs
-        (group-level, short reads). Mirrors `rule gtdbtk` (rules/prok_binning.smk):
-        same env/container/flags. No dereplication step for co-binning MAGs
-        (galah_derep is per-sample only), so bins_dir is the raw VAMB bins dir.
-        NOTE: extension is `.fna` (VAMB v5 output), unlike the per-sample rule's
-        `.fa` (Binette/galah output). Confirm on a real run.
-        Creates empty outputs if no bins are available (safe fallback).
-        """
-        input:
-            report = rules.checkm2_group.output.report,
-        output:
-            done    = f"{OUTDIR}/coassembly/{{group}}/gtdbtk/done.txt",
-            bac_tsv = f"{OUTDIR}/coassembly/{{group}}/gtdbtk/classify/gtdbtk.bac120.summary.tsv",
-            ar_tsv  = f"{OUTDIR}/coassembly/{{group}}/gtdbtk/classify/gtdbtk.ar53.summary.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/gtdbtk.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/gtdbtk.tsv"
-        conda: "../envs/env_gtdbtk.yaml"
-        container:  CONTAINERS.get("gtdbtk")
-        threads: THREADS
-        params:
-            bins_dir = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
-            outdir   = f"{OUTDIR}/coassembly/{{group}}/gtdbtk",
-        shell:
-            """
-            mkdir -p $(dirname {log})
-            mkdir -p {params.outdir}
-
-            # If no bins, create empty outputs
-            N_BINS=$(find {params.bins_dir} -maxdepth 1 -name "*.fna" 2>/dev/null | wc -l)
-            if [ "$N_BINS" -eq 0 ]; then
-                echo "[gtdbtk_group] No bins found — skipping" | tee {log}
-                mkdir -p {params.outdir}/classify
-                printf "user_genome\tclassification\n" > {output.bac_tsv}
-                printf "user_genome\tclassification\n" > {output.ar_tsv}
-                touch {output.done}; exit 0
-            fi
-
-            export GTDBTK_DATA_PATH={GTDBTK_DB}
-            gtdbtk classify_wf \
-                --genome_dir {params.bins_dir} \
-                --out_dir    {params.outdir} \
-                --cpus       {threads} \
-                --extension  fna \
-                >> {log} 2>&1 || echo "[gtdbtk_group] WARNING: classify_wf failed — creating empty outputs" | tee -a {log}
-
-            # Always ensure output files exist — gtdbtk may fail if bins are low quality
-            mkdir -p {params.outdir}/classify
-            [ -f {output.bac_tsv} ] || printf "user_genome\tclassification\n" > {output.bac_tsv}
-            [ -f {output.ar_tsv}  ] || printf "user_genome\tclassification\n" > {output.ar_tsv}
-            touch {output.done}
-            """
-
-
-    # Bakta nos MAGs do grupo. Herda `rule bakta` (rules/annotation.smk);
-    # bins do VAMB sao *.fna (bin_ext sobrescrito).
     use rule bakta as coassembly_bakta with:
         input:
             checkm2 = rules.checkm2_group.output.report,
@@ -892,9 +833,11 @@ if COBINNING_MULTISPLIT and not LONG_READS:
     rule multisplit_gtdbtk:
         """
         GTDB-Tk classify_wf — assign GTDB taxonomy to multi-split VAMB MAGs.
-        Mirrors `rule gtdbtk_group`: same env/container/flags. No
-        dereplication step (galah_derep is per-sample only), so bins_dir is
-        the raw VAMB bins dir. Extension is `.fna` (VAMB v5 output).
+        A trilha `multisplit` NAO entra no catalogo global de MAGs
+        (rules/mag_catalog.smk) -- seus bins nao estao no pool -- entao segue
+        computando o proprio GTDB-Tk sobre os bins crus do VAMB. E coerente:
+        e um experimento de co-binning alternativo, nao uma fonte de MAGs
+        finais. Extensao `.fna` (saida do VAMB v5).
         Creates empty outputs if no bins are available (safe fallback).
         """
         input:
@@ -1773,31 +1716,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             outdir   = lambda wc, output: os.path.dirname(output.merged),
             db       = GUNC_DB,
             enabled  = GUNC_ENABLED,
-
-    # Dereplicacao dos MAGs do grupo. Herda `rule galah_derep`
-    # (rules/prok_binning.smk). A copia anterior nao tinha tres correcoes que
-    # so existiam do lado per-sample: o `rm -rf {params.repdir}` que permite
-    # resume (galah aborta se o diretorio existe e nao esta vazio), a captura
-    # do exit code do galah, e o done.txt com status real em vez de vazio.
-    # Herdando, a trilha de grupo passa a ter as tres.
-    use rule galah_derep as coassembly_galah_derep with:
-        input:
-            bins_done   = rules.vamb_cobinning.output.done,
-            checkm2_tsv = rules.checkm2_group.output.report,
-        output:
-            done    = f"{OUTDIR}/coassembly/{{group}}/bins/derep/done.txt",
-            cluster = f"{OUTDIR}/coassembly/{{group}}/bins/derep/galah_clusters.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/galah_derep.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/galah_derep.tsv"
-        params:
-            bins_dir = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
-            bin_ext  = ".fna",
-            outdir   = lambda wc, output: os.path.dirname(output.done),
-            repdir   = lambda wc, output: os.path.join(os.path.dirname(output.done), "derep_bins"),
-            ani      = MAG_DEREP_ANI,
-            enabled  = MAG_DEREP_ENABLED,
 
     # ── Group AMR + defense systems (Plan 5, Tasks 3+4) ────────────────────
     # Mechanical mirrors of the per-sample rules in rules/defense_amr.smk,

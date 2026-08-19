@@ -1,7 +1,7 @@
 import os
 import pytest
 from report.data_loaders import (
-    STATUS_TRACKED_GLOBAL_TOOLS,
+    STATUS_TRACKED_GLOBAL_TOOLS, STATUS_TRACKED_TOOLS,
     load_votu_catalog, load_votu_presence,
     load_tool_status, summarize_tool_status, GLOBAL_STATUS_LABEL,
 )
@@ -96,18 +96,25 @@ def test_load_tool_status_global_rule_does_not_corrupt_per_sample_counts(tmp_pat
 
     # Per-sample entries are untouched by the global rules: only the
     # sample-scoped tools appear under each real sample key.
-    assert set(status["S1"].keys()) == {
-        "amrfinderplus", "rgi", "galah_derep", "gtdbtk",
-    }
+    # Nao fixar o conjunto: ele encolhe quando uma regra migra para o
+    # catalogo global (o galah_derep saiu em 2026-08-19, ao virar
+    # mag_catalog_derep). Fixar so a propriedade que o teste exercita --
+    # as chaves por amostra sao exatamente as de STATUS_TRACKED_TOOLS.
+    assert set(status["S1"].keys()) == set(STATUS_TRACKED_TOOLS)
+    assert "galah_derep" not in status["S1"], (
+        "a desreplicacao virou global; um done.txt por amostra em bins/derep "
+        "nao existe mais e apareceria como lacuna permanente no relatorio")
     assert set(status["S2"].keys()) == set(status["S1"].keys())
     assert set(status.keys()) == {"S1", "S2", GLOBAL_STATUS_LABEL}
 
     rows = summarize_tool_status(status)
     per_sample_rows = [r for r in rows if r["sample"] != GLOBAL_STATUS_LABEL]
-    # None of the sample-scoped done.txt files exist on disk -> every
-    # sample-scoped tool is 'unknown', exactly 4 per sample, unaffected by
-    # the global rule's separate failure.
-    assert len(per_sample_rows) == 8
+    # Nenhum done.txt por amostra existe em disco -> toda ferramenta por
+    # amostra fica 'unknown', |STATUS_TRACKED_TOOLS| por amostra, sem ser
+    # afetada pela falha separada da regra global. Contagem derivada, nao
+    # fixa: o conjunto encolhe a cada regra que migra para um catalogo
+    # global.
+    assert len(per_sample_rows) == 2 * len(STATUS_TRACKED_TOOLS)
     assert {(r["sample"], r["state"]) for r in per_sample_rows} == {
         ("S1", "unknown"), ("S2", "unknown"),
     }

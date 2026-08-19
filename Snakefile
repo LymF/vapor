@@ -383,6 +383,8 @@ include: "rules/cobra.smk"
 include: "rules/votu_catalog.smk"
 include: "rules/viral_binning.smk"
 include: "rules/prok_binning.smk"
+# Depois do prok_binning: o catalogo consome os bins e o CheckM2 dele.
+include: "rules/mag_catalog.smk"
 include: "rules/taxonomy.smk"
 include: "rules/host_prediction.smk"
 include: "rules/abundance.smk"
@@ -505,8 +507,12 @@ def _t_prok():
     t += expand(f"{OUTDIR}/{{sample}}/bins/gtdbtk/done.txt", sample=SAMPLES)
     if GUNC_ENABLED:
         t += expand(f"{OUTDIR}/{{sample}}/bins/gunc/GUNC.progenomes_2.1.maxCSS_level.tsv", sample=SAMPLES)
-    if MAG_DEREP_ENABLED:
-        t += expand(f"{OUTDIR}/{{sample}}/bins/derep/done.txt", sample=SAMPLES)
+    # A desreplicacao virou GLOBAL em 2026-08-19 (rules/mag_catalog.smk): um
+    # galah so, sobre o pool namespaced de todas as amostras e grupos. O
+    # antigo alvo por amostra (bins/derep/done.txt) sumiu junto com a regra.
+    t.append(f"{OUTDIR}/mag_catalog/derep_done.txt")
+    t.append(f"{OUTDIR}/mag_catalog/mag_membership.tsv")
+    t.append(f"{OUTDIR}/mag_catalog/gtdbtk/done.txt")
     t += expand(f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/bins/proteins/done.txt", sample=SAMPLES)
     if DEFENSE_AMR_ENABLED:
@@ -549,8 +555,6 @@ def _t_coassembly():
                 # Group prok functional layer (Plan 5), gated like per-sample _t_prok
                 if GUNC_ENABLED:
                     t.append(f"{OUTDIR}/coassembly/{g}/bins/gunc/GUNC.progenomes_2.1.maxCSS_level.tsv")
-                if MAG_DEREP_ENABLED:
-                    t.append(f"{OUTDIR}/coassembly/{g}/bins/derep/done.txt")
                 if DEFENSE_AMR_ENABLED:
                     t.append(f"{OUTDIR}/coassembly/{g}/bins/defensefinder/done.txt")
                     t.append(f"{OUTDIR}/coassembly/{g}/bins/amrfinderplus/done.txt")

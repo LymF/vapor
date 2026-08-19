@@ -19,7 +19,6 @@ from collections import Counter, defaultdict
 STATUS_TRACKED_TOOLS = {
     "amrfinderplus": "bins/amrfinderplus/done.txt",
     "rgi":           "bins/rgi/done.txt",
-    "galah_derep":   "bins/derep/done.txt",
     "gtdbtk":        "bins/gtdbtk/done.txt",
 }
 
@@ -30,6 +29,11 @@ STATUS_TRACKED_TOOLS = {
 # cannot collide with a real sample name (sample discovery never produces a
 # name wrapped in parentheses).
 STATUS_TRACKED_GLOBAL_TOOLS = {
+    # Catalogo global de MAGs procarioticos (2026-08-19). O galah_derep por
+    # amostra saiu daqui: a desreplicacao virou global.
+    "mag_catalog_pool":        "mag_catalog/pool_done.txt",
+    "mag_catalog_derep":       "mag_catalog/derep_done.txt",
+    "mag_catalog_gtdbtk":      "mag_catalog/gtdbtk/done.txt",
     "votu_catalog_reps":       "votu_catalog/done.txt",
     "votu_catalog_matrices":   "votu_catalog/matrices_done.txt",
     "bacphlip_votu":           "votu_catalog/bacphlip/done.txt",
