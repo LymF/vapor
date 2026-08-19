@@ -422,3 +422,143 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
                              str(input.bac), str(input.ar),
                              str(output.bac_tsv), str(output.ar_tsv), str(log[0]))
             write_status(str(output.done), "ok")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Análises nas REPRESENTANTES
+#
+# `low_depth_mode` NÃO entra aqui, por decisão. Nesse modo o
+# `prok_bin_proteins` ignora bins e trata os contigs da amostra como um único
+# `contigs_pseudogenome` — conteúdo genuinamente por amostra, que não pertence
+# a catálogo nenhum e não tem representante do qual herdar. As regras por
+# amostra em defense_amr.smk/annotation.smk seguem valendo lá.
+# ══════════════════════════════════════════════════════════════════════
+
+MAG_CATALOG_ANALYSES = (not LOW_DEPTH_MODE) and DEFENSE_AMR_ENABLED
+
+
+def _mag_source_reps(membership_path, source_id):
+    """Representantes que ESTA fonte contribuiu -> nome original do bin.
+
+    {representative_id: [bin_name, ...]}. Um representante pode responder por
+    mais de um bin da mesma amostra (duas linhagens da mesma espécie no mesmo
+    metagenoma), por isso lista e não escalar.
+    """
+    import csv as _csv
+    out = {}
+    if not _os.path.exists(membership_path):
+        return out
+    with open(membership_path, newline="") as fh:
+        for row in _csv.DictReader(fh, delimiter="\t"):
+            if (row.get("source_id") or "").strip() != source_id:
+                continue
+            rep = (row.get("representative_id") or "").strip()
+            bin_name = (row.get("original_bin_id") or "").strip()
+            if rep and bin_name:
+                out.setdefault(rep, []).append(bin_name)
+    return out
+
+
+def _mag_view_by_genome(global_tsv, membership_path, source_id, out_tsv,
+                        log_path, genome_col="genome"):
+    """Vista por fonte de uma tabela global com UMA LINHA POR GENOMA.
+
+    Implementa HERANÇA, não identidade: todo MAG desta fonte recebe a linha do
+    SEU representante, e não só os MAGs que por acaso são representantes. Foi
+    exatamente essa distinção que o `viral_taxonomy` errou em 2026-08-18 --
+    filtrar a tabela global pelo prefixo da fonte recupera apenas o membro que
+    É representante, e com 32 amostras o representante da maioria dos clusters
+    pertence a outra amostra, deixando a coluna vazia em silêncio.
+
+    A coluna de genoma sai com o nome ORIGINAL do bin, porque é assim que o
+    relatório e o `final/` sempre a leram.
+    """
+    import csv as _csv
+
+    reps = _mag_source_reps(membership_path, source_id)
+    header, by_rep = None, {}
+    if _os.path.exists(global_tsv):
+        with open(global_tsv, newline="") as fh:
+            r = _csv.reader(fh, delimiter="\t")
+            header = next(r, None)
+            if header and genome_col in header:
+                gi = header.index(genome_col)
+                for row in r:
+                    if gi < len(row):
+                        by_rep.setdefault(row[gi].strip(), []).append(row)
+
+    header = header or [genome_col]
+    gi = header.index(genome_col) if genome_col in header else 0
+    n = 0
+    _os.makedirs(_os.path.dirname(out_tsv) or ".", exist_ok=True)
+    with open(out_tsv, "w", newline="") as out:
+        w = _csv.writer(out, delimiter="\t")
+        w.writerow(header)
+        for rep, bin_names in reps.items():
+            for row in by_rep.get(rep, []):
+                for bin_name in bin_names:
+                    row = list(row)
+                    row[gi] = bin_name
+                    w.writerow(row)
+                    n += 1
+    with open(log_path, "a") as lf:
+        lf.write(f"[mag_view] {_os.path.basename(out_tsv)} fonte={source_id}: "
+                 f"{len(reps)} representantes, {n} linhas herdadas\n")
+        if reps and n == 0:
+            lf.write("[mag_view] AVISO: nenhum representante desta fonte tem "
+                     "linha na tabela global. Ausencia real ou falha da regra "
+                     "global -- ver o done.txt dela, nao assuma zero.\n")
+    return n
+
+
+if MAG_CATALOG_ANALYSES:
+
+    rule mag_catalog_proteins:
+        """Prodigal por representante — o hub de proteínas do catálogo.
+
+        Gêmeo global do `prok_bin_proteins`, com o MESMO formato de manifesto
+        (`name / mode / fna / faa / gff`), para que as regras de defesa e AMR
+        possam ser herdadas com `use rule` sem alterar uma linha do corpo
+        delas. `-p single`, igual ao caminho de bins do original: são genomas,
+        não metagenomas.
+        """
+        input:
+            derep = rules.mag_catalog_derep.output.done,
+        output:
+            manifest = f"{MAG_CATALOG_DIR}/proteins/manifest.txt",
+            done     = f"{MAG_CATALOG_DIR}/proteins/done.txt",
+        log:
+            f"{OUTDIR}/logs/mag_catalog_proteins.log"
+        benchmark:
+            f"{OUTDIR}/benchmarks/mag_catalog_proteins.tsv"
+        conda: "../envs/env_viral.yaml"
+        container:  CONTAINERS.get("prodigal")
+        threads: 1
+        params:
+            reps_dir = f"{MAG_CATALOG_DIR}/representatives",
+            outdir   = f"{MAG_CATALOG_DIR}/proteins",
+        run:
+            import glob
+
+            _os.makedirs(params.outdir, exist_ok=True)
+            rows = []
+            with open(str(log[0]), "w") as lf:
+                reps = sorted(glob.glob(_os.path.join(params.reps_dir, "*.fa")))
+                lf.write(f"[mag_catalog_proteins] {len(reps)} representantes\n")
+                for rep_fa in reps:
+                    name = _os.path.splitext(_os.path.basename(rep_fa))[0]
+                    faa = _os.path.join(params.outdir, f"{name}.faa")
+                    gff = _os.path.join(params.outdir, f"{name}.gff")
+                    shell("prodigal -i {rep_fa} -a {faa} -f gff -o {gff} "
+                          "-p single -q >> {log} 2>&1 || true")
+                    if _os.path.exists(faa) and _os.path.getsize(faa) > 0:
+                        rows.append((name, "bins", rep_fa, faa, gff))
+                with open(str(output.manifest), "w") as mf:
+                    for row in rows:
+                        mf.write("\t".join(row) + "\n")
+                lf.write(f"[mag_catalog_proteins] {len(rows)} genomas no manifesto\n")
+            if reps and not rows:
+                write_status(str(output.done),
+                             "failed: %d representantes, 0 proteomas" % len(reps))
+            else:
+                write_status(str(output.done), "ok")
