@@ -1,6 +1,7 @@
 """Catalogo global de MAGs procarioticos (2026-08-19)."""
 import os
 import pytest
+import mag_catalog as mc
 from mag_catalog import (
     namespaced_id, split_namespaced_id, strip_ext, collect_bins, build_pool,
     merge_checkm2, parse_galah_clusters, representative_view, read_provenance,
@@ -165,3 +166,46 @@ def test_membro_sem_cluster_e_seu_proprio_representante():
     """Singleton, ou galah que falhou: nao pode sumir da vista."""
     view = representative_view({}, [("S1__b1", "sample", "S1", "b1")])
     assert view == [("S1", "b1", "S1__b1", "S1__b1")]
+
+
+# ── Vistas por fonte ──────────────────────────────────────────────────────
+
+def test_member_map_herda_representante_de_outra_amostra():
+    rows = [
+        {"source_id": "S1", "original_bin_id": "binette_bin1",
+         "member_id": "S1__binette_bin1", "representative_id": "S2__binette_bin7"},
+        {"source_id": "S2", "original_bin_id": "binette_bin7",
+         "member_id": "S2__binette_bin7", "representative_id": "S2__binette_bin7"},
+    ]
+    # A S1 nao contribuiu com nenhum representante -- e mesmo assim tem de
+    # receber a anotacao, pelo representante da S2.
+    assert mc.member_map(rows, "S1") == {"S2__binette_bin7": ["binette_bin1"]}
+
+
+def test_member_map_agrupa_dois_bins_no_mesmo_representante():
+    rows = [
+        {"source_id": "S1", "original_bin_id": "binette_bin1",
+         "representative_id": "S1__binette_bin1"},
+        {"source_id": "S1", "original_bin_id": "binette_bin4",
+         "representative_id": "S1__binette_bin1"},
+    ]
+    assert mc.member_map(rows, "S1") == {
+        "S1__binette_bin1": ["binette_bin1", "binette_bin4"]}
+
+
+def test_resolve_prefixed_id_nao_corta_no_primeiro_separador():
+    reps = {"S1__binette_bin1"}
+    # Cortar no primeiro '__' devolveria 'S1' -- o hit iria para a AMOSTRA.
+    assert mc.resolve_prefixed_id("S1__binette_bin1__k141_1_5", reps) == (
+        "S1__binette_bin1", "k141_1_5")
+
+
+def test_resolve_prefixed_id_sem_representante_conhecido_nao_inventa():
+    assert mc.resolve_prefixed_id("S9__binette_bin2__k141_1", {"S1__b1"}) == (
+        None, "S9__binette_bin2__k141_1")
+
+
+def test_resolve_prefixed_id_prefere_o_prefixo_mais_longo():
+    reps = {"S1__bin", "S1__bin__extra"}
+    assert mc.resolve_prefixed_id("S1__bin__extra__k141_1", reps) == (
+        "S1__bin__extra", "k141_1")

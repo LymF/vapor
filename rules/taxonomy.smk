@@ -18,10 +18,10 @@
 # the old per-sample schema (bare contig IDs), so make_votu_table.py,
 # rules/report.smk and rules/finalize.smk keep working unmodified.
 #
-# Also contains mmseqs_taxonomy_prok for prokaryote bin taxonomy -- this one
-# stays per-sample on purpose: prokaryote bins are not deduplicated into a
-# global catalog the way vOTUs are, so there is no single global
-# representative to compute this against.
+# Also contains mag_mmseqs_taxonomy_prok, a regra GLOBAL de taxonomia dos
+# MAGs: desde 2026-08-19 os bins procarioticos TAMBEM sao desreplicados num
+# catalogo global (rules/mag_catalog.smk), entao ela roda uma vez sobre as
+# representantes e a vista por amostra distribui as linhas.
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -184,7 +184,7 @@ rule viral_taxonomy:
         Path(str(output.done)).write_text("ok\n")
 
 
-rule mmseqs_taxonomy_prok:
+rule mag_mmseqs_taxonomy_prok:
     """
     Primary source for custom prokaryote taxonomy: MMseqs2 `taxonomy`
     against a custom IMG_NR seqTaxDB (scripts/prepare_mmseqs_taxdb.py)
@@ -205,28 +205,31 @@ rule mmseqs_taxonomy_prok:
     taxonomy now runs exclusively through this rule. Skips gracefully if
     custom_prok_mmseqs_db isn't configured, same as any other optional DB.
 
-    Stays per-sample: prokaryote bins are not deduplicated into a global
-    catalog the way vOTUs are (see rules/votu_catalog.smk), so there is no
-    single global representative to move this computation to.
+    GLOBAL desde 2026-08-19: roda uma vez sobre os MAGs representantes do
+    catálogo (`mag_catalog_proteins`), e a vista por amostra
+    (`mag_views_sample`, rules/defense_amr.smk) distribui as linhas para os
+    bins membros reescrevendo o prefixo do `qseqid`. O que este docstring
+    dizia antes — "prokaryote bins are not deduplicated into a global
+    catalog" — deixou de valer quando entrou rules/mag_catalog.smk.
     """
     input:
-        manifest = rules.prok_bin_proteins.output.manifest,
-        done     = rules.prok_bin_proteins.output.done,
+        manifest = rules.mag_catalog_proteins.output.manifest,
+        done     = rules.mag_catalog_proteins.output.done,
     output:
-        hits = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/taxonomy.tsv",
-        done = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/done.txt",
-    log:   f"{OUTDIR}/{{sample}}/logs/mmseqs_taxonomy_prok.log"
-    benchmark: f"{OUTDIR}/{{sample}}/benchmarks/mmseqs_taxonomy_prok.tsv"
+        hits = f"{MAG_CATALOG_DIR}/mmseqs_taxonomy_prok/taxonomy.tsv",
+        done = f"{MAG_CATALOG_DIR}/mmseqs_taxonomy_prok/done.txt",
+    log:   f"{OUTDIR}/logs/mag_mmseqs_taxonomy_prok.log"
+    benchmark: f"{OUTDIR}/benchmarks/mag_mmseqs_taxonomy_prok.tsv"
     conda: "../envs/env_assembly.yaml"
     container:  CONTAINERS.get("mmseqs2")
     threads: THREADS
     params:
         seqtaxdb = CUSTOM_PROK_MMSEQS_DB,
-        outdir   = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok",
-        prok_faa = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/all_bins.faa",
-        querydb  = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/queryDB",
-        result   = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/result",
-        tmp      = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/tmp",
+        outdir   = f"{MAG_CATALOG_DIR}/mmseqs_taxonomy_prok",
+        prok_faa = f"{MAG_CATALOG_DIR}/mmseqs_taxonomy_prok/all_bins.faa",
+        querydb  = f"{MAG_CATALOG_DIR}/mmseqs_taxonomy_prok/queryDB",
+        result   = f"{MAG_CATALOG_DIR}/mmseqs_taxonomy_prok/result",
+        tmp      = f"{MAG_CATALOG_DIR}/mmseqs_taxonomy_prok/tmp",
     run:
         import os
         from pathlib import Path

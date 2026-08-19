@@ -1,11 +1,17 @@
 # ══════════════════════════════════════════════════════════════════════
-# rules/defense_amr.smk — BLOCK 10.5: Defense Systems + AMR (prok bins)
+# rules/defense_amr.smk — BLOCK 10.5: Defense Systems + AMR (MAGs)
 #
-# prok_bin_proteins (shared per-genome Prodigal proteins, feeds all 4 tools
-# below + mmseqs_taxonomy_prok in taxonomy.smk) now lives in
-# rules/prok_binning.smk -- it must be defined before BOTH taxonomy.smk and
-# this file in the Snakefile's include: order, since both reference
-# rules.prok_bin_proteins. _read_manifest/_concat_proteins moved with it.
+# TODAS as regras deste arquivo são GLOBAIS desde 2026-08-19: rodam uma vez
+# sobre os MAGs REPRESENTANTES do catálogo (`mag_catalog_proteins`), não uma
+# vez por amostra sobre todos os bins. É o item "(h)" do
+# docs/ROADMAP_SIMPLIFICACAO.md aplicado ao lado procariótico: um MAG da
+# mesma espécie recuperado em três amostras é a mesma entidade biológica,
+# então anotá-lo três vezes é desperdício — e pior, nada garantia que as três
+# anotações coincidissem. As vistas por amostra/grupo (no fim deste arquivo)
+# distribuem o resultado do representante para cada bin membro, escrevendo
+# nos MESMOS caminhos de antes, para que finalize/relatório não mudem.
+#
+# `_read_manifest`/`_concat_proteins` continuam em rules/prok_binning.smk.
 #
 # defensefinder — MacSyFinder anti-phage defense systems + built-in
 #                 AntiDefenseFinder (-a flag); per-genome (architecture-aware)
@@ -44,32 +50,33 @@
 # ══════════════════════════════════════════════════════════════════════
 
 
-rule defensefinder:
+rule mag_defensefinder:
     """
     DefenseFinder -- systematic detection of anti-phage defense systems
     (MacSyFinder + HMM models), with built-in AntiDefenseFinder
     (--antidefensefinder flag) for anti-defense proteins in the same pass.
-    Runs once per genome unit (manifest from prok_bin_proteins): MacSyFinder
+    Runs once per genome unit (manifesto do mag_catalog_proteins, ou seja,
+    uma vez por MAG REPRESENTANTE do catálogo global): MacSyFinder
     needs gene order within a replicon, so genomes cannot be concatenated
     (unlike the gene-level AMR tools below).
     """
     input:
-        manifest = rules.prok_bin_proteins.output.manifest,
-        done     = rules.prok_bin_proteins.output.done,
+        manifest = rules.mag_catalog_proteins.output.manifest,
+        done     = rules.mag_catalog_proteins.output.done,
     output:
-        done        = f"{OUTDIR}/{{sample}}/bins/defensefinder/done.txt",
-        systems     = f"{OUTDIR}/{{sample}}/bins/defensefinder/defensefinder_systems.tsv",
-        antisystems = f"{OUTDIR}/{{sample}}/bins/defensefinder/antidefensefinder_systems.tsv",
+        done        = f"{MAG_CATALOG_DIR}/defensefinder/done.txt",
+        systems     = f"{MAG_CATALOG_DIR}/defensefinder/defensefinder_systems.tsv",
+        antisystems = f"{MAG_CATALOG_DIR}/defensefinder/antidefensefinder_systems.tsv",
     log:
-        f"{OUTDIR}/{{sample}}/logs/defensefinder.log"
+        f"{OUTDIR}/logs/mag_defensefinder.log"
     benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/defensefinder.tsv"
+        f"{OUTDIR}/benchmarks/mag_defensefinder.tsv"
     conda: "../envs/env_defense.yaml"
     container:  CONTAINERS.get("defense_finder")
     threads: THREADS
     params:
-        # derivado do output, nao de {{sample}}: regra herdada por
-        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        # derivado do output: a regra e global (uma execucao para todo o
+        # catalogo), entao nao ha wildcard nenhum a citar.
         outdir     = lambda wc, output: os.path.dirname(output.done),
         models_dir = DEFENSE_FINDER_MODELS_DB,
         enabled    = DEFENSE_AMR_ENABLED,
@@ -187,30 +194,30 @@ rule defensefinder:
 # systems into a group-scoped path. See rules/votu_catalog.smk for the
 # moved rules.
 
-rule amrfinderplus:
+rule mag_amrfinderplus:
     """
     AMRFinderPlus -- curated, alignment-based AMR gene + point-mutation
     detection (NCBI Reference Gene/Point Mutation databases).
     Gene-level: runs once on the concatenated protein set (all genome
-    units from prok_bin_proteins), unlike DefenseFinder.
+    units from mag_catalog_proteins), unlike DefenseFinder.
     Reuses env_annotation.yaml, which already pins ncbi-amrfinderplus.
     """
     input:
-        manifest = rules.prok_bin_proteins.output.manifest,
-        done     = rules.prok_bin_proteins.output.done,
+        manifest = rules.mag_catalog_proteins.output.manifest,
+        done     = rules.mag_catalog_proteins.output.done,
     output:
-        done    = f"{OUTDIR}/{{sample}}/bins/amrfinderplus/done.txt",
-        results = f"{OUTDIR}/{{sample}}/bins/amrfinderplus/amrfinder_results.tsv",
+        done    = f"{MAG_CATALOG_DIR}/amrfinderplus/done.txt",
+        results = f"{MAG_CATALOG_DIR}/amrfinderplus/amrfinder_results.tsv",
     log:
-        f"{OUTDIR}/{{sample}}/logs/amrfinderplus.log"
+        f"{OUTDIR}/logs/mag_amrfinderplus.log"
     benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/amrfinderplus.tsv"
+        f"{OUTDIR}/benchmarks/mag_amrfinderplus.tsv"
     conda: "../envs/env_annotation.yaml"
     container:  CONTAINERS.get("ncbi-amrfinderplus")
     threads: THREADS
     params:
-        # derivado do output, nao de {{sample}}: regra herdada por
-        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        # derivado do output: a regra e global (uma execucao para todo o
+        # catalogo), entao nao ha wildcard nenhum a citar.
         outdir  = lambda wc, output: os.path.dirname(output.done),
         enabled = DEFENSE_AMR_ENABLED,
     run:
@@ -259,7 +266,7 @@ rule amrfinderplus:
             write_status(str(output.done), "ok")
 
 
-rule rgi_card:
+rule mag_rgi_card:
     """
     RGI (CARD) -- curated AMR detection via the Comprehensive Antibiotic
     Resistance Database (homology + SNP models). Same concatenated batch
@@ -269,21 +276,21 @@ rule rgi_card:
     so a fresh clone is reproducible without a manual prep step.
     """
     input:
-        manifest = rules.prok_bin_proteins.output.manifest,
-        done     = rules.prok_bin_proteins.output.done,
+        manifest = rules.mag_catalog_proteins.output.manifest,
+        done     = rules.mag_catalog_proteins.output.done,
     output:
-        done    = f"{OUTDIR}/{{sample}}/bins/rgi/done.txt",
-        results = f"{OUTDIR}/{{sample}}/bins/rgi/rgi_results.txt",
+        done    = f"{MAG_CATALOG_DIR}/rgi/done.txt",
+        results = f"{MAG_CATALOG_DIR}/rgi/rgi_results.txt",
     log:
-        f"{OUTDIR}/{{sample}}/logs/rgi.log"
+        f"{OUTDIR}/logs/mag_rgi.log"
     benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/rgi.tsv"
+        f"{OUTDIR}/benchmarks/mag_rgi.tsv"
     conda: "../envs/env_rgi.yaml"
     container:  CONTAINERS.get("rgi")
     threads: THREADS
     params:
-        # derivado do output, nao de {{sample}}: regra herdada por
-        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        # derivado do output: a regra e global (uma execucao para todo o
+        # catalogo), entao nao ha wildcard nenhum a citar.
         outdir  = lambda wc, output: os.path.dirname(output.done),
         card_db = CARD_DB,
         enabled = DEFENSE_AMR_ENABLED,
@@ -367,7 +374,7 @@ rule rgi_card:
             write_status(str(output.done), "ok")
 
 
-rule deeparg:
+rule mag_deeparg:
     """
     DeepARG -- deep-learning AMR gene prediction (CNN trained on
     CARD/ARDB/UniProt-derived sequences). Exploratory/sensitivity-oriented
@@ -375,8 +382,7 @@ rule deeparg:
     iMetaOmics): higher recall on divergent/novel environmental ARGs that
     curated homology search misses, but with no accuracy benchmark --
     kept and reported separately, never merged into the curated AMR count.
-    Same concatenated batch input as AMRFinderPlus/RGI, so it automatically
-    inherits the low-depth contig fallback from prok_bin_proteins.
+    Same concatenated batch input as AMRFinderPlus/RGI.
 
     NOTE: bioconda's deeparg=1.0.4 is the classic Python2/Theano codebase,
     not the newer PyTorch/HuggingFace rewrite some docs describe -- there is
@@ -384,21 +390,21 @@ rule deeparg:
     explicit --data-path (fetched once via `deeparg download_data`).
     """
     input:
-        manifest = rules.prok_bin_proteins.output.manifest,
-        done     = rules.prok_bin_proteins.output.done,
+        manifest = rules.mag_catalog_proteins.output.manifest,
+        done     = rules.mag_catalog_proteins.output.done,
     output:
-        done    = f"{OUTDIR}/{{sample}}/bins/deeparg/done.txt",
-        results = f"{OUTDIR}/{{sample}}/bins/deeparg/deeparg_results.mapping.ARG",
+        done    = f"{MAG_CATALOG_DIR}/deeparg/done.txt",
+        results = f"{MAG_CATALOG_DIR}/deeparg/deeparg_results.mapping.ARG",
     log:
-        f"{OUTDIR}/{{sample}}/logs/deeparg.log"
+        f"{OUTDIR}/logs/mag_deeparg.log"
     benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/deeparg.tsv"
+        f"{OUTDIR}/benchmarks/mag_deeparg.tsv"
     conda: "../envs/env_deeparg.yaml"
     container:  CONTAINERS.get("deeparg")
     threads: THREADS
     params:
-        # derivado do output, nao de {{sample}} (requisito da heranca por
-        # coassembly.smk via `use rule ... as ... with:`).
+        # derivado do output: a regra e global (uma execucao para todo o
+        # catalogo), entao nao ha wildcard nenhum a citar.
         outdir   = lambda wc, output: os.path.dirname(output.done),
         data_dir = DEEPARG_DB,
         enabled  = DEFENSE_AMR_ENABLED,
@@ -458,7 +464,7 @@ def _has_data_rows(path):
         return next(f, None) is not None
 
 
-rule abricate:
+rule mag_abricate:
     """
     ABRicate -- BLASTN mass screening of contigs/bins for gene presence.
     Used here only for the two databases AMRFinderPlus/RGI/DeepARG do not
@@ -467,27 +473,27 @@ rule abricate:
     static flat-file BLASTN screens with no point-mutation detection
     (AMRFinderPlus) or SNP/variant models (RGI/CARD), so they would be a
     strict downgrade if used to replace either tool.
-    Runs per genome unit (manifest from prok_bin_proteins) on the
+    Runs per genome unit (manifest from mag_catalog_proteins) on the
     nucleotide sequence -- ABRicate works on DNA via BLASTN, unlike the
     protein-level AMR/defense tools above.
     """
     input:
-        manifest = rules.prok_bin_proteins.output.manifest,
-        done     = rules.prok_bin_proteins.output.done,
+        manifest = rules.mag_catalog_proteins.output.manifest,
+        done     = rules.mag_catalog_proteins.output.done,
     output:
-        done          = f"{OUTDIR}/{{sample}}/bins/abricate/done.txt",
-        vfdb          = f"{OUTDIR}/{{sample}}/bins/abricate/vfdb_results.tsv",
-        plasmidfinder = f"{OUTDIR}/{{sample}}/bins/abricate/plasmidfinder_results.tsv",
+        done          = f"{MAG_CATALOG_DIR}/abricate/done.txt",
+        vfdb          = f"{MAG_CATALOG_DIR}/abricate/vfdb_results.tsv",
+        plasmidfinder = f"{MAG_CATALOG_DIR}/abricate/plasmidfinder_results.tsv",
     log:
-        f"{OUTDIR}/{{sample}}/logs/abricate.log"
+        f"{OUTDIR}/logs/mag_abricate.log"
     benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/abricate.tsv"
+        f"{OUTDIR}/benchmarks/mag_abricate.tsv"
     conda: "../envs/env_abricate.yaml"
     container:  CONTAINERS.get("abricate")
     threads: THREADS
     params:
-        # derivado do output, nao de {{sample}}: regra herdada por
-        # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
+        # derivado do output: a regra e global (uma execucao para todo o
+        # catalogo), entao nao ha wildcard nenhum a citar.
         outdir  = lambda wc, output: os.path.dirname(output.done),
         dbs     = ["vfdb", "plasmidfinder"],
         enabled = ABRICATE_ENABLED,
@@ -544,7 +550,7 @@ rule abricate:
         Path(str(output.done)).touch()
 
 
-rule argnorm_normalize:
+rule mag_argnorm_normalize:
     """
     argNorm -- maps AMRFinderPlus/DeepARG gene calls onto the Antibiotic
     Resistance Ontology (ARO), so the same gene reported under different
@@ -563,18 +569,18 @@ rule argnorm_normalize:
     vocabulary to each.
     """
     input:
-        amrfinder      = rules.amrfinderplus.output.results,
-        amrfinder_done = rules.amrfinderplus.output.done,
-        deeparg        = rules.deeparg.output.results,
-        deeparg_done   = rules.deeparg.output.done,
+        amrfinder      = rules.mag_amrfinderplus.output.results,
+        amrfinder_done = rules.mag_amrfinderplus.output.done,
+        deeparg        = rules.mag_deeparg.output.results,
+        deeparg_done   = rules.mag_deeparg.output.done,
     output:
-        done             = f"{OUTDIR}/{{sample}}/bins/argnorm/done.txt",
-        amrfinder_normed = f"{OUTDIR}/{{sample}}/bins/argnorm/amrfinderplus_normed.tsv",
-        deeparg_normed   = f"{OUTDIR}/{{sample}}/bins/argnorm/deeparg_normed.tsv",
+        done             = f"{MAG_CATALOG_DIR}/argnorm/done.txt",
+        amrfinder_normed = f"{MAG_CATALOG_DIR}/argnorm/amrfinderplus_normed.tsv",
+        deeparg_normed   = f"{MAG_CATALOG_DIR}/argnorm/deeparg_normed.tsv",
     log:
-        f"{OUTDIR}/{{sample}}/logs/argnorm.log"
+        f"{OUTDIR}/logs/mag_argnorm.log"
     benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/argnorm.tsv"
+        f"{OUTDIR}/benchmarks/mag_argnorm.tsv"
     conda: "../envs/env_argnorm.yaml"
     container:  CONTAINERS.get("argnorm")
     threads: 1
@@ -621,7 +627,7 @@ rule argnorm_normalize:
         Path(str(output.done)).touch()
 
 
-rule amr_consensus:
+rule mag_amr_consensus:
     """
     AMR consensus -- merge AMRFinderPlus + RGI/CARD + DeepARG hits by CDS
     locus using ARO as the common vocabulary.  Consensus score = number of
@@ -632,18 +638,18 @@ rule amr_consensus:
     all three tools share a common ARO namespace.
     """
     input:
-        argnorm_done   = rules.argnorm_normalize.output.done,
-        rgi_done       = rules.rgi_card.output.done,
-        amrfinder_normed = rules.argnorm_normalize.output.amrfinder_normed,
-        deeparg_normed   = rules.argnorm_normalize.output.deeparg_normed,
-        rgi_results      = rules.rgi_card.output.results,
+        argnorm_done     = rules.mag_argnorm_normalize.output.done,
+        rgi_done         = rules.mag_rgi_card.output.done,
+        amrfinder_normed = rules.mag_argnorm_normalize.output.amrfinder_normed,
+        deeparg_normed   = rules.mag_argnorm_normalize.output.deeparg_normed,
+        rgi_results      = rules.mag_rgi_card.output.results,
     output:
-        done      = f"{OUTDIR}/{{sample}}/bins/amr_consensus/done.txt",
-        consensus = f"{OUTDIR}/{{sample}}/bins/amr_consensus/amr_consensus.tsv",
+        done      = f"{MAG_CATALOG_DIR}/amr_consensus/done.txt",
+        consensus = f"{MAG_CATALOG_DIR}/amr_consensus/amr_consensus.tsv",
     log:
-        f"{OUTDIR}/{{sample}}/logs/amr_consensus.log"
+        f"{OUTDIR}/logs/mag_amr_consensus.log"
     benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/amr_consensus.tsv"
+        f"{OUTDIR}/benchmarks/mag_amr_consensus.tsv"
     conda: "../envs/env_argnorm.yaml"
     threads: 1
     params:
@@ -684,3 +690,54 @@ rule amr_consensus:
         with open(str(log[0]), "a") as lf:
             lf.write("[amr_consensus] Done\n")
         Path(str(output.done)).touch()
+
+
+# ══════════════════════════════════════════════════════════════════════
+# VISTAS por fonte
+#
+# Ficam AQUI, e não em rules/mag_catalog.smk onde os helpers vivem, apenas
+# por ordem de include: elas referenciam `rules.mag_*`, que só existem
+# depois deste arquivo e de rules/taxonomy.smk.
+#
+# São a ÚNICA coisa que escreve em `{sample}/bins/...` e
+# `coassembly/{group}/bins/...` desde 2026-08-19 — as regras por amostra
+# que escreviam ali foram APAGADAS, não gateadas. É por isso que nenhum
+# `ruleorder` é necessário: não há dois produtores do mesmo caminho.
+# ══════════════════════════════════════════════════════════════════════
+
+
+rule mag_views_sample:
+    """Distribui para os bins da amostra o que foi computado nas representantes."""
+    input:
+        membership = rules.mag_catalog_membership.output.tsv,
+        **{k: v for k, v in _MAG_VIEW_GLOBAL().items()}
+    output:
+        **{k: v for k, v in _mag_view_io(f"{OUTDIR}/{{sample}}").items()},
+        mmseqs      = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/taxonomy.tsv",
+        mmseqs_done = f"{OUTDIR}/{{sample}}/bins/mmseqs_taxonomy_prok/done.txt",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/mag_views.log"
+    run:
+        _mag_write_views(wildcards.sample, str(input.membership),
+                         dict(input.items()), dict(output.items()), str(log[0]))
+
+
+if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
+
+    rule mag_views_group:
+        """Gêmea de `mag_views_sample` para os MAGs do co-binning VAMB.
+
+        Sem a vista de MMseqs2: a trilha de grupo nunca teve
+        `bins/mmseqs_taxonomy_prok` (não havia gêmea `coassembly_` dela), e
+        a vista não é lugar de inventar saída nova.
+        """
+        input:
+            membership = rules.mag_catalog_membership.output.tsv,
+            **{k: v for k, v in _MAG_VIEW_GLOBAL().items() if not k.startswith("mmseqs")}
+        output:
+            **_mag_view_io(f"{OUTDIR}/coassembly/{{group}}")
+        log:
+            f"{OUTDIR}/coassembly/{{group}}/logs/mag_views.log"
+        run:
+            _mag_write_views(wildcards.group, str(input.membership),
+                             dict(input.items()), dict(output.items()), str(log[0]))

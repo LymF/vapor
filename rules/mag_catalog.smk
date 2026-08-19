@@ -28,6 +28,8 @@ import sys as _sys
 _sys.path.insert(0, SCRIPTS_DIR)
 from mag_catalog import (
     build_pool as _mag_build_pool,
+    member_map as _mag_member_map,
+    resolve_prefixed_id as _mag_resolve_prefixed,
     merge_checkm2 as _mag_merge_checkm2,
     parse_galah_clusters as _mag_parse_clusters,
     read_provenance as _mag_read_provenance,
@@ -433,9 +435,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
 # `defense_amr_enabled` desliga esse bloco, porque sem ele não há consumidor.
 # ══════════════════════════════════════════════════════════════════════
 
-MAG_CATALOG_ANALYSES = DEFENSE_AMR_ENABLED
-
-
 def _mag_source_reps(membership_path, source_id):
     """Representantes que ESTA fonte contribuiu -> nome original do bin.
 
@@ -444,18 +443,10 @@ def _mag_source_reps(membership_path, source_id):
     metagenoma), por isso lista e não escalar.
     """
     import csv as _csv
-    out = {}
     if not _os.path.exists(membership_path):
-        return out
+        return {}
     with open(membership_path, newline="") as fh:
-        for row in _csv.DictReader(fh, delimiter="\t"):
-            if (row.get("source_id") or "").strip() != source_id:
-                continue
-            rep = (row.get("representative_id") or "").strip()
-            bin_name = (row.get("original_bin_id") or "").strip()
-            if rep and bin_name:
-                out.setdefault(rep, []).append(bin_name)
-    return out
+        return _mag_member_map(list(_csv.DictReader(fh, delimiter="\t")), source_id)
 
 
 def _mag_view_by_genome(global_tsv, membership_path, source_id, out_tsv,
@@ -510,54 +501,266 @@ def _mag_view_by_genome(global_tsv, membership_path, source_id, out_tsv,
     return n
 
 
-if MAG_CATALOG_ANALYSES:
+rule mag_catalog_proteins:
+    """Prodigal por representante — o hub de proteínas do catálogo.
 
-    rule mag_catalog_proteins:
-        """Prodigal por representante — o hub de proteínas do catálogo.
+    Gêmeo global do `prok_bin_proteins`, com o MESMO formato de manifesto
+    (`name / mode / fna / faa / gff`), para que as regras de defesa e AMR
+    possam ser herdadas com `use rule` sem alterar uma linha do corpo
+    delas. `-p single`, igual ao caminho de bins do original: são genomas,
+    não metagenomas.
+    """
+    input:
+        derep = rules.mag_catalog_derep.output.done,
+    output:
+        manifest = f"{MAG_CATALOG_DIR}/proteins/manifest.txt",
+        done     = f"{MAG_CATALOG_DIR}/proteins/done.txt",
+    log:
+        f"{OUTDIR}/logs/mag_catalog_proteins.log"
+    benchmark:
+        f"{OUTDIR}/benchmarks/mag_catalog_proteins.tsv"
+    conda: "../envs/env_viral.yaml"
+    container:  CONTAINERS.get("prodigal")
+    threads: 1
+    params:
+        reps_dir = f"{MAG_CATALOG_DIR}/representatives",
+        outdir   = f"{MAG_CATALOG_DIR}/proteins",
+        enabled  = DEFENSE_AMR_ENABLED,
+    run:
+        import glob
 
-        Gêmeo global do `prok_bin_proteins`, com o MESMO formato de manifesto
-        (`name / mode / fna / faa / gff`), para que as regras de defesa e AMR
-        possam ser herdadas com `use rule` sem alterar uma linha do corpo
-        delas. `-p single`, igual ao caminho de bins do original: são genomas,
-        não metagenomas.
-        """
-        input:
-            derep = rules.mag_catalog_derep.output.done,
-        output:
-            manifest = f"{MAG_CATALOG_DIR}/proteins/manifest.txt",
-            done     = f"{MAG_CATALOG_DIR}/proteins/done.txt",
-        log:
-            f"{OUTDIR}/logs/mag_catalog_proteins.log"
-        benchmark:
-            f"{OUTDIR}/benchmarks/mag_catalog_proteins.tsv"
-        conda: "../envs/env_viral.yaml"
-        container:  CONTAINERS.get("prodigal")
-        threads: 1
-        params:
-            reps_dir = f"{MAG_CATALOG_DIR}/representatives",
-            outdir   = f"{MAG_CATALOG_DIR}/proteins",
-        run:
-            import glob
+        _os.makedirs(params.outdir, exist_ok=True)
+        rows = []
+        with open(str(log[0]), "w") as lf:
+            reps = (sorted(glob.glob(_os.path.join(params.reps_dir, "*.fa")))
+                    if params.enabled else [])
+            if not params.enabled:
+                lf.write("[mag_catalog_proteins] defense_amr_enabled=False -- pulando\n")
+            lf.write(f"[mag_catalog_proteins] {len(reps)} representantes\n")
+            for rep_fa in reps:
+                name = _os.path.splitext(_os.path.basename(rep_fa))[0]
+                faa = _os.path.join(params.outdir, f"{name}.faa")
+                gff = _os.path.join(params.outdir, f"{name}.gff")
+                shell("prodigal -i {rep_fa} -a {faa} -f gff -o {gff} "
+                      "-p single -q >> {log} 2>&1 || true")
+                if _os.path.exists(faa) and _os.path.getsize(faa) > 0:
+                    rows.append((name, "bins", rep_fa, faa, gff))
+            with open(str(output.manifest), "w") as mf:
+                for row in rows:
+                    mf.write("\t".join(row) + "\n")
+            lf.write(f"[mag_catalog_proteins] {len(rows)} genomas no manifesto\n")
+        if reps and not rows:
+            write_status(str(output.done),
+                         "failed: %d representantes, 0 proteomas" % len(reps))
+        else:
+            write_status(str(output.done), "ok")
 
-            _os.makedirs(params.outdir, exist_ok=True)
-            rows = []
-            with open(str(log[0]), "w") as lf:
-                reps = sorted(glob.glob(_os.path.join(params.reps_dir, "*.fa")))
-                lf.write(f"[mag_catalog_proteins] {len(reps)} representantes\n")
-                for rep_fa in reps:
-                    name = _os.path.splitext(_os.path.basename(rep_fa))[0]
-                    faa = _os.path.join(params.outdir, f"{name}.faa")
-                    gff = _os.path.join(params.outdir, f"{name}.gff")
-                    shell("prodigal -i {rep_fa} -a {faa} -f gff -o {gff} "
-                          "-p single -q >> {log} 2>&1 || true")
-                    if _os.path.exists(faa) and _os.path.getsize(faa) > 0:
-                        rows.append((name, "bins", rep_fa, faa, gff))
-                with open(str(output.manifest), "w") as mf:
-                    for row in rows:
-                        mf.write("\t".join(row) + "\n")
-                lf.write(f"[mag_catalog_proteins] {len(rows)} genomas no manifesto\n")
-            if reps and not rows:
-                write_status(str(output.done),
-                             "failed: %d representantes, 0 proteomas" % len(reps))
-            else:
-                write_status(str(output.done), "ok")
+
+# ══════════════════════════════════════════════════════════════════════
+# VISTAS por fonte — o único lugar que escreve em {sample}/bins/... e
+# {coassembly}/{group}/bins/...
+#
+# As ferramentas discordam sobre ONDE fica o genoma na saída, e a vista
+# precisa das duas variantes (verificado nas saídas reais de ~/global/results):
+#
+#   coluna `genome`   DefenseFinder, ABRicate
+#   prefixo do ID     AMRFinderPlus (`Protein identifier`), RGI (`ORF_ID`),
+#                     DeepARG (`#ARG`), MMseqs2 (`qseqid`), argNorm (herda a
+#                     coluna da ferramenta de origem), consenso (`locus`)
+#
+# O prefixo NÃO pode ser cortado no primeiro `__`: o ID do catálogo já é
+# `{source}__{bin}`, então uma proteína sai `S1__binette_bin1__k141_1_5` e o
+# corte devolveria `S1` — todo hit de AMR atribuído à AMOSTRA em vez do MAG.
+# `resolve_prefixed_id` casa contra os representantes conhecidos. Depois da
+# reescrita para o nome original do bin o corte no primeiro `__` volta a
+# estar certo (nomes de bin não contêm o separador), que é o que o relatório
+# faz em `_split_genome_prefix`.
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _mag_view_by_prefix(global_tsv, membership_path, source_id, out_tsv,
+                        log_path, id_col):
+    """Vista por fonte de uma tabela global cujo genoma vive no PREFIXO do ID."""
+    import csv as _csv
+
+    reps = _mag_source_reps(membership_path, source_id)
+    header, by_rep = None, {}
+    if _os.path.exists(global_tsv):
+        with open(global_tsv, newline="") as fh:
+            r = _csv.reader(fh, delimiter="\t")
+            header = next(r, None)
+            idx = None
+            if header:
+                for cand in (id_col, id_col.lstrip("#")):
+                    if cand in header:
+                        idx = header.index(cand)
+                        break
+            if idx is not None:
+                for row in r:
+                    if idx >= len(row):
+                        continue
+                    rep, rest = _mag_resolve_prefixed(row[idx], reps)
+                    if rep is not None:
+                        by_rep.setdefault(rep, []).append((row, idx, rest))
+
+    header = header or [id_col]
+    n = 0
+    _os.makedirs(_os.path.dirname(out_tsv) or ".", exist_ok=True)
+    with open(out_tsv, "w", newline="") as out:
+        w = _csv.writer(out, delimiter="\t")
+        w.writerow(header)
+        for rep, bin_names in reps.items():
+            for row, idx, rest in by_rep.get(rep, []):
+                for bin_name in bin_names:
+                    row_out = list(row)
+                    row_out[idx] = f"{bin_name}{'__'}{rest}"
+                    w.writerow(row_out)
+                    n += 1
+    with open(log_path, "a") as lf:
+        lf.write(f"[mag_view] {_os.path.basename(out_tsv)} fonte={source_id}: "
+                 f"{len(reps)} representantes, {n} linhas herdadas\n")
+        if reps and n == 0:
+            lf.write("[mag_view] AVISO: nenhuma linha casou com um "
+                     "representante desta fonte. Ausencia real ou falha da "
+                     "regra global -- ver o done.txt dela, nao assuma zero.\n")
+    return n
+
+
+def _mag_manifest_view(global_manifest, membership_path, source_id,
+                       out_manifest, log_path):
+    """Manifesto de proteínas por fonte, apontando para o FASTA do representante.
+
+    O nome do genoma vira o nome ORIGINAL do bin, mas `fna`/`faa`/`gff`
+    continuam sendo os do representante — é dele que vêm os IDs de proteína
+    nas tabelas de defesa, e é contra esses IDs que
+    `compute_defense_islands` (relatório) casa os genes. Apontar para um
+    proteoma próprio do membro daria zero ilhas em silêncio.
+    """
+    reps = _mag_source_reps(membership_path, source_id)
+    rows_by_rep = {}
+    if _os.path.exists(global_manifest):
+        with open(global_manifest) as fh:
+            for line in fh:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) >= 5:
+                    rows_by_rep[parts[0]] = parts
+
+    n = 0
+    _os.makedirs(_os.path.dirname(out_manifest) or ".", exist_ok=True)
+    with open(out_manifest, "w") as out:
+        for rep, bin_names in reps.items():
+            parts = rows_by_rep.get(rep)
+            if parts is None:
+                continue
+            for bin_name in bin_names:
+                out.write("\t".join([bin_name] + parts[1:]) + "\n")
+                n += 1
+    with open(log_path, "a") as lf:
+        lf.write(f"[mag_view] manifest fonte={source_id}: {len(reps)} "
+                 f"representantes, {n} genomas\n")
+    return n
+
+
+def _mag_status_view(global_done, out_done):
+    """Repassa o status da regra GLOBAL para o done.txt da vista.
+
+    Uma vista vazia porque a ferramenta global falhou não pode aparecer como
+    zero biológico no relatório — `load_tool_status` já distingue
+    `ok`/`skipped:`/`failed:`, e essa distinção só sobrevive se a vista
+    propagar o status em vez de escrever "ok" por ter conseguido escrever um
+    arquivo vazio.
+    """
+    status = "ok"
+    if _os.path.exists(global_done):
+        txt = open(global_done).read().strip()
+        if txt:
+            status = txt.splitlines()[0]
+    write_status(str(out_done), status)
+
+
+# (tabela global, coluna de ID) por saída da vista. `None` = coluna `genome`.
+_MAG_VIEW_PREFIX_COLS = {
+    "amrfinder":        "Protein identifier",
+    "rgi":              "ORF_ID",
+    "deeparg":          "#ARG",
+    "amrfinder_normed": "Protein identifier",
+    "deeparg_normed":   "#ARG",
+    "consensus":        "locus",
+    "mmseqs":           "qseqid",
+}
+
+
+def _mag_write_views(source_id, membership, inp, outp, log_path):
+    """Escreve TODAS as vistas de uma fonte. `inp`/`outp` são dicts nomeados."""
+    open(log_path, "w").close()
+
+    _mag_manifest_view(str(inp["manifest"]), membership, source_id,
+                       str(outp["manifest"]), log_path)
+    _mag_status_view(str(inp["proteins_done"]), str(outp["proteins_done"]))
+
+    for key, genome_col in (("df_systems", "genome"), ("df_anti", "genome"),
+                            ("vfdb", "genome"), ("plasmidfinder", "genome")):
+        if key in outp:
+            _mag_view_by_genome(str(inp[key]), membership, source_id,
+                                str(outp[key]), log_path, genome_col=genome_col)
+
+    for key, id_col in _MAG_VIEW_PREFIX_COLS.items():
+        if key in outp:
+            _mag_view_by_prefix(str(inp[key]), membership, source_id,
+                                str(outp[key]), log_path, id_col)
+
+    for key in ("df_done", "amr_done", "rgi_done", "deeparg_done",
+                "abricate_done", "argnorm_done", "consensus_done",
+                "mmseqs_done"):
+        if key in outp:
+            _mag_status_view(str(inp[key]), str(outp[key]))
+
+
+def _mag_view_io(base):
+    """Saídas de uma vista sob `base` ({sample} ou coassembly/{group})."""
+    return {
+        "manifest":       f"{base}/bins/proteins/manifest.txt",
+        "proteins_done":  f"{base}/bins/proteins/done.txt",
+        "df_systems":     f"{base}/bins/defensefinder/defensefinder_systems.tsv",
+        "df_anti":        f"{base}/bins/defensefinder/antidefensefinder_systems.tsv",
+        "df_done":        f"{base}/bins/defensefinder/done.txt",
+        "amrfinder":      f"{base}/bins/amrfinderplus/amrfinder_results.tsv",
+        "amr_done":       f"{base}/bins/amrfinderplus/done.txt",
+        "rgi":            f"{base}/bins/rgi/rgi_results.txt",
+        "rgi_done":       f"{base}/bins/rgi/done.txt",
+        "deeparg":        f"{base}/bins/deeparg/deeparg_results.mapping.ARG",
+        "deeparg_done":   f"{base}/bins/deeparg/done.txt",
+        "vfdb":           f"{base}/bins/abricate/vfdb_results.tsv",
+        "plasmidfinder":  f"{base}/bins/abricate/plasmidfinder_results.tsv",
+        "abricate_done":  f"{base}/bins/abricate/done.txt",
+        "amrfinder_normed": f"{base}/bins/argnorm/amrfinderplus_normed.tsv",
+        "deeparg_normed":   f"{base}/bins/argnorm/deeparg_normed.tsv",
+        "argnorm_done":     f"{base}/bins/argnorm/done.txt",
+        "consensus":        f"{base}/bins/amr_consensus/amr_consensus.tsv",
+        "consensus_done":   f"{base}/bins/amr_consensus/done.txt",
+    }
+
+
+_MAG_VIEW_GLOBAL = lambda: {
+    "manifest":         rules.mag_catalog_proteins.output.manifest,
+    "proteins_done":    rules.mag_catalog_proteins.output.done,
+    "df_systems":       rules.mag_defensefinder.output.systems,
+    "df_anti":          rules.mag_defensefinder.output.antisystems,
+    "df_done":          rules.mag_defensefinder.output.done,
+    "amrfinder":        rules.mag_amrfinderplus.output.results,
+    "amr_done":         rules.mag_amrfinderplus.output.done,
+    "rgi":              rules.mag_rgi_card.output.results,
+    "rgi_done":         rules.mag_rgi_card.output.done,
+    "deeparg":          rules.mag_deeparg.output.results,
+    "deeparg_done":     rules.mag_deeparg.output.done,
+    "vfdb":             rules.mag_abricate.output.vfdb,
+    "plasmidfinder":    rules.mag_abricate.output.plasmidfinder,
+    "abricate_done":    rules.mag_abricate.output.done,
+    "amrfinder_normed": rules.mag_argnorm_normalize.output.amrfinder_normed,
+    "deeparg_normed":   rules.mag_argnorm_normalize.output.deeparg_normed,
+    "argnorm_done":     rules.mag_argnorm_normalize.output.done,
+    "consensus":        rules.mag_amr_consensus.output.consensus,
+    "consensus_done":   rules.mag_amr_consensus.output.done,
+    "mmseqs":           rules.mag_mmseqs_taxonomy_prok.output.hits,
+    "mmseqs_done":      rules.mag_mmseqs_taxonomy_prok.output.done,
+}

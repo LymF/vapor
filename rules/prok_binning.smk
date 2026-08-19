@@ -353,77 +353,12 @@ rule binette:
         """
 
 
-rule prok_bin_proteins:
-    """
-    Per-genome protein prediction (Prodigal) shared by every defense/AMR
-    annotation tool in rules/defense_amr.smk plus mmseqs_taxonomy_prok in
-    rules/taxonomy.smk -- runs once regardless of how many downstream tools
-    consume it (same reuse pattern as rules.votu_prodigal.output.faa for
-    viral taxonomy, moved global in rules/votu_catalog.smk 2026-08-18).
-    Lives here (not in defense_amr.smk, where it
-    conceptually originated) because both defense_amr.smk and taxonomy.smk
-    reference rules.prok_bin_proteins, and Snakemake requires a rule to be
-    defined (via include: order in the Snakefile) before anything reuses it
-    through `rules.<name>`.
-
-    One Prodigal call per Binette final bin (single mode). There is no
-    fallback path for samples that produce no bins: a sample can produce
-    bins that exist but are too low-quality to trust, and a zero-bins
-    check can't tell that apart from "no bins at all". With nothing to
-    do, this rule just writes an empty manifest -- every downstream rule
-    already treats an empty manifest as "skip, write empty output".
-    """
-    input:
-        contigs = _prok_input_contigs,
-        done    = rules.binette.output.done,
-    output:
-        manifest = f"{OUTDIR}/{{sample}}/bins/proteins/manifest.txt",
-        done     = f"{OUTDIR}/{{sample}}/bins/proteins/done.txt",
-    log:
-        f"{OUTDIR}/{{sample}}/logs/prok_bin_proteins.log"
-    benchmark:
-        f"{OUTDIR}/{{sample}}/benchmarks/prok_bin_proteins.tsv"
-    conda: "../envs/env_viral.yaml"
-    container:  CONTAINERS.get("prodigal")
-    threads: 1
-    params:
-        bins_dir   = lambda wc: f"{OUTDIR}/{wc.sample}/bins/binette/final_bins",
-        outdir     = f"{OUTDIR}/{{sample}}/bins/proteins",
-        enabled    = DEFENSE_AMR_ENABLED,
-    run:
-        import glob, os
-        from pathlib import Path
-
-        os.makedirs(params.outdir, exist_ok=True)
-        manifest_rows = []
-
-        with open(str(log[0]), "w") as lf:
-            if not params.enabled:
-                lf.write("[prok_bin_proteins] defense_amr_enabled=False -- skipping\n")
-            else:
-                bins = sorted(glob.glob(os.path.join(params.bins_dir, "*.fa")))
-                if bins:
-                    lf.write(f"[prok_bin_proteins] {len(bins)} bins -- per-genome protein prediction\n")
-                    for bin_fa in bins:
-                        name = os.path.splitext(os.path.basename(bin_fa))[0]
-                        faa  = os.path.join(params.outdir, f"{name}.faa")
-                        gff  = os.path.join(params.outdir, f"{name}.gff")
-                        shell(
-                            "prodigal -i {bin_fa} -a {faa} -f gff -o {gff} -p single -q "
-                            ">> {log} 2>&1 || true"
-                        )
-                        if os.path.exists(faa) and os.path.getsize(faa) > 0:
-                            manifest_rows.append((name, "bins", bin_fa, faa, gff))
-                else:
-                    lf.write("[prok_bin_proteins] No bins -- skipping\n")
-
-            with open(str(output.manifest), "w") as mf:
-                for name, mode, fna, faa, gff in manifest_rows:
-                    mf.write(f"{name}\t{mode}\t{fna}\t{faa}\t{gff}\n")
-
-            lf.write(f"[prok_bin_proteins] {len(manifest_rows)} genome unit(s) in manifest\n")
-
-        Path(str(output.done)).touch()
+# `rule prok_bin_proteins` foi APAGADA em 2026-08-19: as proteínas dos MAGs
+# passaram a ser preditas UMA vez, nas representantes do catálogo global
+# (`mag_catalog_proteins`, rules/mag_catalog.smk), e o manifesto por amostra
+# virou uma vista (`mag_views_sample`, rules/defense_amr.smk) que aponta para
+# o proteoma da representante. Os helpers abaixo continuam aqui porque as
+# regras globais de defesa/AMR os usam.
 
 
 def _read_manifest(path):

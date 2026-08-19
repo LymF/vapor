@@ -204,3 +204,52 @@ def read_provenance(path):
                 (row.get("original_bin_id") or "").strip(),
             ))
     return rows
+
+
+# ── Vistas por fonte ──────────────────────────────────────────────────────
+#
+# Uma vista implementa HERANCA, nao identidade: todo MAG da fonte recebe a
+# linha do SEU representante, e nao apenas os MAGs que por acaso SAO
+# representantes. Com 32 amostras, o representante da maioria dos clusters
+# pertence a outra amostra -- filtrar a tabela global pelo prefixo da fonte
+# devolveria quase nada, em silencio. Foi exatamente esse o bug do
+# `viral_taxonomy` em 2026-08-18.
+
+
+def member_map(membership_rows, source_id):
+    """{representative_id: [original_bin_id, ...]} para UMA fonte.
+
+    Lista e nao escalar: duas linhagens da mesma especie no mesmo metagenoma
+    dao dois bins com o mesmo representante.
+    """
+    out = {}
+    for row in membership_rows:
+        if (row.get("source_id") or "").strip() != source_id:
+            continue
+        rep = (row.get("representative_id") or "").strip()
+        bin_name = (row.get("original_bin_id") or "").strip()
+        if rep and bin_name:
+            out.setdefault(rep, []).append(bin_name)
+    return out
+
+
+def resolve_prefixed_id(value, representatives):
+    """('{rep}__{resto}', {reps}) -> (rep, resto). (None, value) se nao casar.
+
+    NAO se pode cortar no primeiro separador. O ID do catalogo ja e
+    '{source}__{bin}', entao uma proteina sai como
+    'S1__binette_bin1__k141_1_5' e o corte no primeiro '__' devolveria 'S1'
+    -- todo hit de AMR atribuido a AMOSTRA em vez do MAG. Aqui casa-se
+    contra os representantes conhecidos, do prefixo mais longo para o mais
+    curto, que e a mesma disciplina de `scripts/checkv_provirus.py`: resolver
+    contra IDs conhecidos em vez de adivinhar onde fica o delimitador.
+    """
+    value = (value or "").strip()
+    if not value:
+        return None, value
+    parts = value.split(SEP)
+    for n in range(len(parts) - 1, 0, -1):
+        cand = SEP.join(parts[:n])
+        if cand in representatives:
+            return cand, SEP.join(parts[n:])
+    return None, value

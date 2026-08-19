@@ -1637,56 +1637,13 @@ if COASSEMBLY_ENABLED and COASSEMBLY_VIRAL:
     # the group's own defense systems.
 
 # ── Group prok functional foundation: protein prediction (Plan 5) ──────────────
-# Prodigal per group MAG — feeds group AMR/defense/annotation. VAMB bins are *.fna
-# (not *.fa like per-sample Binette). Reuses _read_manifest/_concat_proteins from
-# rules/prok_binning.smk (included before this file).
+# `coassembly_prok_bin_proteins` e as seis gemeas de defesa/AMR do grupo
+# (defensefinder, amrfinderplus, rgi_card, deeparg, abricate, argnorm,
+# amr_consensus) foram APAGADAS em 2026-08-19: os MAGs do VAMB entram no
+# catalogo global (rules/mag_catalog.smk) como qualquer outra fonte, as
+# analises rodam uma vez nas representantes e `mag_views_group`
+# (rules/defense_amr.smk) escreve os mesmos caminhos de antes.
 if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
-
-    rule coassembly_prok_bin_proteins:
-        """Per-genome Prodigal on the group VAMB MAGs (mirrors prok_bin_proteins)."""
-        input:
-            done = rules.vamb_cobinning.output.done,
-        output:
-            manifest = f"{OUTDIR}/coassembly/{{group}}/bins/proteins/manifest.txt",
-            done     = f"{OUTDIR}/coassembly/{{group}}/bins/proteins/done.txt",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/prok_bin_proteins.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/prok_bin_proteins.tsv"
-        conda: "../envs/env_viral.yaml"
-        container:  CONTAINERS.get("prodigal")
-        threads: 1
-        params:
-            bins_dir = f"{OUTDIR}/coassembly/{{group}}/vamb/run/bins",
-            outdir   = f"{OUTDIR}/coassembly/{{group}}/bins/proteins",
-            enabled  = DEFENSE_AMR_ENABLED,
-        run:
-            import glob, os
-            from pathlib import Path
-            os.makedirs(params.outdir, exist_ok=True)
-            manifest_rows = []
-            with open(str(log[0]), "w") as lf:
-                if not params.enabled:
-                    lf.write("[coassembly_prok_bin_proteins] defense_amr disabled -- skipping\n")
-                else:
-                    bins = sorted(glob.glob(os.path.join(params.bins_dir, "*.fna")))
-                    if bins:
-                        lf.write(f"[coassembly_prok_bin_proteins] {len(bins)} MAGs -- per-genome prodigal\n")
-                        for bin_fa in bins:
-                            name = os.path.splitext(os.path.basename(bin_fa))[0]
-                            faa  = os.path.join(params.outdir, f"{name}.faa")
-                            gff  = os.path.join(params.outdir, f"{name}.gff")
-                            shell("prodigal -i {bin_fa} -a {faa} -f gff -o {gff} -p single -q >> {log} 2>&1 || true")
-                            if os.path.exists(faa) and os.path.getsize(faa) > 0:
-                                manifest_rows.append((name, "bins", bin_fa, faa, gff))
-                    else:
-                        lf.write("[coassembly_prok_bin_proteins] No MAGs -- skipping\n")
-                with open(str(output.manifest), "w") as mf:
-                    for name, mode, fna, faa, gff in manifest_rows:
-                        mf.write(f"{name}\t{mode}\t{fna}\t{faa}\t{gff}\n")
-                lf.write(f"[coassembly_prok_bin_proteins] {len(manifest_rows)} genome unit(s)\n")
-            Path(str(output.done)).touch()
-
 
     # GUNC nos MAGs do co-binning VAMB do grupo. Herda `rule gunc`
     # (rules/prok_binning.smk); os bins do VAMB sao *.fna, entao bin_ext e
@@ -1706,109 +1663,6 @@ if COASSEMBLY_ENABLED and COASSEMBLY_BINNING and not LONG_READS:
             outdir   = lambda wc, output: os.path.dirname(output.merged),
             db       = GUNC_DB,
             enabled  = GUNC_ENABLED,
-
-    # ── Group AMR + defense systems (Plan 5, Tasks 3+4) ────────────────────
-    # Mechanical mirrors of the per-sample rules in rules/defense_amr.smk,
-    # pointed at the group's coassembly_prok_bin_proteins manifest instead of
-    # the per-sample prok_bin_proteins one. Logic/env/container/flags are
-    # identical -- only paths and the manifest input change.
-
-    use rule defensefinder as coassembly_defensefinder with:
-        input:
-            manifest = rules.coassembly_prok_bin_proteins.output.manifest,
-            done     = rules.coassembly_prok_bin_proteins.output.done,
-        output:
-            done        = f"{OUTDIR}/coassembly/{{group}}/bins/defensefinder/done.txt",
-            systems     = f"{OUTDIR}/coassembly/{{group}}/bins/defensefinder/defensefinder_systems.tsv",
-            antisystems = f"{OUTDIR}/coassembly/{{group}}/bins/defensefinder/antidefensefinder_systems.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/defensefinder.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/defensefinder.tsv"
-
-    use rule amrfinderplus as coassembly_amrfinderplus with:
-        input:
-            manifest = rules.coassembly_prok_bin_proteins.output.manifest,
-            done     = rules.coassembly_prok_bin_proteins.output.done,
-        output:
-            done    = f"{OUTDIR}/coassembly/{{group}}/bins/amrfinderplus/done.txt",
-            results = f"{OUTDIR}/coassembly/{{group}}/bins/amrfinderplus/amrfinder_results.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/amrfinderplus.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/amrfinderplus.tsv"
-
-    use rule rgi_card as coassembly_rgi_card with:
-        input:
-            manifest = rules.coassembly_prok_bin_proteins.output.manifest,
-            done     = rules.coassembly_prok_bin_proteins.output.done,
-        output:
-            done    = f"{OUTDIR}/coassembly/{{group}}/bins/rgi/done.txt",
-            results = f"{OUTDIR}/coassembly/{{group}}/bins/rgi/rgi_results.txt",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/rgi.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/rgi.tsv"
-
-    # DeepARG nos MAGs do grupo. Herda `rule deeparg` (rules/defense_amr.smk):
-    # os corpos eram identicos, mudavam so os rotulos de log.
-    use rule deeparg as coassembly_deeparg with:
-        input:
-            manifest = rules.coassembly_prok_bin_proteins.output.manifest,
-            done     = rules.coassembly_prok_bin_proteins.output.done,
-        output:
-            done    = f"{OUTDIR}/coassembly/{{group}}/bins/deeparg/done.txt",
-            results = f"{OUTDIR}/coassembly/{{group}}/bins/deeparg/deeparg_results.mapping.ARG",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/deeparg.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/deeparg.tsv"
-
-    use rule abricate as coassembly_abricate with:
-        input:
-            manifest = rules.coassembly_prok_bin_proteins.output.manifest,
-            done     = rules.coassembly_prok_bin_proteins.output.done,
-        output:
-            done          = f"{OUTDIR}/coassembly/{{group}}/bins/abricate/done.txt",
-            vfdb          = f"{OUTDIR}/coassembly/{{group}}/bins/abricate/vfdb_results.tsv",
-            plasmidfinder = f"{OUTDIR}/coassembly/{{group}}/bins/abricate/plasmidfinder_results.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/abricate.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/abricate.tsv"
-
-    use rule argnorm_normalize as coassembly_argnorm_normalize with:
-        input:
-            amrfinder      = rules.coassembly_amrfinderplus.output.results,
-            amrfinder_done = rules.coassembly_amrfinderplus.output.done,
-            deeparg        = rules.coassembly_deeparg.output.results,
-            deeparg_done   = rules.coassembly_deeparg.output.done,
-        output:
-            done             = f"{OUTDIR}/coassembly/{{group}}/bins/argnorm/done.txt",
-            amrfinder_normed = f"{OUTDIR}/coassembly/{{group}}/bins/argnorm/amrfinderplus_normed.tsv",
-            deeparg_normed   = f"{OUTDIR}/coassembly/{{group}}/bins/argnorm/deeparg_normed.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/argnorm.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/argnorm.tsv"
-
-    # Consenso de AMR do grupo. Herda `rule amr_consensus`
-    # (rules/defense_amr.smk): os corpos eram identicos, mudava so o rotulo
-    # do log.
-    use rule amr_consensus as coassembly_amr_consensus with:
-        input:
-            argnorm_done     = rules.coassembly_argnorm_normalize.output.done,
-            rgi_done         = rules.coassembly_rgi_card.output.done,
-            amrfinder_normed = rules.coassembly_argnorm_normalize.output.amrfinder_normed,
-            deeparg_normed   = rules.coassembly_argnorm_normalize.output.deeparg_normed,
-            rgi_results      = rules.coassembly_rgi_card.output.results,
-        output:
-            done      = f"{OUTDIR}/coassembly/{{group}}/bins/amr_consensus/done.txt",
-            consensus = f"{OUTDIR}/coassembly/{{group}}/bins/amr_consensus/amr_consensus.tsv",
-        log:
-            f"{OUTDIR}/coassembly/{{group}}/logs/amr_consensus.log"
-        benchmark:
-            f"{OUTDIR}/coassembly/{{group}}/benchmarks/amr_consensus.tsv"
 
 # ── Group PHIST (viral vOTU host prediction vs group MAGs) ──────────────────────
 # Needs BOTH the group's viral vOTU set (COASSEMBLY_VIRAL) and the group's

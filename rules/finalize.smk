@@ -143,16 +143,19 @@ rule organize_outputs:
             "gtdbtk_b":     rules.gtdbtk.output.bac_tsv,
             "gtdbtk_a":     rules.gtdbtk.output.ar_tsv,
             "binette":      rules.binette.output.summary,
-            "mmseqs_prok":  rules.mmseqs_taxonomy_prok.output.hits,
-            "pdef":         rules.defensefinder.output.systems,
-            "pantidef":     rules.defensefinder.output.antisystems,
-            "amrfinder":    rules.amrfinderplus.output.results,
-            "rgi":          rules.rgi_card.output.results,
-            "deeparg":      rules.deeparg.output.results,
-            "vfdb":         rules.abricate.output.vfdb,
-            "plasmidfind":  rules.abricate.output.plasmidfinder,
-            "amf_normed":   rules.argnorm_normalize.output.amrfinder_normed,
-            "deeparg_norm": rules.argnorm_normalize.output.deeparg_normed,
+            # Vistas do catalogo global de MAGs (rules/defense_amr.smk):
+            # os caminhos sao os mesmos de quando estas analises rodavam por
+            # amostra -- o que mudou foi QUEM os escreve.
+            "mmseqs_prok":  rules.mag_views_sample.output.mmseqs,
+            "pdef":         rules.mag_views_sample.output.df_systems,
+            "pantidef":     rules.mag_views_sample.output.df_anti,
+            "amrfinder":    rules.mag_views_sample.output.amrfinder,
+            "rgi":          rules.mag_views_sample.output.rgi,
+            "deeparg":      rules.mag_views_sample.output.deeparg,
+            "vfdb":         rules.mag_views_sample.output.vfdb,
+            "plasmidfind":  rules.mag_views_sample.output.plasmidfinder,
+            "amf_normed":   rules.mag_views_sample.output.amrfinder_normed,
+            "deeparg_norm": rules.mag_views_sample.output.deeparg_normed,
         } if TRACK_PROK else {}),
         # Host prediction / integration
         **({
