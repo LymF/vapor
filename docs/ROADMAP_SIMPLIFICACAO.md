@@ -1006,10 +1006,29 @@ procariótico no relatório (cai no filtro de rank efetivo); e o
 `collapse_by_host` seleciona virais por prefixo de realm e mantém só as folhas
 da hierarquia.
 
-**Decisão a confirmar, não mexida:** o sylph roda sobre os reads **crus**, não
-sobre a saída do fastp/host_removal. É coerente com "trilha independente da
-montagem", mas adaptadores e reads de hospedeiro entram no perfil — e a trilha
-não aproveita o `host_genome` quando ele está configurado.
+**Decidido e FEITO (2026-08-19, commit `d6db8b1`):** o sylph passa a perfilar
+os reads **aparados** e, quando `host_genome` está configurado, os reads **sem
+hospedeiro** — pelos mesmos helpers da montagem (`_clean_r1`/`_clean_r2`/
+`_clean_lr`), que já resolvem essa decisão num lugar só. Rodar apenas a trilha
+de reads passa a disparar o trimming (e o mapeamento contra o hospedeiro, se
+configurado), que é como tem de ser.
+
+Não quebrou trilha nenhuma e não mudou o tamanho do DAG — medido em quatro
+configurações:
+
+| config | jobs (`-n --forceall`) | o que entra |
+|---|---|---|
+| Amazônia completo | 1424 (inalterado) | fastp → sylph |
+| long reads (ONT) | 1306 | porechop_lr + filtlong_lr → sylph |
+| com `host_genome` | 1457 | build_host_index + remove_host_sr → sylph |
+| **só** a trilha de reads | 139 (inalterado) | fastp → sylph |
+
+O total da corrida reads-only não muda porque o `organize_outputs` já puxava o
+fastp; o que mudou é qual arquivo o sylph lê — verificado no comando do
+dry-run (`{sample}_R1_clean.fq.gz` com host removal, `{sample}_R1_fastp.fq.gz`
+sem). Como o nome do arquivo vira o cabeçalho de coluna da tabela mesclada, o
+resolvedor do relatório ganhou os sufixos da própria pipeline (`_R1_fastp`,
+`_R1_clean`, `_lr_clean`, `_filtered`).
 
 
 Varredura pedida depois da oitava manifestação, com o mesmo método: **verificar
