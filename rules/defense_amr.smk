@@ -86,16 +86,17 @@ rule mag_defensefinder:
 
         os.makedirs(params.outdir, exist_ok=True)
 
-        def write_empty(msg):
+        def write_empty(msg, status):
             with open(str(log[0]), "a") as lf:
                 lf.write(msg + "\n")
             Path(str(output.systems)).write_text("genome\n")
             Path(str(output.antisystems)).write_text("genome\n")
-            Path(str(output.done)).touch()
+            write_status(str(output.done), status)
 
         if (not params.enabled or not os.path.exists(str(input.manifest))
                 or os.path.getsize(str(input.manifest)) == 0):
-            write_empty("[defensefinder] Disabled or no genome units -- skipping")
+            write_empty("[defensefinder] Disabled or no genome units -- skipping",
+                        "skipped: disabled or no genome units")
             return
 
         # Without --models-dir, defense-finder caches models under
@@ -182,7 +183,7 @@ rule mag_defensefinder:
         with open(str(log[0]), "a") as lf:
             lf.write(f"[defensefinder] Done -- {len(def_rows)} defense, "
                       f"{len(anti_rows)} antidefense system rows\n")
-        Path(str(output.done)).touch()
+        write_status(str(output.done), "ok")
 
 # rule defensefinder_viral / rule dbapis_viral removed 2026-08-18 (second
 # half of "(h)", docs/ROADMAP_SIMPLIFICACAO.md): both moved to the global
@@ -663,7 +664,7 @@ rule mag_amr_consensus:
 
         os.makedirs(os.path.dirname(str(output.done)), exist_ok=True)
 
-        def write_empty(msg):
+        def write_empty(msg, status):
             with open(str(log[0]), "a") as lf:
                 lf.write(msg + "\n")
             cols = "\t".join([
@@ -671,10 +672,11 @@ rule mag_amr_consensus:
                 "resistance_mechanism", "n_tools", "consensus_score", "tools_detected",
             ])
             Path(str(output.consensus)).write_text(cols + "\n")
-            Path(str(output.done)).touch()
+            write_status(str(output.done), status)
 
         if not params.enabled:
-            write_empty("[amr_consensus] use_amr_consensus=False -- skipping")
+            write_empty("[amr_consensus] use_amr_consensus=False -- skipping",
+                        "skipped: use_amr_consensus=False")
             return
 
         shell(
@@ -686,12 +688,13 @@ rule mag_amr_consensus:
         )
 
         if not os.path.exists(str(output.consensus)) or os.path.getsize(str(output.consensus)) == 0:
-            write_empty("[amr_consensus] WARNING: script produced no output")
+            write_empty("[amr_consensus] WARNING: script produced no output",
+                        "failed: script produced no output")
             return
 
         with open(str(log[0]), "a") as lf:
             lf.write("[amr_consensus] Done\n")
-        Path(str(output.done)).touch()
+        write_status(str(output.done), "ok")
 
 
 # ══════════════════════════════════════════════════════════════════════

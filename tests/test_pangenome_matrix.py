@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-from pangenome_matrix import build_matrix, summarize_clusters
+from pangenome_matrix import CORE_FRACTION, build_matrix, summarize_clusters
 
 MEMBERS = {"R1": ["m1", "m2", "m3", "m4"]}
 COMPLETE = {"m1": 95.0, "m2": 88.0, "m3": 91.0, "m4": 42.0}   # m4 e ruim
@@ -44,8 +44,33 @@ class TestBuildMatrix:
 
 class TestSummarizeClusters:
     def test_core_uses_90_percent_not_99(self):
-        # RM_Type_II esta em 3/3 avaliaveis -> core. Gabija em 2/3 (67%)
-        # -> variavel. O limiar de 99% zeraria o core com MAG.
+        # Com apenas 3-6 avaliaveis (regime real da fase 1), 0.90*n_eval
+        # arredonda para n_eval e o limiar de 99% teria o MESMO efeito --
+        # o teste original (3 avaliaveis) nao discriminava nada. Com 10
+        # avaliaveis os dois limiares DIVERGEM de verdade: 9/10 e core sob
+        # 0.90 (9 >= 9.0) e seria variavel sob 0.99 (9 < 9.9).
+        members = [f"m{i}" for i in range(1, 11)]
+        members_by_rep = {"R1": members}
+        completeness = {m: 95.0 for m in members}
+        hits = {m: {"RM_Type_II"} for m in members[:9]}
+        hits[members[9]] = set()
+
+        rows = build_matrix(["R1"], members_by_rep, hits, completeness)
+        summary = summarize_clusters(rows, members_by_rep, completeness)[0]
+
+        # sob o limiar real (0.90) o gene em 9/10 e core.
+        assert summary["n_genes_core"] == 1
+        assert summary["n_genes_variaveis"] == 0
+        # prova de que 0.90 e 0.99 realmente divergem neste tamanho --
+        # sob 0.99 o mesmo 9/10 cairia em variavel, nao core.
+        assert 9 >= CORE_FRACTION * 10
+        assert 9 < 0.99 * 10
+
+    def test_core_at_small_cluster_size_is_operationally_all_evaluable(self):
+        # Caso pequeno (regime real): RM_Type_II em 3/3 avaliaveis -> core.
+        # Gabija em 2/3 (67%) -> variavel. Documenta o efeito descrito no
+        # docstring do modulo: com poucos avaliaveis "core" e "presente em
+        # todos", sem tolerancia de fato.
         rows = build_matrix(["R1"], MEMBERS, HITS, COMPLETE)
         summary = {s["representative_id"]: s
                    for s in summarize_clusters(rows, MEMBERS, COMPLETE)}["R1"]

@@ -1,9 +1,11 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-from pangenome_select import select_clusters
+from pangenome_select import load_completeness, load_membership, select_clusters
 
 MEMB = {
     "S1__binette_bin1": [{"member_id": f"S{i}__binette_bin1"} for i in range(1, 5)],
@@ -67,11 +69,6 @@ class TestSelectClusters:
 
     def test_n_members_counts_the_membership_rows(self):
         assert _sel({})["S1__binette_bin1"]["n_members"] == 4
-
-
-import pytest
-
-from pangenome_select import load_completeness, load_membership
 
 
 class TestLoadMembership:

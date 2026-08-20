@@ -309,8 +309,11 @@ rule mag_pangenome_matrix:
         candidates = rules.mag_pangenome_select.output.candidates,
         membership = rules.mag_catalog_membership.output.tsv,
         quality    = rules.mag_catalog_quality.output.tsv,
+        manifest   = rules.mag_pangenome_proteins.output.manifest,
         df_systems = rules.mag_pangenome_defensefinder.output.systems,
         consensus  = rules.mag_pangenome_amr_consensus.output.consensus,
+        gtdb_bac   = rules.mag_catalog_gtdbtk.output.bac_tsv,
+        gtdb_ar    = rules.mag_catalog_gtdbtk.output.ar_tsv,
     output:
         matrix  = f"{PANGENOME_DIR}/gene_by_member.tsv",
         summary = f"{PANGENOME_DIR}/cluster_summary.tsv",
@@ -319,6 +322,7 @@ rule mag_pangenome_matrix:
         f"{OUTDIR}/logs/mag_pangenome_matrix.log"
     run:
         import csv as _csv
+        import statistics as _stats
         import sys as _sys
         from collections import defaultdict
 
@@ -330,15 +334,44 @@ rule mag_pangenome_matrix:
         membership   = load_membership(str(input.membership))
         completeness = load_completeness(str(input.quality))
 
-        clusters = []
+        # Tamanho de genoma (Genome_Size) vem do mesmo relatorio de qualidade
+        # que a completude -- coluna real do CheckM2, ja no arquivo.
+        genome_size = {}
+        with open(str(input.quality), newline="") as f:
+            for row in _csv.DictReader(f, delimiter="\t"):
+                name = (row.get("Name") or "").strip()
+                try:
+                    genome_size[name] = float(row.get("Genome_Size") or 0)
+                except ValueError:
+                    continue
+
+        candidate_rows = {}
         with open(str(input.candidates), newline="") as f:
             for row in _csv.DictReader(f, delimiter="\t"):
-                if (row.get("eligible") or "").strip() in ("True", "true", "1"):
-                    clusters.append(row["representative_id"])
+                candidate_rows[row["representative_id"]] = row
+
+        clusters = [rep for rep, row in candidate_rows.items()
+                   if (row.get("eligible") or "").strip() in ("True", "true", "1")]
 
         members_by_rep = {rep: [m["member_id"] for m in membership.get(rep, [])]
                           for rep in clusters}
         known_members = {m for ms in members_by_rep.values() for m in ms}
+
+        # Membros que de fato aparecem no manifesto de anotacao dos MEMBROS
+        # (mag_pangenome_proteins): prodigal e defensefinder/amr rodaram
+        # sobre eles e nao falharam. Quem esta fora deste conjunto some das
+        # tabelas por falha de FERRAMENTA, nao por ausencia biologica -- tem
+        # de virar '?', nunca '.'. Ver docstring de scripts/pangenome_matrix.py.
+        annotated = set()
+        with open(str(input.manifest)) as f:
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if parts and parts[0]:
+                    annotated.add(parts[0])
+        n_missing_annotation = len(known_members - annotated)
+        n_missing_completeness = sum(
+            1 for m in known_members
+            if m in annotated and completeness.get(m, 0.0) < 70.0)
 
         gene_hits = defaultdict(set)
         with open(str(input.df_systems), newline="") as f:
@@ -346,7 +379,9 @@ rule mag_pangenome_matrix:
                 genome = (row.get("genome") or "").strip()
                 stype  = (row.get("type") or row.get("subtype") or "").strip()
                 if genome and stype:
-                    gene_hits[genome].add(stype)
+                    # Chave (tipo, nome): um sistema de defesa e um ARG com o
+                    # mesmo nome nao podem se fundir numa linha so.
+                    gene_hits[genome].add(("defesa", stype))
 
         with open(str(input.consensus), newline="") as f:
             for row in _csv.DictReader(f, delimiter="\t"):
@@ -360,10 +395,44 @@ rule mag_pangenome_matrix:
                 # Idem: casar contra os MEMBROS conhecidos, nunca cortar.
                 genome, _rest = resolve_prefixed_id(locus, known_members)
                 if genome and gene:
-                    gene_hits[genome].add(gene)
+                    gene_hits[genome].add(("amr", gene))
 
-        rows = build_matrix(clusters, members_by_rep, gene_hits, completeness)
-        summary = summarize_clusters(rows, members_by_rep, completeness)
+        rows = build_matrix(clusters, members_by_rep, gene_hits, completeness,
+                            annotated=annotated)
+        summary = summarize_clusters(rows, members_by_rep, completeness,
+                                     annotated=annotated)
+
+        # taxonomia GTDB da representante: uma tabela por dominio
+        # (bacteria/arqueia), mesma coluna "user_genome"/"classification"
+        # em ambas -- ver rule mag_catalog_gtdbtk.
+        gtdb_tax = {}
+        n_bac = n_ar = 0
+        for path, label in ((str(input.gtdb_bac), "bac120"), (str(input.gtdb_ar), "ar53")):
+            with open(path, newline="") as f:
+                for row in _csv.DictReader(f, delimiter="\t"):
+                    genome = (row.get("user_genome") or "").strip()
+                    cls    = (row.get("classification") or "").strip()
+                    if genome and cls:
+                        gtdb_tax[genome] = cls
+                        if label == "bac120":
+                            n_bac += 1
+                        else:
+                            n_ar += 1
+
+        # sumario por cluster: mediana de completude e distribuicao de
+        # tamanho (Genome_Size, bp) dos membros AVALIAVEIS -- os mesmos que
+        # entram no denominador da matriz. Um membro sem qualidade nao entra
+        # em nenhuma das duas.
+        size_median = {}
+        completeness_median = {}
+        for rep in clusters:
+            evaluable = [m for m in members_by_rep.get(rep, [])
+                        if m in annotated and completeness.get(m, 0.0) >= 70.0]
+            comps = [completeness[m] for m in evaluable if m in completeness]
+            sizes = [genome_size[m] for m in evaluable if m in genome_size
+                    and genome_size[m] > 0]
+            completeness_median[rep] = _stats.median(comps) if comps else 0.0
+            size_median[rep] = _stats.median(sizes) if sizes else 0.0
 
         # A completude viaja no cabecalho: "4/6" so e interpretavel com o
         # denominador a vista.
@@ -371,27 +440,44 @@ rule mag_pangenome_matrix:
         with open(str(output.matrix), "w") as f:
             f.write("# completude: " + ", ".join(
                 f"{m}={completeness.get(m, 0.0):.1f}" for m in all_members) + "\n")
-            f.write("cluster\tgene\tfreq\tn_present\tn_evaluable\t"
+            f.write("# estados: x=presente .=ausente ?=nao avaliavel "
+                    "(completude<70 ou falha de anotacao) "
+                    "-=membro nao pertence a este cluster\n")
+            f.write("cluster\ttipo\tgene\tfreq\tn_present\tn_evaluable\t"
                     + "\t".join(all_members) + "\n")
             for r in rows:
-                states = [r["states"].get(m, "") for m in all_members]
-                f.write("\t".join([r["representative_id"], r["gene"], r["freq"],
-                                   str(r["n_present"]), str(r["n_evaluable"])]
+                states = [r["states"].get(m, "-") for m in all_members]
+                f.write("\t".join([r["representative_id"], r["tipo"], r["gene"],
+                                   r["freq"], str(r["n_present"]),
+                                   str(r["n_evaluable"])]
                                   + states) + "\n")
 
         cols = ["representative_id", "n_members", "n_members_avaliaveis",
-                "n_genes_core", "n_genes_variaveis", "n_genes_singleton"]
+                "n_genes_core", "n_genes_variaveis", "n_genes_singleton",
+                "completude_mediana", "tamanho_mediana_bp", "gtdb_taxonomy"]
         with open(str(output.summary), "w", newline="") as f:
             w = _csv.DictWriter(f, fieldnames=cols, delimiter="\t")
             w.writeheader()
             for s in summary:
-                w.writerow(s)
+                rep = s["representative_id"]
+                w.writerow(dict(
+                    s,
+                    completude_mediana=f"{completeness_median.get(rep, 0.0):.1f}",
+                    tamanho_mediana_bp=f"{size_median.get(rep, 0.0):.0f}",
+                    gtdb_taxonomy=gtdb_tax.get(rep, ""),
+                ))
 
         fase2 = [s for s in summary
                  if s["n_members_avaliaveis"] >= 5 and s["n_genes_variaveis"] > 0]
         with open(str(log[0]), "w") as lf:
             lf.write(f"[pangenome_matrix] {len(clusters)} clusters, "
                      f"{len(rows)} linhas de gene\n")
+            lf.write(f"[pangenome_matrix] membros '?': {n_missing_annotation} "
+                     f"por falha de anotacao (fora do manifesto), "
+                     f"{n_missing_completeness} por completude < 70 -- causas "
+                     f"diferentes, nao somar como se fossem a mesma coisa\n")
+            lf.write(f"[pangenome_matrix] taxonomia GTDB: {n_bac} representantes "
+                     f"bac120, {n_ar} ar53\n")
             lf.write(f"[pangenome_matrix] clusters que sustentariam a fase 2 "
                      f"(>= 5 membros avaliaveis e variacao): {len(fase2)}\n")
             if not fase2:
@@ -399,5 +485,32 @@ rule mag_pangenome_matrix:
                          "resposta honesta; o PPanGGOLiN sobre 3-4 membros "
                          "produziria particao sem sustentacao.\n")
 
-        write_status(str(output.done),
-                     "ok" if clusters else "skipped: no eligible clusters")
+        # Controle interno via representante: um cluster eleito por 'ilha'
+        # ou 'sistemas' (candidates.tsv) tem, por definicao, evidencia de
+        # sistema de defesa na propria representante. Se a matriz por membro
+        # termina sem NENHUM gene tipo 'defesa' para esse cluster, a unica
+        # explicacao e falha de ferramenta (DefenseFinder por genoma falha
+        # em silencio -- ver comentario em rules/defense_amr.smk sobre o
+        # caso real do litrp4) -- nunca "a especie nao tem defesa".
+        defesa_rows_by_rep = defaultdict(int)
+        for r in rows:
+            if r["tipo"] == "defesa":
+                defesa_rows_by_rep[r["representative_id"]] += 1
+
+        contradictions = []
+        for rep in clusters:
+            criterio = (candidate_rows.get(rep, {}).get("criterio") or "").strip()
+            if criterio in ("ilha", "sistemas") and defesa_rows_by_rep[rep] == 0:
+                contradictions.append(rep)
+
+        if contradictions:
+            msg = (f"failed: {len(contradictions)} cluster(s) eleitos por "
+                   f"ilha/sistemas sem NENHUM gene de defesa na matriz por "
+                   f"membro (provavel falha do DefenseFinder por genoma): "
+                   + ", ".join(contradictions))
+            with open(str(log[0]), "a") as lf:
+                lf.write(f"[pangenome_matrix] {msg}\n")
+            write_status(str(output.done), msg)
+        else:
+            write_status(str(output.done),
+                         "ok" if clusters else "skipped: no eligible clusters")

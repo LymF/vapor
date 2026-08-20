@@ -723,7 +723,7 @@ desenho completo. Registro aqui é só o que não deve ser reaberto por intuiç�
 Um cluster do catálogo global de MAGs (`mag_catalog/`) só ganha anotação por
 MEMBRO — em vez de só pela representante, como todo o resto do catálogo desde
 o item "(h)" — se: **>= 3 membros** E (**ilha de defesa** OU **>= 3 sistemas de
-defesa** OU **ARG de consenso**, `n_tools >= 2`). O `AbricateFinder`
+defesa** OU **ARG de consenso**, `n_tools >= 2`). O **ABRicate**
 (PlasmidFinder) é registrado como sinal de mobilidade em `candidates.tsv` mas
 **nunca elege sozinho** — um plasmídio sem defesa nem ARG associado não motiva
 o custo de anotar cada membro individualmente; ele é contexto para interpretar
@@ -742,6 +742,42 @@ frequência (`n_evaluable`) — testado em `tests/test_pangenome_matrix.py`,
 inclusive o caso adversarial em que o membro incompleto tem um hit real (a
 checagem de completude precisa vir ANTES da checagem de presença do gene, não
 depois).
+
+Correções da revisão final da fase 1 (mesmo dia, mesma branch): a matriz na
+verdade tem QUATRO símbolos — `-` marca um membro que não pertence ao cluster
+daquela linha (a tabela é larga, colunas = união de todos os membros
+elegíveis de todos os clusters; sem o `-`, quem conta "ausente = não é x"
+contaria membro de outra espécie como ausência biológica). Cada linha também
+carrega uma coluna `tipo` (`defesa`/`amr`) porque sistema de defesa e ARG
+entravam na mesma tabela de genes sem distinção — uma colisão de nome entre
+os dois fundia duas linhas em silêncio; a chave interna agora é o par
+`(tipo, nome)`. Um membro do cluster ausente do manifesto de anotação por
+membro (`mag_pangenome_proteins/manifest.txt` — prodigal falhou, o genoma
+nunca chegou ao pool, ou o DefenseFinder falhou por genoma, ver comentário em
+`rules/defense_amr.smk` sobre o caso real do litrp4) também vira `?`, não
+`.` — falha de FERRAMENTA não é ausência biológica, mesma família de defeito
+do `done.txt` vazio. E um cluster eleito por critério `ilha`/`sistemas` que
+termina sem NENHUM gene tipo `defesa` na matriz por membro é contraditório:
+`mag_pangenome_matrix` grava `done.txt` como `failed: ...` nesse caso, nunca
+`ok` com matriz vazia.
+
+**O limiar de core (`CORE_FRACTION = 0.90`), no regime de 3-6 membros que a
+fase 1 produz, é operacionalmente 100%**: `0.90 * n_eval` arredonda para
+`n_eval` sempre que `n_eval <= 9` (3 → 2.7 → 3; 6 → 5.4 → 6), então "core"
+significa "presente em TODOS os avaliáveis", sem tolerância nenhuma de fato —
+99% só teria efeito diferente a partir de ~10 membros avaliáveis. Isto não é
+um bug: é o efeito esperado da decisão de manter 90% (não 99%, que zeraria o
+core com 1 MAG incompleto) aplicada a clusters pequenos. Não ler
+`n_genes_core` como se houvesse folga até haver clusters maiores — ver
+docstring de `scripts/pangenome_matrix.py`.
+
+`cluster_summary.tsv` ganhou três colunas que faltavam contra a spec: a
+mediana de completude e de tamanho (`Genome_Size`, bp — ambas dos membros
+avaliáveis) e a taxonomia GTDB da representante (`gtdb_taxonomy`), lida de
+`rules.mag_catalog_gtdbtk.output.{bac_tsv,ar_tsv}` (custo **+0 jobs**, já
+está no DAG) e casada por `user_genome == representative_id`. É a coluna mais
+importante na prática: sem ela, `cluster_summary.tsv` não diz de qual espécie
+é cada cluster, e é esse arquivo que decide a fase 2.
 
 ### `compute_defense_islands` deixou de ser exclusiva do relatório
 
