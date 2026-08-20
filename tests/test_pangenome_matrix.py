@@ -4,7 +4,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-from pangenome_matrix import CORE_FRACTION, build_matrix, summarize_clusters
+from pangenome_matrix import (CORE_FRACTION, build_matrix, summarize_clusters,
+                              load_defensefinder_summary)
 
 MEMBERS = {"R1": ["m1", "m2", "m3", "m4"]}
 COMPLETE = {"m1": 95.0, "m2": 88.0, "m3": 91.0, "m4": 42.0}   # m4 e ruim
@@ -160,3 +161,154 @@ class TestMultipleClusters:
         # denominador de R2 nao pode vazar para R1 nem vice-versa.
         assert summary["R2"]["n_members"] == 4
         assert summary["R2"]["n_members_avaliaveis"] == 3
+
+
+class TestAnnotatedGatesAllTypes:
+    # O caso "membro fora do manifesto" (prodigal falhou ou o genoma nunca
+    # chegou ao pool): '?' em TODAS as linhas do membro, defesa e amr.
+    MEMBERS3 = {"R1": ["m1", "m2", "m3"]}
+    COMPLETE3 = {"m1": 95.0, "m2": 90.0, "m3": 92.0}
+    HITS3 = {
+        "m1": {("defesa", "Gabija"), ("amr", "blaTEM")},
+        "m2": {("defesa", "Gabija")},
+        "m3": {("amr", "blaTEM")},
+    }
+
+    def test_member_outside_annotated_is_unassessable_in_every_row(self):
+        # m3 nunca aparece no manifesto do pangenoma (prodigal falhou ou o
+        # genoma ficou fora do pool) -- annotated exclui m3.
+        annotated = {"m1", "m2"}
+        rows = build_matrix(["R1"], self.MEMBERS3, self.HITS3, self.COMPLETE3,
+                            annotated=annotated)
+        by_gene_tipo = {(r["tipo"], r["gene"]): r for r in rows}
+
+        assert by_gene_tipo[("defesa", "Gabija")]["states"]["m3"] == "?"
+        assert by_gene_tipo[("amr", "blaTEM")]["states"]["m3"] == "?"
+
+    def test_member_outside_annotated_leaves_both_denominators(self):
+        annotated = {"m1", "m2"}
+        rows = build_matrix(["R1"], self.MEMBERS3, self.HITS3, self.COMPLETE3,
+                            annotated=annotated)
+        by_gene_tipo = {(r["tipo"], r["gene"]): r for r in rows}
+
+        # annotated={m1,m2} e o mesmo denominador base para AMBOS os tipos
+        # (m3 esta fora do manifesto, entao sai de toda linha, defesa e
+        # amr) -- e exatamente o ponto do teste: nao ha diferenca de
+        # denominador entre tipos aqui, so quando defense_failed entra em
+        # jogo (ver TestDefenseFailedOnlyGatesDefenseRows).
+        assert by_gene_tipo[("defesa", "Gabija")]["n_evaluable"] == 2
+        assert by_gene_tipo[("amr", "blaTEM")]["n_evaluable"] == 2
+
+    def test_this_case_is_unaffected_by_defense_failed(self):
+        # annotated e defense_failed sao independentes: um membro fora do
+        # manifesto continua '?' em amr mesmo que defense_failed esteja
+        # vazio -- a causa aqui e prodigal, nao DefenseFinder.
+        annotated = {"m1", "m2"}
+        rows = build_matrix(["R1"], self.MEMBERS3, self.HITS3, self.COMPLETE3,
+                            annotated=annotated, defense_failed=set())
+        row = {(r["tipo"], r["gene"]): r for r in rows}[("amr", "blaTEM")]
+        assert row["states"]["m3"] == "?"
+
+
+class TestDefenseFailedOnlyGatesDefenseRows:
+    # m2 tem prodigal OK (esta em `annotated`) mas o DefenseFinder falhou
+    # naquele genoma especifico -- so as linhas tipo='defesa' de m2 podem
+    # virar '?'; AMR vem de outra ferramenta e continua valido.
+    MEMBERS = {"R1": ["m1", "m2", "m3"]}
+    COMPLETE = {"m1": 95.0, "m2": 90.0, "m3": 92.0}
+    ANNOTATED = {"m1", "m2", "m3"}
+    HITS = {
+        "m1": {("defesa", "Gabija"), ("amr", "blaTEM")},
+        "m2": {("defesa", "Gabija"), ("amr", "blaTEM")},
+        "m3": {("amr", "blaTEM")},
+    }
+    DEFENSE_FAILED = {"m2"}
+
+    def _rows(self):
+        return {(r["tipo"], r["gene"]): r
+                for r in build_matrix(["R1"], self.MEMBERS, self.HITS,
+                                      self.COMPLETE, annotated=self.ANNOTATED,
+                                      defense_failed=self.DEFENSE_FAILED)}
+
+    def test_defense_row_marks_failed_member_unassessable(self):
+        row = self._rows()[("defesa", "Gabija")]
+        assert row["states"]["m2"] == "?"
+
+    def test_amr_row_keeps_failed_member_real_state(self):
+        # m2 tem o ARG de verdade: precisa continuar 'x', nao virar '?'
+        # so porque o DefenseFinder quebrou nele.
+        row = self._rows()[("amr", "blaTEM")]
+        assert row["states"]["m2"] == "x"
+        assert row["states"]["m3"] == "x"
+
+    def test_defense_denominator_excludes_failed_member(self):
+        row = self._rows()[("defesa", "Gabija")]
+        assert row["n_evaluable"] == 2   # m1, m3 (m3 nao tem hit mas e avaliavel)
+        assert row["n_present"] == 1     # so m1
+        assert row["freq"] == "1/2"
+
+    def test_amr_denominator_keeps_failed_member(self):
+        row = self._rows()[("amr", "blaTEM")]
+        assert row["n_evaluable"] == 3
+        assert row["n_present"] == 3
+        assert row["freq"] == "3/3"
+
+    def test_summarize_agrees_with_matrix_on_defense_row(self):
+        # A propriedade central do item A.2: build_matrix e
+        # summarize_clusters NUNCA podem discordar sobre quantos membros
+        # contam para uma linha de defesa com falha do DefenseFinder.
+        rows = build_matrix(["R1"], self.MEMBERS, self.HITS, self.COMPLETE,
+                            annotated=self.ANNOTATED,
+                            defense_failed=self.DEFENSE_FAILED)
+        summary = summarize_clusters(rows, self.MEMBERS, self.COMPLETE,
+                                     annotated=self.ANNOTATED)[0]
+
+        gabija = {(r["tipo"], r["gene"]): r for r in rows}[("defesa", "Gabija")]
+        # Gabija em 1/2 avaliaveis (50%) fica abaixo de CORE_FRACTION -> variavel.
+        assert gabija["n_present"] / gabija["n_evaluable"] < CORE_FRACTION
+        assert summary["n_genes_variaveis"] >= 1
+
+    def test_summarize_amr_denominator_unaffected_by_defense_failure(self):
+        rows = build_matrix(["R1"], self.MEMBERS, self.HITS, self.COMPLETE,
+                            annotated=self.ANNOTATED,
+                            defense_failed=self.DEFENSE_FAILED)
+        summary = summarize_clusters(rows, self.MEMBERS, self.COMPLETE,
+                                     annotated=self.ANNOTATED)[0]
+        # n_members_avaliaveis e o denominador "largo" (prodigal+completude),
+        # o mesmo que as linhas amr usam -- nao encolhe por causa do
+        # DefenseFinder.
+        assert summary["n_members_avaliaveis"] == 3
+
+    def test_defense_failed_member_still_present_in_manifest_gate(self):
+        # m2 esta em `annotated` (prodigal OK): a falha e so do
+        # DefenseFinder, entao m2 NAO pode virar '?' nas linhas amr por
+        # causa de defense_failed sozinho.
+        row = self._rows()[("amr", "blaTEM")]
+        assert "m2" in row["states"]
+        assert row["states"]["m2"] != "?"
+
+
+class TestLoadDefenseFinderSummary:
+    def test_parses_ok_and_failed(self, tmp_path):
+        p = tmp_path / "defensefinder_summary.tsv"
+        p.write_text("genome\tstatus\ng1\tok\ng2\tfailed\ng3\tok\n")
+        assert load_defensefinder_summary(str(p)) == {"g2"}
+
+    def test_unknown_status_counts_as_failed(self, tmp_path):
+        # Um status que este parser nunca viu (nem 'ok' nem 'failed') nao
+        # pode ser lido como sucesso silencioso.
+        p = tmp_path / "defensefinder_summary.tsv"
+        p.write_text("genome\tstatus\ng1\tok\ng2\ttimeout\n")
+        assert load_defensefinder_summary(str(p)) == {"g2"}
+
+    def test_header_only_file_returns_empty_set(self, tmp_path):
+        # Caminho de skip da regra (desabilitada ou manifesto vazio):
+        # arquivo so com cabecalho, nenhum genoma marcado como falho.
+        p = tmp_path / "defensefinder_summary.tsv"
+        p.write_text("genome\tstatus\n")
+        assert load_defensefinder_summary(str(p)) == set()
+
+    def test_all_ok_returns_empty_set(self, tmp_path):
+        p = tmp_path / "defensefinder_summary.tsv"
+        p.write_text("genome\tstatus\ng1\tok\ng2\tok\n")
+        assert load_defensefinder_summary(str(p)) == set()

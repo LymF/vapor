@@ -760,32 +760,34 @@ termina sem NENHUM gene tipo `defesa` na matriz por membro é contraditório:
 `mag_pangenome_matrix` grava `done.txt` como `failed: ...` nesse caso, nunca
 `ok` com matriz vazia.
 
-**O que essa correção NÃO cobre, e por quê.** O manifesto lido por
-`mag_pangenome_matrix` é o de `mag_pangenome_proteins` — reflete só sucesso
-ou falha do PRODIGAL por genoma. O laço por genoma do DefenseFinder em
-`rules/defense_amr.smk` (`|| echo WARNING`, que deliberadamente não derruba
-a regra para não perder o cluster inteiro por um genoma ruim) não remove
-ninguém do manifesto: o genoma continua anotado (prodigal rodou), só não
-aparece em `defensefinder_systems.tsv`, e a matriz atual não tem como
-distinguir isso de "rodou e não achou sistema nenhum" — que é resultado
-biológico legítimo e comum, não uma falha. As duas situações produzem
-exatamente a mesma linha ausente na tabela de saída do DefenseFinder, então
-nenhuma leitura de `defensefinder_systems.tsv` as separa: o dado que falta
-não está lá para ser lido, tem de ser registrado na origem. O conserto real
-é o mesmo padrão que `mag_bakta` já usa — `bakta_summary.tsv` com uma linha
-`bin TAB status` por genoma, `ok` ou `failed`. `mag_defensefinder`
-precisaria emitir o equivalente (`defensefinder_summary.tsv`, status por
-genoma dentro do laço que hoje só faz `echo WARNING`), e
-`mag_pangenome_matrix` passaria a cruzar esse arquivo além do manifesto do
-prodigal antes de decidir `?` vs `.`. Não implementado nesta correção —
-ficou registrado aqui para não ser reaberto por intuição nem confundido com
-"já coberto" na próxima revisão. Também falta cobertura automatizada: o
-parâmetro `annotated` de `build_matrix`/`summarize_clusters`
-(`scripts/pangenome_matrix.py`) foi validado manualmente nesta revisão e o
-comportamento está correto para o que o manifesto cobre hoje, mas não há
-teste de regressão que fixe isso — uma futura mudança no manifesto ou no
-laço do DefenseFinder pode reintroduzir o defeito original sem que a
-suíte perceba.
+**Resolvido em 2026-08-19 (mesmo dia, branch `fix/defensefinder-status`).** O
+parágrafo anterior desta seção descrevia uma lacuna que ficou sem conserto na
+revisão original: o manifesto lido por `mag_pangenome_matrix` é o de
+`mag_pangenome_proteins`, que reflete só sucesso/falha do PRODIGAL por
+genoma — o laço por genoma do DefenseFinder em `rules/defense_amr.smk`
+(`|| echo WARNING`, que deliberadamente não derruba a regra) não removia
+ninguém do manifesto, então um genoma onde o DefenseFinder quebrou ficava
+indistinguível de "rodou e não achou sistema nenhum" (resultado biológico
+legítimo e comum) — as duas situações produziam a mesma linha ausente em
+`defensefinder_systems.tsv`, e nenhuma leitura dessa tabela as separava. O
+conserto seguiu exatamente o padrão já previsto aqui: `mag_defensefinder`
+(herdada por `mag_pangenome_defensefinder` via `use rule ... with:`, que
+precisou declarar o novo output também) agora escreve
+`defensefinder_summary.tsv` (`genome TAB status`, `ok`/`failed`, mesma
+convenção de `bakta_summary.tsv`), lido por
+`scripts/pangenome_matrix.load_defensefinder_summary`. A falha vira `?`
+**só nas linhas `tipo=defesa`** do membro afetado — AMR vem de
+AMRFinderPlus/RGI/DeepARG, que rodam sobre proteínas concatenadas (não em
+laço por genoma), então uma falha ali já é global e cai no `failed:` da
+própria regra, sem precisar de equivalente. `build_matrix` ganhou o
+parâmetro `defense_failed` (conjunto de membros); `summarize_clusters` foi
+reescrita para derivar seu denominador core/variável de `row["n_evaluable"]`
+— o mesmo valor que `build_matrix` já grava por linha — em vez de recalcular
+um `n_eval` único por cluster, o que teria discordado da matriz assim que
+`defense_failed` começou a diferenciar o denominador por `tipo`. Coberto por
+`tests/test_pangenome_matrix.py` (`TestDefenseFailedOnlyGatesDefenseRows`,
+`TestAnnotatedGatesAllTypes`, `TestLoadDefenseFinderSummary`). Custo: **+0
+jobs** — é um output novo na mesma regra global, o DAG segue em 1413.
 
 **O limiar de core (`CORE_FRACTION = 0.90`), no regime de 3-6 membros que a
 fase 1 produz, é operacionalmente 100%**: `0.90 * n_eval` arredonda para
@@ -815,6 +817,39 @@ dentro do pacote do relatório — mover uma lógica de domínio para dentro de 
 gerador de HTML porque só ele a usava é o mesmo erro que motivou separar
 `scripts/` dos `rules/*.smk` em primeiro lugar. Uma função, um lugar, dois
 `import`.
+
+### Lacuna conhecida, deliberadamente não fechada agora: o relatório HTML não mostra a fase 1
+
+`gene_by_member.tsv` e `cluster_summary.tsv` não aparecem em lugar nenhum do
+relatório interativo. `scripts/report/data_loaders.py` rastreia hoje só o
+STATUS das cinco regras do bloco de pangenoma via
+`STATUS_TRACKED_GLOBAL_TOOLS` (`mag_pangenome_select`, `mag_pangenome_proteins`,
+`mag_pangenome_defensefinder`, `mag_pangenome_amrfinderplus`/os demais de AMR
+e `mag_pangenome_matrix`), então uma falha vira lacuna visível no painel de
+status — mas não existe `load_*` para o CONTEÚDO dessas duas tabelas, nem
+fiação no `renderer.py`, nem painel em `scripts/report/components/`. Quem quer
+ver o resultado da fase 1 hoje tem de abrir os TSV direto em
+`{MAG_CATALOG_DIR}/pangenome/`. Isto é aceitável para uma fase que ainda não
+rodou nos dados reais (ver "Critério de saída da fase 1" abaixo), mas não deve
+ser confundido com "já coberto" quando a fase 1 rodar de verdade e alguém for
+decidir a fase 2 olhando o relatório em vez do TSV.
+
+O que falta, se/quando isto for fechado: um `load_pangenome()` em
+`data_loaders.py` que leia `cluster_summary.tsv` (uma linha por cluster
+elegível, é o que decide a fase 2) e `gene_by_member.tsv` (a matriz em si,
+larga — colunas = união de todos os membros elegíveis de todos os clusters);
+fiação no `_build()` de `renderer.py` adicionando a chave ao dicionário de
+dados; e um painel novo em `scripts/report/components/`, provavelmente na aba
+`hostdefense` — é onde defesa e AMR já vivem, e o gate de elegibilidade da
+fase 1 (`mag_pangenome_select`) é construído sobre ilha/sistemas/ARG, o mesmo
+domínio dessa aba. **O cuidado que importa na visualização:** a matriz é de
+TRÊS estados reais mais um símbolo estrutural (`x`/`.`/`?`/`-`, ver "A matriz
+de três estados" acima) — um painel que renderizasse `?` e `-` como "ausente"
+(por exemplo, colorindo os dois igual a `.`, ou simplesmente não distinguindo
+visualmente) reproduziria na interface exatamente o erro que a fase 1 inteira
+existe para evitar: "não avaliável" e "membro de outro cluster" não são
+"o organismo não tem o gene", e tratá-los como o mesmo estado visual é a
+versão de UI do bug do `done.txt` vazio lido como zero biológico.
 
 ### Números medidos
 

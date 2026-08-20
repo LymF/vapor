@@ -15,14 +15,24 @@ Existe um quarto simbolo, fora do trio acima: '-' e escrito pelo chamador
 (a matriz e larga, colunas = uniao de todos os membros elegiveis). Este
 modulo nao produz '-' -- so 'x'/'./'?'.
 
-'?' cobre duas causas distintas, e quem chama este modulo precisa saber
+'?' cobre TRES causas distintas, e quem chama este modulo precisa saber
 separa-las no log (nao aqui, que so decide o estado):
   1. completude abaixo do piso (`min_completeness`);
-  2. falha de anotacao por membro -- prodigal ou DefenseFinder falhou
-     naquele genoma, ou o genoma nem chegou ao pool. Um membro assim nao
-     aparece no manifesto do pangenoma, e o chamador passa isso aqui via
-     `annotated`: quem nao esta em `annotated` e sempre '?', mesmo que a
-     completude esteja ok -- falha de ferramenta nao e ausencia biologica.
+  2. falha de anotacao por membro -- prodigal falhou naquele genoma, ou o
+     genoma nem chegou ao pool. Um membro assim nao aparece no manifesto
+     do pangenoma, e o chamador passa isso aqui via `annotated`: quem nao
+     esta em `annotated` e sempre '?' em TODAS as linhas (defesa e amr),
+     mesmo que a completude esteja ok -- falha de ferramenta nao e
+     ausencia biologica;
+  3. falha do DefenseFinder por membro (o `|| echo WARNING` em
+     `rules/defense_amr.smk`, que deliberadamente nao derruba a regra):
+     prodigal funcionou (o membro esta em `annotated`), mas o
+     DefenseFinder nao produziu saida para aquele genoma especifico. Isto
+     e passado via `defense_failed`, e so afeta as linhas `tipo='defesa'`
+     desse membro -- AMR vem de AMRFinderPlus/RGI/DeepARG, que rodam
+     sobre proteinas concatenadas (nao em laco por genoma), entao uma
+     falha ali e GLOBAL e ja fica coberta pelo `failed:` da propria
+     regra, sem equivalente de `defense_failed` necessario aqui.
 
 Cada linha tambem carrega um `tipo` ('defesa' ou 'amr'): sistema de defesa
 e ARG entram na mesma tabela de genes, e sem essa distincao uma colisao de
@@ -40,6 +50,29 @@ esperado no regime de clusters pequenos que a fase 1 produz -- nao ler
 
 MIN_COMPLETENESS = 70.0   # mesmo piso do mag_bakta
 CORE_FRACTION = 0.90      # 99% zera o core com MAG (metaFun)
+
+
+def load_defensefinder_summary(path):
+    """Le defensefinder_summary.tsv (bin TAB status) e devolve os FALHOS.
+
+    So 'ok' conta como sucesso -- qualquer outro valor de status
+    (`'failed'`, ou um valor desconhecido/futuro que este parser nunca viu)
+    entra no conjunto retornado, porque o efeito pretendido (tirar a linha
+    `tipo='defesa'` do denominador) e o mesmo de uma falha: o unico jeito
+    seguro de ler um status que nao se reconhece e como "nao confirmado
+    como ok", nunca como sucesso silencioso. Um arquivo so com cabecalho
+    (caminho de skip da regra) devolve conjunto vazio.
+    """
+    import csv
+
+    failed = set()
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f, delimiter="\t"):
+            genome = (row.get("genome") or "").strip()
+            status = (row.get("status") or "").strip()
+            if genome and status != "ok":
+                failed.add(genome)
+    return failed
 
 
 def _evaluable(members, completeness, min_completeness, annotated=None):
@@ -62,23 +95,33 @@ def _typed(hit):
 
 
 def build_matrix(clusters, members_by_rep, gene_hits, completeness,
-                 annotated=None, min_completeness=MIN_COMPLETENESS):
+                 annotated=None, min_completeness=MIN_COMPLETENESS,
+                 defense_failed=None):
     """Uma linha por (cluster, tipo, gene).
 
     `annotated`: conjunto opcional de membros que de fato aparecem no
-    manifesto de anotacao (prodigal + defensefinder/amr rodaram e nao
-    falharam). Quando fornecido, um membro fora dele e sempre '?' e sai
-    do denominador -- ver docstring do modulo.
+    manifesto de anotacao (prodigal rodou e nao falhou). Quando
+    fornecido, um membro fora dele e sempre '?' em TODAS as linhas (sai
+    do denominador de defesa e do de amr) -- ver docstring do modulo.
+
+    `defense_failed`: conjunto opcional de membros para os quais o
+    DefenseFinder falhou (mas que ESTAO em `annotated`, ou seja, prodigal
+    rodou normalmente). Torna '?' e tira do denominador APENAS as linhas
+    `tipo='defesa'` desse membro -- as linhas `tipo='amr'` do mesmo
+    membro nao sao afetadas, porque AMR vem de outras ferramentas.
     """
+    defense_failed = defense_failed or set()
     rows = []
     for rep in clusters:
         members = members_by_rep.get(rep, [])
-        evaluable = set(_evaluable(members, completeness, min_completeness,
-                                   annotated))
+        base_evaluable = set(_evaluable(members, completeness, min_completeness,
+                                        annotated))
         typed_hits = {m: {_typed(h) for h in gene_hits.get(m, set())}
                      for m in members}
         keys = sorted({k for m in members for k in typed_hits[m]})
         for tipo, gene in keys:
+            evaluable = {m for m in base_evaluable
+                        if not (tipo == "defesa" and m in defense_failed)}
             states, n_present = {}, 0
             for m in members:
                 if m not in evaluable:
@@ -102,7 +145,24 @@ def build_matrix(clusters, members_by_rep, gene_hits, completeness,
 
 def summarize_clusters(matrix_rows, members_by_rep, completeness,
                        annotated=None, min_completeness=MIN_COMPLETENESS):
-    """Uma linha por cluster: e isto que decide se a fase 2 se justifica."""
+    """Uma linha por cluster: e isto que decide se a fase 2 se justifica.
+
+    O denominador de core/variavel usa `row["n_evaluable"]`, o MESMO valor
+    que `build_matrix` ja gravou em cada linha -- nao um `n_eval` calculado
+    de novo aqui a partir de `annotated`/`completeness`. Isto e proposital:
+    desde que `defense_failed` passou a tirar membros do denominador SO das
+    linhas `tipo='defesa'` (ver `build_matrix`), um `n_eval` unico por
+    cluster estaria certo para as linhas `amr` e errado para as `defesa` --
+    reusar `row["n_evaluable"]` elimina essa segunda fonte de verdade e
+    garante que este sumario NUNCA discorda da matriz sobre quantos membros
+    contam para cada gene.
+
+    `n_members_avaliaveis`, ao contrario, e um numero por CLUSTER (nao por
+    linha): quantos membros passaram no piso geral de completude + prodigal.
+    E o denominador "largo" que as linhas `amr` usam; as linhas `defesa` de
+    um membro com DefenseFinder falho sao mais estreitas que isto, e essa
+    diferenca so aparece na propria matriz (coluna `n_evaluable`), nao aqui.
+    """
     by_rep = {}
     for row in matrix_rows:
         by_rep.setdefault(row["representative_id"], []).append(row)
@@ -114,9 +174,10 @@ def summarize_clusters(matrix_rows, members_by_rep, completeness,
                                 annotated))
         core = variable = singleton = 0
         for row in rows:
-            if not n_eval or row["n_present"] == 0:
+            n_eval_row = row["n_evaluable"]
+            if not n_eval_row or row["n_present"] == 0:
                 continue
-            if row["n_present"] >= CORE_FRACTION * n_eval:
+            if row["n_present"] >= CORE_FRACTION * n_eval_row:
                 core += 1
             else:
                 variable += 1

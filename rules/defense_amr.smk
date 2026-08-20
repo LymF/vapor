@@ -67,6 +67,14 @@ rule mag_defensefinder:
         done        = f"{MAG_CATALOG_DIR}/defensefinder/done.txt",
         systems     = f"{MAG_CATALOG_DIR}/defensefinder/defensefinder_systems.tsv",
         antisystems = f"{MAG_CATALOG_DIR}/defensefinder/antidefensefinder_systems.tsv",
+        # Sumario por genoma (bin TAB status, mesma convencao de
+        # bakta_summary.tsv em rules/annotation.smk): o laco abaixo e
+        # per-genoma e so loga um WARNING quando falha, sem derrubar a
+        # regra -- entao um genoma ausente de defensefinder_systems.tsv e
+        # ambiguo por construcao (rodou-e-nao-achou-nada vs quebrou). Este
+        # arquivo e a unica fonte que distingue os dois casos; ver
+        # scripts/pangenome_matrix.py.
+        summary     = f"{MAG_CATALOG_DIR}/defensefinder/defensefinder_summary.tsv",
     log:
         f"{OUTDIR}/logs/mag_defensefinder.log"
     benchmark:
@@ -91,6 +99,7 @@ rule mag_defensefinder:
                 lf.write(msg + "\n")
             Path(str(output.systems)).write_text("genome\n")
             Path(str(output.antisystems)).write_text("genome\n")
+            Path(str(output.summary)).write_text("genome\tstatus\n")
             write_status(str(output.done), status)
 
         if (not params.enabled or not os.path.exists(str(input.manifest))
@@ -138,8 +147,10 @@ rule mag_defensefinder:
         # on a fresh CasFinder release, the per-genome loop below already
         # degrades gracefully (warns + 0 rows, doesn't fail the rule).
 
+        genome_status = {}
         for name, mode, fna, faa, gff in _read_manifest(str(input.manifest)):
             if not os.path.exists(faa) or os.path.getsize(faa) == 0:
+                genome_status[name] = "failed"
                 continue
             genome_out = os.path.join(params.outdir, name)
             os.makedirs(genome_out, exist_ok=True)
@@ -148,6 +159,12 @@ rule mag_defensefinder:
                 "--antidefensefinder {faa} "
                 ">> {log} 2>&1 || echo '[defensefinder] WARNING: failed on {name}' >> {log}"
             )
+            # O `|| echo WARNING` acima nao derruba a regra de proposito
+            # (um genoma ruim nao pode travar o catalogo inteiro) -- por
+            # isso o status real e lido do arquivo que o defense-finder
+            # deveria ter escrito, nao do exit code do shell().
+            out_tsv = os.path.join(genome_out, f"{name}_defense_finder_systems.tsv")
+            genome_status[name] = "ok" if os.path.exists(out_tsv) else "failed"
 
         # defense-finder 3.0.0 (--antidefensefinder) writes ONE file per
         # genome -- {name}_defense_finder_systems.tsv -- with defense AND
@@ -179,6 +196,12 @@ rule mag_defensefinder:
 
         write(str(output.systems), def_rows)
         write(str(output.antisystems), anti_rows)
+
+        with open(str(output.summary), "w", newline="") as f:
+            w = csv.writer(f, delimiter="\t")
+            w.writerow(["genome", "status"])
+            for name, mode, fna, faa, gff in _read_manifest(str(input.manifest)):
+                w.writerow([name, genome_status.get(name, "failed")])
 
         with open(str(log[0]), "a") as lf:
             lf.write(f"[defensefinder] Done -- {len(def_rows)} defense, "

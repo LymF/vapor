@@ -220,6 +220,7 @@ use rule mag_defensefinder as mag_pangenome_defensefinder with:
         done        = f"{PANGENOME_DIR}/defensefinder/done.txt",
         systems     = f"{PANGENOME_DIR}/defensefinder/defensefinder_systems.tsv",
         antisystems = f"{PANGENOME_DIR}/defensefinder/antidefensefinder_systems.tsv",
+        summary     = f"{PANGENOME_DIR}/defensefinder/defensefinder_summary.tsv",
     log:
         f"{OUTDIR}/logs/mag_pangenome_defensefinder.log"
     benchmark:
@@ -311,6 +312,7 @@ rule mag_pangenome_matrix:
         quality    = rules.mag_catalog_quality.output.tsv,
         manifest   = rules.mag_pangenome_proteins.output.manifest,
         df_systems = rules.mag_pangenome_defensefinder.output.systems,
+        df_summary = rules.mag_pangenome_defensefinder.output.summary,
         consensus  = rules.mag_pangenome_amr_consensus.output.consensus,
         gtdb_bac   = rules.mag_catalog_gtdbtk.output.bac_tsv,
         gtdb_ar    = rules.mag_catalog_gtdbtk.output.ar_tsv,
@@ -328,7 +330,8 @@ rule mag_pangenome_matrix:
 
         _sys.path.insert(0, SCRIPTS_DIR)
         from pangenome_select import load_membership, load_completeness
-        from pangenome_matrix import build_matrix, summarize_clusters
+        from pangenome_matrix import (build_matrix, summarize_clusters,
+                                      load_defensefinder_summary)
         from mag_catalog import resolve_prefixed_id
 
         membership   = load_membership(str(input.membership))
@@ -361,14 +364,8 @@ rule mag_pangenome_matrix:
         # prodigal rodou sobre eles e nao falhou. Quem esta fora deste
         # conjunto (ausente do pool OU prodigal falhou por genoma) some das
         # tabelas por falha de FERRAMENTA, nao por ausencia biologica -- tem
-        # de virar '?', nunca '.'. ATENCAO: isto cobre so o prodigal. Uma
-        # falha do DefenseFinder por genoma (o `|| echo WARNING` em
-        # rules/defense_amr.smk, que deliberadamente nao derruba a regra) NAO
-        # e detectavel aqui -- o genoma continua no manifesto (prodigal foi
-        # bem-sucedido), so nao aparece em defensefinder_systems.tsv, e cai
-        # como '.' de qualquer forma. Ver docstring de
-        # scripts/pangenome_matrix.py e o registro em
-        # docs/ROADMAP_SIMPLIFICACAO.md.
+        # de virar '?', nunca '.'. Isto cobre TODAS as linhas (defesa e amr)
+        # do membro.
         annotated = set()
         with open(str(input.manifest)) as f:
             for line in f:
@@ -379,6 +376,18 @@ rule mag_pangenome_matrix:
         n_missing_completeness = sum(
             1 for m in known_members
             if m in annotated and completeness.get(m, 0.0) < 70.0)
+
+        # Membros com prodigal OK (estao em `annotated`) mas onde o
+        # DefenseFinder falhou naquele genoma especifico -- o `|| echo
+        # WARNING` em rules/defense_amr.smk (mag_defensefinder), herdado por
+        # mag_pangenome_defensefinder via `use rule ... with:`, deliberada-
+        # mente nao derruba a regra por um genoma ruim. Sem o
+        # defensefinder_summary.tsv (bin TAB status) este caso era
+        # indistinguivel de "rodou e nao achou nada" e virava '.', afirmando
+        # ausencia biologica onde a ferramenta so quebrou. So afeta as
+        # linhas tipo='defesa' (build_matrix); AMR nao precisa de
+        # equivalente -- ver docstring de scripts/pangenome_matrix.py.
+        defense_failed = load_defensefinder_summary(str(input.df_summary))
 
         gene_hits = defaultdict(set)
         with open(str(input.df_systems), newline="") as f:
@@ -405,7 +414,7 @@ rule mag_pangenome_matrix:
                     gene_hits[genome].add(("amr", gene))
 
         rows = build_matrix(clusters, members_by_rep, gene_hits, completeness,
-                            annotated=annotated)
+                            annotated=annotated, defense_failed=defense_failed)
         summary = summarize_clusters(rows, members_by_rep, completeness,
                                      annotated=annotated)
 
@@ -448,7 +457,9 @@ rule mag_pangenome_matrix:
             f.write("# completude: " + ", ".join(
                 f"{m}={completeness.get(m, 0.0):.1f}" for m in all_members) + "\n")
             f.write("# estados: x=presente .=ausente ?=nao avaliavel "
-                    "(completude<70 ou falha de anotacao) "
+                    "(completude<70, falha de anotacao [todas as linhas] "
+                    "ou falha do DefenseFinder por genoma [so linhas "
+                    "tipo=defesa desse membro]) "
                     "-=membro nao pertence a este cluster\n")
             f.write("cluster\ttipo\tgene\tfreq\tn_present\tn_evaluable\t"
                     + "\t".join(all_members) + "\n")
@@ -480,8 +491,10 @@ rule mag_pangenome_matrix:
             lf.write(f"[pangenome_matrix] {len(clusters)} clusters, "
                      f"{len(rows)} linhas de gene\n")
             lf.write(f"[pangenome_matrix] membros '?': {n_missing_annotation} "
-                     f"por falha de anotacao (fora do manifesto), "
-                     f"{n_missing_completeness} por completude < 70 -- causas "
+                     f"por falha de anotacao (fora do manifesto, todas as "
+                     f"linhas), {n_missing_completeness} por completude < 70, "
+                     f"{len(defense_failed & known_members)} por falha do "
+                     f"DefenseFinder (so linhas tipo=defesa) -- causas "
                      f"diferentes, nao somar como se fossem a mesma coisa\n")
             lf.write(f"[pangenome_matrix] taxonomia GTDB: {n_bac} representantes "
                      f"bac120, {n_ar} ar53\n")

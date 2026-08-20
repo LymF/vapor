@@ -709,6 +709,7 @@ def _mag_write_views(source_id, membership, inp, outp, log_path):
     _mag_status_view(str(inp["proteins_done"]), str(outp["proteins_done"]))
 
     for key, genome_col in (("df_systems", "genome"), ("df_anti", "genome"),
+                            ("df_summary", "genome"),
                             ("vfdb", "genome"), ("plasmidfinder", "genome"),
                             ("bakta", "bin"), ("kegg", "mag"),
                             ("cazy", "mag"), ("modules", "mag")):
@@ -736,6 +737,7 @@ def _mag_view_io(base):
         "proteins_done":  f"{base}/bins/proteins/done.txt",
         "df_systems":     f"{base}/bins/defensefinder/defensefinder_systems.tsv",
         "df_anti":        f"{base}/bins/defensefinder/antidefensefinder_systems.tsv",
+        "df_summary":     f"{base}/bins/defensefinder/defensefinder_summary.tsv",
         "df_done":        f"{base}/bins/defensefinder/done.txt",
         "amrfinder":      f"{base}/bins/amrfinderplus/amrfinder_results.tsv",
         "amr_done":       f"{base}/bins/amrfinderplus/done.txt",
@@ -768,6 +770,7 @@ _MAG_VIEW_GLOBAL = lambda: {
     "proteins_done":    rules.mag_catalog_proteins.output.done,
     "df_systems":       rules.mag_defensefinder.output.systems,
     "df_anti":          rules.mag_defensefinder.output.antisystems,
+    "df_summary":       rules.mag_defensefinder.output.summary,
     "df_done":          rules.mag_defensefinder.output.done,
     "amrfinder":        rules.mag_amrfinderplus.output.results,
     "amr_done":         rules.mag_amrfinderplus.output.done,
