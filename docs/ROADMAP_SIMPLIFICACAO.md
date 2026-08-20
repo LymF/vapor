@@ -673,6 +673,12 @@ Exige vários MAGs da mesma espécie e responde pergunta de genômica comparativ
 O eixo do metaFun é invertido ao nosso (ele é comparativa com metagenômica de
 apoio; a vapor é viroma com procarioto de apoio).
 
+**Revisitado em 2026-08-19** — ver "Fase 1 do pangenoma dos clusters com ilha"
+abaixo. A rejeição continua válida para "pangenoma de todos os clusters"; o que
+mudou foi restringir a pergunta a um subconjunto pequeno e com motivo biológico
+(clusters com sinal de defesa/AMR/mobilidade), e adiar o PPanGGOLiN em si até
+que a matriz mostre que há variação real para explicar.
+
 ### Assimetria do vOMIX
 
 Ele prega "uma ferramenta bem escolhida" no viral e usa **quatro binners**
@@ -703,6 +709,92 @@ para um módulo opcional de benchmark em vez do caminho default.
   `scripts/check_env_container_sync.py` acusar divergência. Resolver com imagem
   custom no GHCR (a infra já existe: `ghcr.io/lymf/vapor-genome-map` com
   `custom: true`, mais `.github/workflows/build-containers.yml`).
+
+---
+
+## Fase 1 do pangenoma dos clusters com ilha (2026-08-19)
+
+Implementada em `rules/pangenome.smk` — ver
+`docs/superpowers/specs/2026-08-19-pangenoma-clusters-defesa-design.md` para o
+desenho completo. Registro aqui é só o que não deve ser reaberto por intuição.
+
+### O portão
+
+Um cluster do catálogo global de MAGs (`mag_catalog/`) só ganha anotação por
+MEMBRO — em vez de só pela representante, como todo o resto do catálogo desde
+o item "(h)" — se: **>= 3 membros** E (**ilha de defesa** OU **>= 3 sistemas de
+defesa** OU **ARG de consenso**, `n_tools >= 2`). O `AbricateFinder`
+(PlasmidFinder) é registrado como sinal de mobilidade em `candidates.tsv` mas
+**nunca elege sozinho** — um plasmídio sem defesa nem ARG associado não motiva
+o custo de anotar cada membro individualmente; ele é contexto para interpretar
+o que os outros três critérios já elegeram, não um quarto critério.
+
+### A matriz de três estados
+
+`gene_by_member.tsv` usa `x` (presente), `.` (ausente) e `?` (**não
+avaliável**) — nunca colapsa os dois últimos. O motivo é o mesmo já registrado
+para `done.txt` vazio lido como zero biológico: um MAG abaixo do piso de
+completude (70%, o mesmo do `mag_bakta`) pode não ter montado a região onde o
+gene estaria, e um "." ali afirmaria "o organismo não tem o gene" quando o que
+houve foi "não dá para saber". Tratar os dois como o mesmo zero produziria
+conclusão errada com aparência de dado. O `?` fica fora do denominador da
+frequência (`n_evaluable`) — testado em `tests/test_pangenome_matrix.py`,
+inclusive o caso adversarial em que o membro incompleto tem um hit real (a
+checagem de completude precisa vir ANTES da checagem de presença do gene, não
+depois).
+
+### `compute_defense_islands` deixou de ser exclusiva do relatório
+
+Migrou para `scripts/defense_islands.py` (`find_islands`, `genes_by_contig`),
+com uma definição e dois consumidores: `scripts/report/data_loaders.py` (aba
+de defesa/host) e `rules/pangenome.smk` (`mag_pangenome_select`, para decidir
+se um cluster tem ilha). Antes de existir o segundo consumidor a função vivia
+dentro do pacote do relatório — mover uma lógica de domínio para dentro de um
+gerador de HTML porque só ele a usava é o mesmo erro que motivou separar
+`scripts/` dos `rules/*.smk` em primeiro lugar. Uma função, um lugar, dois
+`import`.
+
+### Números medidos
+
+- **DAG:** dry-run `--forceall` antes/depois, mesmo config de referência:
+  **1404 → 1413 jobs**, exatamente **+9**, todos globais (contagem 1), zero por
+  amostra. As nove regras: `mag_pangenome_select`, `mag_pangenome_proteins`,
+  `mag_pangenome_defensefinder`, `mag_pangenome_amrfinderplus`,
+  `mag_pangenome_rgi_card`, `mag_pangenome_deeparg`, `mag_pangenome_argnorm`,
+  `mag_pangenome_amr_consensus`, `mag_pangenome_matrix`. O bloco de AMR é
+  cinco regras encadeadas, não uma — mesma granularidade do catálogo global.
+- **Testes:** piso subiu de 171 (pré-fase-1) para **197 passed + 4 skipped**.
+
+### Critério de saída da fase 1 — o que decide a fase 2
+
+**Isto é o ponto mais importante desta seção.** A fase 2 (rodar PPanGGOLiN de
+verdade sobre os clusters elegíveis, com partição core/shell/cloud) só se
+justifica se, depois de rodar nos dados reais, `cluster_summary.tsv` mostrar:
+
+> **>= 1 cluster com `n_members_avaliaveis >= 5` E `n_genes_variaveis > 0`.**
+
+Se nenhum cluster passar nesse corte, **a matriz de três estados é a resposta
+final e o PPanGGOLiN não deve ser construído** — rodá-lo sobre 3-4 membros
+produziria uma partição estatisticamente sem sustentação, com aparência de
+análise. Os números por trás do corte, para não serem reabertos por intuição
+depois:
+
+- **5** é o piso mínimo do próprio paradigma core/acessório — abaixo disso não
+  há genoma "extra" o bastante para separar `core` de `shell`.
+- **15** é a recomendação de robustez estatística citada na literatura de
+  pangenômica microbiana — 5 é o piso absoluto, não o alvo confortável.
+- A documentação do PPanGGOLiN recomenda fixar `-K 3` (em vez de deixar o
+  BIC escolher `K`) quando a entrada é MAG, porque a qualidade heterogênea dos
+  genomas de metagenoma confunde a seleção automática de `K`. Se a fase 2 for
+  escrita, começar por aí — não pelo `K` livre.
+
+Esta decisão precisa ser tomada olhando o `cluster_summary.tsv` de uma rodada
+real, não em abstrato; o número de clusters elegíveis nos dados da Amazônia
+ainda não foi medido neste worktree (nenhuma rodada real de
+`mag_pangenome_matrix` foi executada aqui — só o DAG em modo dry-run). Quem
+rodar a pipeline por completo deve registrar o resultado medido nesta mesma
+seção, substituindo este parágrafo, em vez de decidir a fase 2 de novo do
+zero.
 
 ---
 

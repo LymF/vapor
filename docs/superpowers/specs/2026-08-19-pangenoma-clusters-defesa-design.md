@@ -203,8 +203,15 @@ oito manifestações). Os pontos de risco aqui:
 Pelo método do roadmap, sem exceção:
 
 - **DAG:** dry-run `-n --forceall` com `config_amazon_18-08-26.yaml` e outdir
-  temporário, antes e depois. Delta esperado: **+5 jobs globais fixos**, zero
-  por amostra. Qualquer job por amostra é bug de desenho.
+  temporário, antes e depois. Delta esperado: **+9 jobs globais fixos**, zero
+  por amostra. Qualquer job por amostra é bug de desenho. O AMR sozinho conta
+  cinco regras encadeadas (`mag_pangenome_amrfinderplus` →
+  `mag_pangenome_rgi_card` → `mag_pangenome_deeparg` → `mag_pangenome_argnorm`
+  → `mag_pangenome_amr_consensus`), não uma — cada ferramenta e cada etapa de
+  normalização/consenso é um job próprio, como no catálogo global de MAGs.
+  Somadas a `mag_pangenome_select`, `mag_pangenome_proteins`,
+  `mag_pangenome_defensefinder` e `mag_pangenome_matrix`, o total medido foi
+  1404 → 1413.
 - **Testes:** funções puras de `scripts/defense_islands.py` (extração) e do
   seletor/matriz. Piso: os 171 atuais continuam passando.
 - **Formato:** toda suposição conferida contra arquivo real em

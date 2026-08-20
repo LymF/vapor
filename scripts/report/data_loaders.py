@@ -58,6 +58,14 @@ STATUS_TRACKED_GLOBAL_TOOLS = {
     # resultado biologico possivel e nao pode ser confundido com o tool ter
     # quebrado.
     "mag_kegg_completeness":   "mag_catalog/kegg_modules/done.txt",
+    # Fase 1 do pangenoma (2026-08-19). "Nenhum cluster elegivel" e
+    # resultado legitimo -- tem de aparecer como skipped:, jamais como
+    # painel vazio, que e indistinguivel de "a ferramenta quebrou".
+    "mag_pangenome_select":        "mag_catalog/pangenome/select_done.txt",
+    "mag_pangenome_proteins":      "mag_catalog/pangenome/proteins/done.txt",
+    "mag_pangenome_defensefinder": "mag_catalog/pangenome/defensefinder/done.txt",
+    "mag_pangenome_amr_consensus": "mag_catalog/pangenome/amr_consensus/done.txt",
+    "mag_pangenome_matrix":        "mag_catalog/pangenome/done.txt",
 }
 
 GLOBAL_STATUS_LABEL = "(global)"
