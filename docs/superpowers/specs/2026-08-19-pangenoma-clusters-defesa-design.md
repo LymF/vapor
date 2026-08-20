@@ -158,14 +158,89 @@ fase 2 não deve ser construída.
 
 **Não implementar antes de a fase 1 rodar nos dados reais.**
 
-- Ferramenta: `ppanggolin` 2.3.1 (bioconda, verificado).
-- Entrada: bakta por membro (o PPanGGOLiN quer GFF **com sequência**), depois
-  `ppanggolin annotate --anno <lista.gff>` → `cluster` → `graph` → `partition`.
-- **`-K 3` fixo** e core a **90%**.
-- Saída: `pangenome/<cluster>/partition_map.tsv` — cada sistema de defesa e cada
-  ARG com sua partição (persistente/shell/cloud) e a frequência entre membros.
+### 4.0 Sonda de formato (2026-08-19)
 
-### Ressalva de validade, a ser repetida em qualquer figura
+Antes de escrever esta seção, uma sonda **de formato**, não biológica, rodou o
+PPanGGOLiN 2.3.1 real sobre 3 MAGs reconstruídos de uma corrida real
+(`~/global/results`, amostra ERR4678639, gênero *Desulfobulbus*). Não era teste
+biológico porque os três genomas têm ANI par a par de **0,00** (medido com
+skani) — não formam cluster nenhum. O objetivo era só verificar contrato de
+arquivo: nomes de coluna, presença/ausência de cabeçalho, convenção de ID. O
+que segue nesta seção foi corrigido a partir do que a sonda **mediu**, não do
+que a documentação do PPanGGOLiN promete.
+
+- **Ferramenta, corrigido.** `ppanggolin` 2.3.1 está no bioconda (subido em
+  2026-08-14), mas a receita declara `dataclasses 0.8.*` como dependência de
+  runtime — o backport que só existe para Python 3.6. Nem `conda` nem `mamba`
+  resolvem o ambiente: os dois respondem "does not exist" para esse pacote. O
+  que **funciona**, testado hoje via apptainer (`ppanggolin --version` →
+  `2.3.1`), é o container BioContainers
+  `quay.io/biocontainers/ppanggolin:2.3.1--py311hc303176_0`. Coerente com o
+  desenho do repositório, que já pina toda ferramenta em `containers.yaml` —
+  a fase 2 deve entrar como container, não como env conda.
+- **Entrada, corrigido.** bakta por membro continua certo, mas por outro
+  motivo do que a versão anterior desta seção dizia. O PPanGGOLiN **não exige**
+  GFF próprio — ele roda direto com `--fasta` e anota sozinho por dentro. O
+  problema é que, se ele anotar, ele **renomeia todos os genes** para
+  `{genoma}_CDS_{n}` (medido: `binette_bin1_CDS_0001`), enquanto as nossas
+  tabelas de defesa e AMR carregam os IDs do nosso próprio prodigal (mesmo
+  gene, medido: `MEGAHIT_k141_695969_1`). E não é só o nome: as coordenadas
+  também divergem — o mesmo gene tem `start` 41 pelo pyrodigal interno do
+  PPanGGOLiN e `start` 2 pelo nosso prodigal (o resolvedor de gene parcial
+  decide diferente); só `stop` e `strand` bateram. Ou seja, anotar de novo
+  quebra a chave de junção com `gene_by_member.tsv` — a junção não erraria
+  ruidosamente, devolveria **conjunto vazio em silêncio**. Por isso a entrada
+  tem de ser `ppanggolin annotate --anno <lista.gff>` com o **nosso** GFF
+  (bakta por membro), que preserva os nossos IDs de gene, depois
+  `cluster` → `graph` → `partition`, ou o `workflow` equivalente com `--anno`.
+- **`-K 3` fixo** e core a **90%**.
+- **Saída, com schema real medido.** O arquivo que interessa é
+  `table/{genome}.tsv`, colunas `gene | contig | start | stop | strand |
+  family | nb_copy_in_genome | partition | persistent_neighbors |
+  shell_neighbors | cloud_neighbors`; `partition` traz
+  `persistent`/`shell`/`cloud`. `ppanggolin workflow` também escreve
+  `gene_families.tsv`, `gene_presence_absence.Rtab`,
+  `genomes_statistics.tsv`, `matrix.csv`,
+  `mean_persistent_duplication.tsv`, `pangenome.h5`,
+  `pangenomeGraph.{gexf,json}`,
+  `partitions/{persistent,shell,cloud,exact_core,exact_accessory,soft_core,soft_accessory}.txt`,
+  `tile_plot.html`, `Ushaped_plot.html`. Não existe `partition_map.tsv`
+  pronto com sistema de defesa/ARG já anexado — isso é trabalho de junção
+  desta pipeline sobre `table/{genome}.tsv`, usando os IDs de gene do nosso
+  GFF.
+
+### 4.1 Duas armadilhas de parsing, da mesma família de bug já vista no repo
+
+- `gene_families.tsv` **não tem cabeçalho** — a primeira linha já é dado. Um
+  `DictReader` direto comeria a primeira família como se fosse header.
+- `genomes_statistics.tsv` começa com uma linha `#soft_core=0.95` **antes**
+  do cabeçalho real — a mesma forma do preâmbulo `##` do emapper que fez a
+  aba de COG do report contar toda proteína como "função desconhecida"
+  (`annotation.smk`). Qualquer parser aqui precisa pular a linha `#...` antes
+  de ler o header.
+
+### 4.2 Achado central: entrada sem sentido gera resposta bem-formada
+
+Rodando sobre os 3 genomas de ANI 0,00 (não relacionados, confirmado por
+skani), o PPanGGOLiN **não recusou, não avisou e saiu com exit 0**. Produziu
+`Persistent: Family_count: 0`, `Shell: 3629`, `Cloud: 1243` e
+`Number_of_partitions: 2` — colapsou para duas partições apesar de `-K 3`.
+Nenhuma mensagem de erro, nenhum aviso de baixa relação entre genomas: a
+ferramenta faz o que foi mandada fazer e escreve tabelas plausíveis, mesmo
+quando a premissa (genomas relacionados o bastante para ter pangenoma) é
+falsa. Um cluster ruim da fase 1 — membros mal atribuídos, ANI abaixo do
+limiar, poucos membros avaliáveis — produziria a mesma coisa: tabelas
+bem-formadas afirmando que nada é core, sem sinalizar que o problema é a
+entrada e não a biologia.
+
+Esta é a mesma assinatura do defeito "Critical" que a revisão final da fase 1
+encontrou (dado incorreto com formato de dado correto). Qualquer regra que
+chame o PPanGGOLiN tem de **validar a premissa antes** de rodar — ANI dentro
+do cluster, número de membros avaliáveis — e tratar `persistent == 0` na
+saída como sinal de premissa violada, nunca como resultado biológico a ser
+plotado.
+
+### 4.3 Ressalva de validade, a ser repetida em qualquer figura
 
 Com 3–6 membros o PPanGGOLiN **roda**, mas a separação shell/cloud não tem
 sustentação estatística: a recomendação para resultado robusto é **≥ 15 genomas
