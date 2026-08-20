@@ -23,7 +23,6 @@ rule mag_pangenome_select:
     """
     input:
         membership = rules.mag_catalog_membership.output.tsv,
-        quality    = rules.mag_catalog_quality.output.tsv,
         manifest   = rules.mag_catalog_proteins.output.manifest,
         df_systems = rules.mag_defensefinder.output.systems,
         consensus  = rules.mag_amr_consensus.output.consensus,
@@ -206,6 +205,12 @@ rule mag_pangenome_proteins:
 # literalmente. Os corpos ja consomem manifesto e nao conhecem wildcard,
 # por isso apontam sem alteracao para o manifesto dos MEMBROS em vez do
 # manifesto das representantes.
+#
+# mag_pangenome_argnorm e mag_pangenome_amr_consensus encadeiam com as
+# regras mag_pangenome_* anteriores (amrfinderplus/rgi/deeparg deste
+# arquivo), NUNCA com as globais mag_* do catalogo -- reapontar para as
+# globais misturaria resultado de membro com o de representante, em
+# silencio.
 
 use rule mag_defensefinder as mag_pangenome_defensefinder with:
     input:
@@ -290,3 +295,109 @@ use rule mag_amr_consensus as mag_pangenome_amr_consensus with:
         f"{OUTDIR}/logs/mag_pangenome_amr_consensus.log"
     benchmark:
         f"{OUTDIR}/benchmarks/mag_pangenome_amr_consensus.tsv"
+
+
+rule mag_pangenome_matrix:
+    """Matriz gene x membro e sumario por cluster.
+
+    O sumario e o que decide a fase 2: ela so se justifica se houver
+    cluster com >= 5 membros AVALIAVEIS e variacao real
+    (n_genes_variaveis > 0). Com 3-6 membros o PPanGGOLiN roda, mas a
+    separacao shell/cloud nao tem sustentacao (recomendado: >= 15).
+    """
+    input:
+        candidates = rules.mag_pangenome_select.output.candidates,
+        membership = rules.mag_catalog_membership.output.tsv,
+        quality    = rules.mag_catalog_quality.output.tsv,
+        df_systems = rules.mag_pangenome_defensefinder.output.systems,
+        consensus  = rules.mag_pangenome_amr_consensus.output.consensus,
+    output:
+        matrix  = f"{PANGENOME_DIR}/gene_by_member.tsv",
+        summary = f"{PANGENOME_DIR}/cluster_summary.tsv",
+        done    = f"{PANGENOME_DIR}/done.txt",
+    log:
+        f"{OUTDIR}/logs/mag_pangenome_matrix.log"
+    run:
+        import csv as _csv
+        import sys as _sys
+        from collections import defaultdict
+
+        _sys.path.insert(0, SCRIPTS_DIR)
+        from pangenome_select import load_membership, load_completeness
+        from pangenome_matrix import build_matrix, summarize_clusters
+        from mag_catalog import resolve_prefixed_id
+
+        membership   = load_membership(str(input.membership))
+        completeness = load_completeness(str(input.quality))
+
+        clusters = []
+        with open(str(input.candidates), newline="") as f:
+            for row in _csv.DictReader(f, delimiter="\t"):
+                if (row.get("eligible") or "").strip() in ("True", "true", "1"):
+                    clusters.append(row["representative_id"])
+
+        members_by_rep = {rep: [m["member_id"] for m in membership.get(rep, [])]
+                          for rep in clusters}
+        known_members = {m for ms in members_by_rep.values() for m in ms}
+
+        gene_hits = defaultdict(set)
+        with open(str(input.df_systems), newline="") as f:
+            for row in _csv.DictReader(f, delimiter="\t"):
+                genome = (row.get("genome") or "").strip()
+                stype  = (row.get("type") or row.get("subtype") or "").strip()
+                if genome and stype:
+                    gene_hits[genome].add(stype)
+
+        with open(str(input.consensus), newline="") as f:
+            for row in _csv.DictReader(f, delimiter="\t"):
+                try:
+                    if int(row.get("n_tools") or 0) < 2:
+                        continue
+                except ValueError:
+                    continue
+                locus = (row.get("locus") or "").strip()
+                gene  = (row.get("gene_name") or "").strip()
+                # Idem: casar contra os MEMBROS conhecidos, nunca cortar.
+                genome, _rest = resolve_prefixed_id(locus, known_members)
+                if genome and gene:
+                    gene_hits[genome].add(gene)
+
+        rows = build_matrix(clusters, members_by_rep, gene_hits, completeness)
+        summary = summarize_clusters(rows, members_by_rep, completeness)
+
+        # A completude viaja no cabecalho: "4/6" so e interpretavel com o
+        # denominador a vista.
+        all_members = sorted({m for ms in members_by_rep.values() for m in ms})
+        with open(str(output.matrix), "w") as f:
+            f.write("# completude: " + ", ".join(
+                f"{m}={completeness.get(m, 0.0):.1f}" for m in all_members) + "\n")
+            f.write("cluster\tgene\tfreq\tn_present\tn_evaluable\t"
+                    + "\t".join(all_members) + "\n")
+            for r in rows:
+                states = [r["states"].get(m, "") for m in all_members]
+                f.write("\t".join([r["representative_id"], r["gene"], r["freq"],
+                                   str(r["n_present"]), str(r["n_evaluable"])]
+                                  + states) + "\n")
+
+        cols = ["representative_id", "n_members", "n_members_avaliaveis",
+                "n_genes_core", "n_genes_variaveis", "n_genes_singleton"]
+        with open(str(output.summary), "w", newline="") as f:
+            w = _csv.DictWriter(f, fieldnames=cols, delimiter="\t")
+            w.writeheader()
+            for s in summary:
+                w.writerow(s)
+
+        fase2 = [s for s in summary
+                 if s["n_members_avaliaveis"] >= 5 and s["n_genes_variaveis"] > 0]
+        with open(str(log[0]), "w") as lf:
+            lf.write(f"[pangenome_matrix] {len(clusters)} clusters, "
+                     f"{len(rows)} linhas de gene\n")
+            lf.write(f"[pangenome_matrix] clusters que sustentariam a fase 2 "
+                     f"(>= 5 membros avaliaveis e variacao): {len(fase2)}\n")
+            if not fase2:
+                lf.write("[pangenome_matrix] nenhum. A matriz acima e a "
+                         "resposta honesta; o PPanGGOLiN sobre 3-4 membros "
+                         "produziria particao sem sustentacao.\n")
+
+        write_status(str(output.done),
+                     "ok" if clusters else "skipped: no eligible clusters")

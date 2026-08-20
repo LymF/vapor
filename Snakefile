@@ -536,9 +536,9 @@ def _t_prok():
     t += expand(f"{OUTDIR}/{{sample}}/annotation/eggnog/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/annotation/kegg_decoder/done.txt", sample=SAMPLES)
     # Fase 1 do pangenoma: sem flag de config, roda sempre sobre o catalogo
-    # global (ver rules/pangenome.smk). Sem consumidor por amostra ainda --
-    # precisa deste alvo explicito para entrar no DAG.
-    t.append(f"{OUTDIR}/mag_catalog/pangenome/select_done.txt")
+    # global (ver rules/pangenome.smk). O alvo e a matriz final -- ela puxa
+    # select -> proteins -> defensefinder/AMR por transitividade.
+    t.append(f"{OUTDIR}/mag_catalog/pangenome/done.txt")
     return t
 
 
