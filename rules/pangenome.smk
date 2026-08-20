@@ -357,11 +357,18 @@ rule mag_pangenome_matrix:
                           for rep in clusters}
         known_members = {m for ms in members_by_rep.values() for m in ms}
 
-        # Membros que de fato aparecem no manifesto de anotacao dos MEMBROS
-        # (mag_pangenome_proteins): prodigal e defensefinder/amr rodaram
-        # sobre eles e nao falharam. Quem esta fora deste conjunto some das
+        # Membros que de fato aparecem no manifesto de mag_pangenome_proteins:
+        # prodigal rodou sobre eles e nao falhou. Quem esta fora deste
+        # conjunto (ausente do pool OU prodigal falhou por genoma) some das
         # tabelas por falha de FERRAMENTA, nao por ausencia biologica -- tem
-        # de virar '?', nunca '.'. Ver docstring de scripts/pangenome_matrix.py.
+        # de virar '?', nunca '.'. ATENCAO: isto cobre so o prodigal. Uma
+        # falha do DefenseFinder por genoma (o `|| echo WARNING` em
+        # rules/defense_amr.smk, que deliberadamente nao derruba a regra) NAO
+        # e detectavel aqui -- o genoma continua no manifesto (prodigal foi
+        # bem-sucedido), so nao aparece em defensefinder_systems.tsv, e cai
+        # como '.' de qualquer forma. Ver docstring de
+        # scripts/pangenome_matrix.py e o registro em
+        # docs/ROADMAP_SIMPLIFICACAO.md.
         annotated = set()
         with open(str(input.manifest)) as f:
             for line in f:

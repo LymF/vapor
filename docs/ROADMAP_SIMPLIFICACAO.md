@@ -752,14 +752,40 @@ carrega uma coluna `tipo` (`defesa`/`amr`) porque sistema de defesa e ARG
 entravam na mesma tabela de genes sem distinção — uma colisão de nome entre
 os dois fundia duas linhas em silêncio; a chave interna agora é o par
 `(tipo, nome)`. Um membro do cluster ausente do manifesto de anotação por
-membro (`mag_pangenome_proteins/manifest.txt` — prodigal falhou, o genoma
-nunca chegou ao pool, ou o DefenseFinder falhou por genoma, ver comentário em
-`rules/defense_amr.smk` sobre o caso real do litrp4) também vira `?`, não
-`.` — falha de FERRAMENTA não é ausência biológica, mesma família de defeito
-do `done.txt` vazio. E um cluster eleito por critério `ilha`/`sistemas` que
+membro (`mag_pangenome_proteins/manifest.txt` — o genoma nunca chegou ao
+pool, ou chegou e o prodigal falhou por genoma) também vira `?`, não `.` —
+falha de FERRAMENTA não é ausência biológica, mesma família de defeito do
+`done.txt` vazio. E um cluster eleito por critério `ilha`/`sistemas` que
 termina sem NENHUM gene tipo `defesa` na matriz por membro é contraditório:
 `mag_pangenome_matrix` grava `done.txt` como `failed: ...` nesse caso, nunca
 `ok` com matriz vazia.
+
+**O que essa correção NÃO cobre, e por quê.** O manifesto lido por
+`mag_pangenome_matrix` é o de `mag_pangenome_proteins` — reflete só sucesso
+ou falha do PRODIGAL por genoma. O laço por genoma do DefenseFinder em
+`rules/defense_amr.smk` (`|| echo WARNING`, que deliberadamente não derruba
+a regra para não perder o cluster inteiro por um genoma ruim) não remove
+ninguém do manifesto: o genoma continua anotado (prodigal rodou), só não
+aparece em `defensefinder_systems.tsv`, e a matriz atual não tem como
+distinguir isso de "rodou e não achou sistema nenhum" — que é resultado
+biológico legítimo e comum, não uma falha. As duas situações produzem
+exatamente a mesma linha ausente na tabela de saída do DefenseFinder, então
+nenhuma leitura de `defensefinder_systems.tsv` as separa: o dado que falta
+não está lá para ser lido, tem de ser registrado na origem. O conserto real
+é o mesmo padrão que `mag_bakta` já usa — `bakta_summary.tsv` com uma linha
+`bin TAB status` por genoma, `ok` ou `failed`. `mag_defensefinder`
+precisaria emitir o equivalente (`defensefinder_summary.tsv`, status por
+genoma dentro do laço que hoje só faz `echo WARNING`), e
+`mag_pangenome_matrix` passaria a cruzar esse arquivo além do manifesto do
+prodigal antes de decidir `?` vs `.`. Não implementado nesta correção —
+ficou registrado aqui para não ser reaberto por intuição nem confundido com
+"já coberto" na próxima revisão. Também falta cobertura automatizada: o
+parâmetro `annotated` de `build_matrix`/`summarize_clusters`
+(`scripts/pangenome_matrix.py`) foi validado manualmente nesta revisão e o
+comportamento está correto para o que o manifesto cobre hoje, mas não há
+teste de regressão que fixe isso — uma futura mudança no manifesto ou no
+laço do DefenseFinder pode reintroduzir o defeito original sem que a
+suíte perceba.
 
 **O limiar de core (`CORE_FRACTION = 0.90`), no regime de 3-6 membros que a
 fase 1 produz, é operacionalmente 100%**: `0.90 * n_eval` arredonda para
