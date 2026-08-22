@@ -37,6 +37,9 @@ skills-lock.json
 # ── Diretório separado (build artifacts) ─────────────────────────────
 vapor/
 
+# ── Ambientes de desenvolvimento (conda -p local) ─────────────────────
+.envs/
+
 # ── Containers ────────────────────────────────────────────────────────
 # containers.lock.yaml SHOULD be committed (pins exact image tags)
 # Apptainer image cache — large SIF files, do not commit
