@@ -19,17 +19,19 @@ const LARGURA_PONTA = 8;
 // resolve colisao empilhando, nunca escondendo (varredura tipo interval
 // scheduling, greedy por inicio crescente).
 function alocarFaixas(features) {
+  // Normaliza start/end aqui tambem -- a colisao e sobre a posicao real na
+  // regua, nao sobre a ordem crua dos numeros (que start > end pode inverter).
   const ordenado = [...features]
-    .map((f, i) => ({ ...f, _i: i }))
-    .sort((a, b) => a.start - b.start);
+    .map((f, i) => ({ ...f, _i: i, _inicio: Math.min(f.start, f.end), _fim: Math.max(f.start, f.end) }))
+    .sort((a, b) => a._inicio - b._inicio);
   const fimPorFaixa = [];
   const comFaixa = ordenado.map((f) => {
-    let faixa = fimPorFaixa.findIndex((fim) => fim <= f.start);
+    let faixa = fimPorFaixa.findIndex((fim) => fim <= f._inicio);
     if (faixa === -1) {
       faixa = fimPorFaixa.length;
-      fimPorFaixa.push(f.end);
+      fimPorFaixa.push(f._fim);
     } else {
-      fimPorFaixa[faixa] = f.end;
+      fimPorFaixa[faixa] = f._fim;
     }
     return { ...f, lane: faixa };
   });
@@ -49,9 +51,19 @@ export function GenomeTrack({ length, features = [], kinds = {} }) {
   const rotuloDoTipo = (kind) => kinds?.[kind]?.label || kind;
   const kindsPresentes = Array.from(new Set(features.map((f) => f.kind)));
 
+  // Um genoma sem comprimento conhecido nao tem trilha para mostrar --
+  // regua com dominio [0, NaN]/[0, 0] mentiria a escala inteira (NaN se
+  // propaga para data-w e para os pontos do poligono). Estado vazio
+  // explicito e preferivel a inventar uma regua.
+  const comprimentoValido = Number.isFinite(length) && length > 0;
+
   return (
     <div data-testid="genometrack" className="chart-wrap">
-      <Chart height={alturaTotal} empty={false}>
+      <Chart
+        height={alturaTotal}
+        empty={!comprimentoValido}
+        emptyLabel="Comprimento do genoma desconhecido -- sem trilha para desenhar"
+      >
         {({ width }) => {
           const innerW = Math.max(width - MARGEM.left - MARGEM.right, 10);
           const x = scaleLinear().domain([0, length]).range([0, innerW]);
@@ -60,8 +72,14 @@ export function GenomeTrack({ length, features = [], kinds = {} }) {
               <AxisBottom scale={x} width={innerW} height={ALTURA_REGUA} tickFormat={(v) => `${v.toLocaleString('pt-BR')} bp`} />
               <g transform={`translate(0,${ALTURA_REGUA})`}>
                 {comFaixa.map((f) => {
-                  const x0 = x(f.start);
-                  const x1 = x(f.end);
+                  // start > end acontece de verdade (formato de origem
+                  // grava fita reversa assim) -- normaliza a caixa pela
+                  // posicao, mas a fita continua sendo a UNICA fonte do
+                  // sentido da seta, nunca a ordem crua dos numeros.
+                  const inicio = Math.min(f.start, f.end);
+                  const fim = Math.max(f.start, f.end);
+                  const x0 = x(inicio);
+                  const x1 = x(fim);
                   const w = Math.max(x1 - x0, 1);
                   const y = f.lane * ALTURA_FAIXA + 2;
                   const alturaCaixa = ALTURA_FAIXA - 4;
@@ -92,7 +110,7 @@ export function GenomeTrack({ length, features = [], kinds = {} }) {
                       data-lane={f.lane}
                       points={pontos.map((p) => p.join(',')).join(' ')}
                       fill={corDoTipo(f.kind)}
-                      onMouseMove={(e) => show(e, `${f.label} (${f.kind}) ${f.start.toLocaleString('pt-BR')}-${f.end.toLocaleString('pt-BR')} bp, fita ${f.strand}`)}
+                      onMouseMove={(e) => show(e, `${f.label} (${f.kind}) ${inicio.toLocaleString('pt-BR')}-${fim.toLocaleString('pt-BR')} bp, fita ${f.strand}`)}
                       onMouseLeave={hide}
                     />
                   );
