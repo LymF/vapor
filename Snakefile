@@ -616,6 +616,7 @@ def _t_report():
         expand(f"{OUTDIR}/{{sample}}/final/done.txt", sample=SAMPLES),
         f"{OUTDIR}/benchmarks/pipeline_timing_summary.tsv",
         f"{OUTDIR}/report.html",
+        f"{OUTDIR}/report_v2.html",
     ]
     if TRACK_VIRAL or TRACK_PROK:
         t.append(f"{OUTDIR}/diversity/diversity_done.txt")

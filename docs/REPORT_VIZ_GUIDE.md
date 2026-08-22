@@ -61,7 +61,7 @@ The core table. "n" is the number of items actually plotted.
 | **Genomic coordinates** (defense islands, genome maps) | **track / browser**: bp ruler, strand-aware arrows, true feature widths | never plot gene *order* when coordinates exist |
 | **Pairwise relations** (gene sharing, phage–host) | node-link when sparse; **adjacency matrix** when dense; bipartite for two entity types | past ~150 nodes a node-link is a hairball — go to the matrix |
 | **Ordination** (PCoA / NMDS) | scatter, **% variance on both axes**, ellipses when groups exist | axes without variance % are incomplete |
-| **Effort vs discovery** | **accumulation / rarefaction curve** | needs a feature space shared across samples. In VAPOR that exists **only on the co-assembly track** (a group's vOTUs are clustered once); per-sample vOTUs are clustered independently, so accumulating them would count the same virus repeatedly. Always average over random sample orders — one ordering is arbitrary |
+| **Effort vs discovery** | **accumulation / rarefaction curve** | needs a feature space shared across samples. **Desde o catálogo global de vOTUs (2026-08-18) esse espaço existe para toda a rodada**, não só na co-assembly: o catálogo clusteriza uma vez sobre todas as amostras e grupos, então a curva global é legítima. Antes disso os vOTUs per-sample eram clusterizados independentemente e acumulá-los contava o mesmo vírus várias vezes. Sempre promediar sobre ordens aleatórias — uma ordenação é arbitrária |
 | **Ranked list with long names** | **horizontal bar**, top-N + "Other" | horizontal whenever labels exceed ~12 characters |
 
 ---
@@ -197,6 +197,9 @@ re-implementing:
 | `foldOther(map, max)` | folds a `{name: count}` tail into "Other" — the ≤8 series rule |
 | `qualBadge(q)` | quality tier badge with the ordinal ramp |
 | `PAL`, `PAL_MUTED` | the validated categorical palette |
+| `TRIGGERS` (`src/report-ui/src/viz/triggers.js`) | os gatilhos do §4 no report v2, aplicados DENTRO de cada forma em vez de dependerem de o autor chamar o helper certo |
+| `foldOther` (`src/report-ui/src/viz/palette.js`) | versão v2 do dobrador de cauda; "Other" sempre em último |
+| `useResize` (`src/report-ui/src/viz/useResize.js`) | dimensões do container para gráficos SVG responsivos |
 
 Every chart lives in a component under `scripts/report/components/` and is assembled
 by `renderer.py`; data loading is `data_loaders.py`. Charts must degrade to an empty

@@ -176,10 +176,16 @@ Expected: PASS, 1 teste
 
 ```bash
 cd src/report-ui && npm run build
-grep -c "https\?://" ../../scripts/report/assets/report-ui.js || echo "sem URL externa: ok"
+grep -oE "script[^>]*src=|fetch\(|XMLHttpRequest|importScripts" ../../scripts/report/assets/report-ui.js | sort -u
 ```
 
-Expected: nenhuma URL de CDN. Se `grep` achar algo, é violação da restrição global de arquivo único.
+Expected: saída vazia — nenhuma chamada de rede.
+
+Não procure por URL literal: o React minificado carrega `http://www.w3.org/2000/svg`
+e afins, que são **identificadores de namespace XML** passados a `createElementNS`, e
+uma URL de mensagem de erro (`reactjs.org/docs/error-decoder.html`). Nenhum dos dois
+faz requisição. O que viola a restrição de arquivo único é uma chamada de rede em
+runtime, não a presença de uma string com "http".
 
 - [ ] **Step 9: Commit**
 
@@ -213,7 +219,7 @@ Node em runtime e consome apenas o bundle versionado."
 
 ```python
 import pytest
-from scripts.report.schema import Block, project, project_strict, UndeclaredField
+from report.schema import Block, project, project_strict, UndeclaredField
 
 
 def test_project_mantem_apenas_campos_declarados():
@@ -319,7 +325,7 @@ git commit -m "feat(report): contrato de dados por projecao de campos declarados
 Acrescentar a `tests/test_report_schema.py`:
 
 ```python
-from scripts.report.schema import payload_report, check_budget, PayloadOverBudget
+from report.schema import payload_report, check_budget, PayloadOverBudget
 
 
 def test_payload_report_ordena_do_maior_para_o_menor():
@@ -578,7 +584,7 @@ git commit -m "feat(report): primitivas de viz com os gatilhos do guia dentro da
 - Create: `src/report-ui/test/charts.test.jsx`
 
 **Interfaces:**
-- Consumes: `PAL` de `src/viz/palette.js`.
+- Consumes: nada de `viz/palette.js` — as cores dos quatro estados vêm de CSS custom properties definidas em `styles.css` (Task 7). Não importe `PAL` aqui: seria import morto.
 - Produces:
   - `<StatTile label value sub />`
   - `<StatusMatrix rows={[{ rule, sample, status, reason }]} />` — `status` ∈ `ok` | `skipped` | `failed` | `unknown`; cada estado recebe classe CSS própria **e** um rótulo textual. Os quatro estados são os de `load_tool_status` (`scripts/report/data_loaders.py:96`), e `unknown` — `done.txt` ausente ou vazio — **não pode ser apresentado como sucesso**: foi o que fez uma rodada de AMRFinderPlus com disco cheio passar por zero biológico.
@@ -795,7 +801,9 @@ Expected: FAIL — `Failed to resolve import "../src/charts/AttritionFunnel.jsx"
 
 ```jsx
 import { useRef } from 'react';
-import { scaleLinear } from 'd3-scale';
+// scaleLinear vem do pacote guarda-chuva 'd3', a unica dependencia declarada;
+// o esbuild faz tree-shaking de ESM, entao o bundle leva so o que se usa.
+import { scaleLinear } from 'd3';
 import { PAL, PAL_MUTED } from '../viz/palette.js';
 import { useResize } from '../viz/useResize.js';
 
@@ -1183,7 +1191,10 @@ git commit -m "feat(report): shell React com navegacao e filtro global de amostr
 **Interfaces:**
 - Consumes: `check_budget` de `scripts/report/schema.py`; o bundle da Task 7.
 - Produces:
-  - `build_data(snakemake) -> dict` — monta o dicionário `{run, overview}` a partir dos loaders existentes.
+  - `build_data(snakemake) -> dict` — monta `{run, overview}`; `overview.funnel` é `{ "__all__": {...}, "<amostra>": {...} }`.
+  - `_quebra_por_tier(tsv_path) -> list[dict]` — descartes por tier do CheckV (`reason`, `count`).
+  - `_etapas(contagens: dict) -> list[dict]` — etapas do funil na ordem, omitindo a sem fonte.
+  - `_funil_da_amostra(outdir, sample) -> dict`, `_funil_agregado(outdir, samples) -> dict`.
   - `render_html(data: dict, assets_dir: str, comp_dir: str) -> str`
   - `write_report(data, out_html, assets_dir, comp_dir) -> str` — checa o orçamento, escreve, devolve o caminho.
 
@@ -1194,8 +1205,8 @@ git commit -m "feat(report): shell React com navegacao e filtro global de amostr
 ```python
 import os
 import pytest
-from scripts.report.renderer_v2 import render_html, write_report
-from scripts.report.schema import PayloadOverBudget
+from report.renderer_v2 import render_html, write_report
+from report.schema import PayloadOverBudget
 
 DADOS = {"run": {"title": "VAPOR", "samples": ["S1"]}, "overview": {"kpis": []}}
 
@@ -1330,7 +1341,7 @@ Expected: PASS, 4 testes
 Acrescentar a `scripts/report/renderer_v2.py`:
 
 ```python
-from .data_loaders import load_tool_status, parse_fasta_lengths
+from .data_loaders import load_tool_status, parse_fasta_lengths  # ampliado no Step 7
 
 
 def build_data(snakemake):
@@ -1365,9 +1376,13 @@ def build_data(snakemake):
         {"label": "vOTUs retidos", "value": sum(contigs.values())},
     ]
 
+    funil = {TODAS: _funil_agregado(outdir, samples)}
+    for s in samples:
+        funil[s] = _funil_da_amostra(outdir, s)
+
     return {
         "run": {"title": "VAPOR", "samples": samples, "groups": grupos},
-        "overview": {"kpis": kpis, "status": status, "funnel": {}},
+        "overview": {"kpis": kpis, "status": status, "funnel": funil},
     }
 ```
 
@@ -1385,7 +1400,138 @@ from report.renderer_v2 import build_data, write_report  # noqa: E402
 write_report(build_data(snakemake), snakemake.output.html)  # noqa: F821
 ```
 
-- [ ] **Step 7: Acrescentar a regra ao Snakemake**
+- [ ] **Step 7: Escrever o teste do funil e implementá-lo**
+
+O funil é a peça central da aba, e a repartição do descarte tem uma sutileza que
+o teste trava: **toda linha do `viral_discarded.tsv` falhou as TRÊS armas do
+portão composto ao mesmo tempo** — não foi binada pelo vRhyme, não atingiu tier
+MQ+ no CheckV, e ficou abaixo de `VIRAL_MIN_CONTIG`. Não existe "o motivo" de um
+descarte, então a quebra é **por tier do CheckV**, e `checkv_quality` vazio
+("nunca avaliado") continua distinto de tier presente-porém-baixo — essa
+distinção é a razão de o sidecar existir.
+
+Acrescentar a `tests/test_renderer_v2.py`:
+
+```python
+from report.renderer_v2 import _quebra_por_tier, _etapas
+
+
+def test_quebra_por_tier_separa_nunca_avaliado_de_tier_baixo(tmp_path):
+    tsv = tmp_path / "viral_discarded.tsv"
+    tsv.write_text(
+        "contig_id\tlength\tcheckv_quality\tcheckv_completeness\tin_vrhyme_bin\tsource_id\n"
+        "k141_1\t1200\tLow-quality\t12.0\tFalse\tS1\n"
+        "k141_2\t900\t\t\tFalse\tS1\n"
+        "k141_3\t800\tLow-quality\t8.0\tFalse\tS1\n",
+        encoding='utf-8')
+    quebra = {d["reason"]: d["count"] for d in _quebra_por_tier(str(tsv))}
+    assert quebra == {"Low-quality": 2, "sem avaliação CheckV": 1}
+
+
+def test_quebra_por_tier_sem_arquivo_e_lista_vazia(tmp_path):
+    assert _quebra_por_tier(str(tmp_path / "nao_existe.tsv")) == []
+
+
+def test_etapas_omite_a_etapa_cuja_fonte_nao_existe():
+    etapas = _etapas({"contigs": 10, "candidatos virais": 0, "vOTUs retidos": 3})
+    assert [e["name"] for e in etapas] == ["contigs", "vOTUs retidos"]
+```
+
+Run: `pytest tests/test_renderer_v2.py -v`
+Expected: FAIL — `ImportError: cannot import name '_quebra_por_tier'`
+
+Acrescentar a `scripts/report/renderer_v2.py`:
+
+```python
+import csv
+
+TODAS = "__all__"
+
+# checkv_quality vazio significa "CheckV nunca avaliou este contig", que NAO e o
+# mesmo que "avaliado e ruim". viral_length_gate.format_discard_row preserva
+# essa diferenca de proposito; aqui ela vira um rotulo proprio.
+SEM_AVALIACAO = "sem avaliação CheckV"
+
+
+def _quebra_por_tier(tsv_path):
+    # Descartes do portao composto (item (e)) agrupados por tier do CheckV.
+    #
+    # NAO e uma quebra por "motivo": toda linha desse arquivo falhou as tres
+    # armas do portao ao mesmo tempo (sem bin do vRhyme, tier abaixo de MQ, e
+    # comprimento abaixo de VIRAL_MIN_CONTIG). Eleger uma das armas como causa
+    # seria inventar informacao que o dado nao tem.
+    if not os.path.exists(tsv_path):
+        return []
+    contagem = {}
+    with open(tsv_path, encoding='utf-8', newline='') as fh:
+        for linha in csv.DictReader(fh, delimiter='\t'):
+            tier = (linha.get("checkv_quality") or "").strip() or SEM_AVALIACAO
+            contagem[tier] = contagem.get(tier, 0) + 1
+    return [{"reason": t, "count": n}
+            for t, n in sorted(contagem.items(), key=lambda kv: -kv[1])]
+
+
+def _etapas(contagens):
+    # Etapas na ordem do funil, omitindo aquela cuja fonte nao existe. Zero aqui
+    # significa "nao consegui ler a fonte", nao "zero biologico" -- desenhar uma
+    # barra zerada afirmaria o segundo. A etapa some.
+    ordem = ["reads", "contigs", "candidatos virais", "vOTUs retidos"]
+    return [{"name": nome, "value": contagens[nome]}
+            for nome in ordem
+            if contagens.get(nome)]
+
+
+def _conta_fasta(caminho):
+    return len(parse_fasta_lengths(caminho)) if os.path.exists(caminho) else 0
+
+
+def _funil_da_amostra(outdir, sample):
+    quast = parse_quast_all(os.path.join(outdir, sample, "quast", "report.tsv"))
+    n_contigs = safe_int((quast or {}).get("# contigs", 0))
+    descartado = os.path.join(outdir, sample, "final", "viral", "viral_discarded.tsv")
+    return {
+        "stages": _etapas({
+            "reads": parse_total_reads(outdir, sample),
+            "contigs": n_contigs,
+            "candidatos virais": _conta_fasta(os.path.join(
+                outdir, sample, "viral", "consensus",
+                f"{sample}_viral_consensus.fasta")),
+            "vOTUs retidos": _conta_fasta(os.path.join(
+                outdir, sample, "final", "viral", "viral_nonredundant.fasta")),
+        }),
+        "losses": {"vOTUs retidos": _quebra_por_tier(descartado)},
+    }
+
+
+def _funil_agregado(outdir, samples):
+    por_amostra = [_funil_da_amostra(outdir, s) for s in samples]
+    soma_etapas, perdas = {}, {}
+    for f in por_amostra:
+        for etapa in f["stages"]:
+            soma_etapas[etapa["name"]] = soma_etapas.get(etapa["name"], 0) + etapa["value"]
+        for motivo in f["losses"].get("vOTUs retidos", []):
+            perdas[motivo["reason"]] = perdas.get(motivo["reason"], 0) + motivo["count"]
+    return {
+        "stages": _etapas(soma_etapas),
+        "losses": {"vOTUs retidos": [
+            {"reason": r, "count": n}
+            for r, n in sorted(perdas.items(), key=lambda kv: -kv[1])]},
+    }
+```
+
+Ajustar o import de `data_loaders` no topo de `scripts/report/renderer_v2.py` para:
+
+```python
+from .data_loaders import (
+    load_tool_status, parse_fasta_lengths, parse_quast_all,
+    parse_total_reads, safe_int,
+)
+```
+
+Run: `pytest tests/test_renderer_v2.py -v`
+Expected: PASS, 7 testes
+
+- [ ] **Step 8: Acrescentar a regra ao Snakemake**
 
 Em `rules/report.smk`, imediatamente antes de `rule multiqc`:
 
@@ -1409,7 +1555,7 @@ rule generate_report_v2:
         "../scripts/generate_report_v2.py"
 ```
 
-- [ ] **Step 8: Verificar que o DAG continua previsível**
+- [ ] **Step 9: Verificar que o DAG continua previsível**
 
 ```bash
 conda activate snakemake
@@ -1418,7 +1564,7 @@ snakemake -n --use-conda --cores 1 2>&1 | tail -20
 
 Expected: o dry-run conclui sem erro; `generate_report_v2` aparece com **1** job.
 
-- [ ] **Step 9: Rodar a suíte inteira e commitar**
+- [ ] **Step 10: Rodar a suíte inteira e commitar**
 
 ```bash
 pytest tests/ -q
@@ -1500,7 +1646,8 @@ git commit -m "docs(report): registra o report v2 e corrige a regra da curva de 
 
 - [ ] `pytest tests/ -q` passa inteiro
 - [ ] `cd src/report-ui && npx vitest run` passa inteiro (19 testes)
-- [ ] `npm run build` produz bundle sem nenhuma URL externa
+- [ ] o funil da aba Visão geral renderiza com dados reais da rodada, e a quebra do descarte aparece por tier do CheckV
+- [ ] `npm run build` produz bundle sem nenhuma chamada de rede (`fetch`, `XMLHttpRequest`, `script src`)
 - [ ] `snakemake -n --use-conda --cores 1` conclui com `generate_report_v2` em 1 job
 - [ ] `{OUTDIR}/report_v2.html` abre no navegador via `file://`, navega e o filtro de amostra funciona
 - [ ] `{OUTDIR}/report.html` (o antigo) continua sendo gerado e funcionando
