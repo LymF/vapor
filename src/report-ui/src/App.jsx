@@ -1,5 +1,6 @@
 import { ReportProvider, useReport, TODAS } from './state/store.jsx';
 import { Overview } from './panels/Overview.jsx';
+import { ThemeToggle } from './viz/theme.js';
 
 // As abas do desenho. Os paineis dos planos 2 e 3 entram aqui; enquanto nao
 // existem, a aba nao e listada -- nunca uma aba vazia sem explicacao.
@@ -32,6 +33,7 @@ function Shell() {
             {samples.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
+        <ThemeToggle />
       </nav>
       <main className="main"><Painel /></main>
     </div>
