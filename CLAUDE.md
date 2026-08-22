@@ -192,3 +192,21 @@ This pipeline is designed for high-throughput metagenomic analysis, providing en
 - `_jsstr()` escapes `</` as `<\/` when serializing JSON into a `<script>` tag — keep that when adding new data payloads.
 - To add a data source: write a `load_*` in `data_loaders.py`, wire it in `_build()` in `renderer.py`, add it to the data dict, then consume it from the relevant `components/*.js`.
 - `load_tool_status()` reads per-rule `done.txt` status lines (`ok` / `skipped: <reason>` / `failed: <reason>`). A failed tool must render as a gap, never as a count of 0 — an empty `done.txt` once made a disk-full AMRFinderPlus run read as a biological zero.
+
+### Report v2 (React + D3) — em construção
+
+Vive em `src/report-ui/` (React 18 + D3 v7), compilado por esbuild num bundle
+único versionado em `scripts/report/assets/report-ui.js`. **Node nunca é
+dependência de runtime**: `envs/env_reportui.yaml` é ambiente de
+desenvolvimento e nenhuma regra o declara. `scripts/report/renderer_v2.py` faz
+quatro coisas — monta o JSON, lê o bundle, lê o CSS, escreve o HTML — e checa o
+orçamento de 25 MB (`scripts/report/schema.py`) antes de escrever qualquer
+coisa. A regra é `generate_report_v2` (`{OUTDIR}/report_v2.html`), e
+**`_t_report()` no `Snakefile` pede esse alvo**, então o report novo é gerado
+em toda rodada, ao lado do antigo, paralela ao `generate_report` até a paridade.
+Desenho: `docs/superpowers/specs/2026-08-22-report-react-d3-design.md`.
+
+Para editar: `mamba env create -f envs/env_reportui.yaml -p ./.envs/reportui`,
+`cd src/report-ui && npm install`, `npx vitest run`, `npm run build`, **e
+commitar o bundle recompilado junto com a mudança** — o bundle no git é o que a
+pipeline consome.
