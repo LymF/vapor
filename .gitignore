@@ -52,6 +52,7 @@ singularity/
 *.pdf
 *.html
 !scripts/report/components/shell.html
+!scripts/report/components/shell_v2.html
 *.zip
 *.tar.gz
 .DS_Store

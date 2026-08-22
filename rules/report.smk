@@ -128,6 +128,25 @@ rule generate_report:
         "../scripts/generate_report.py"
 
 
+rule generate_report_v2:
+    """Report novo (React + D3), em paralelo ao rule generate_report enquanto
+    a paridade nao e atingida. Consome o bundle versionado em
+    scripts/report/assets/report-ui.js -- sem Node em runtime."""
+    input:
+        rules.generate_report.input,
+    output:
+        html = f"{OUTDIR}/report_v2.html",
+    params:
+        samples           = list(SAMPLES.keys()),
+        outdir            = OUTDIR,
+        coassembly_groups = list(GROUPS.keys()) + (
+            ["multisplit"] if (COBINNING_MULTISPLIT and not LONG_READS) else []),
+    benchmark:
+        f"{OUTDIR}/benchmarks/generate_report_v2.tsv"
+    script:
+        "../scripts/generate_report_v2.py"
+
+
 rule multiqc:
     """MultiQC consolida fastp + QUAST (short reads only)."""
     input:
