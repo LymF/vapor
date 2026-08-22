@@ -317,6 +317,17 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
   padding: var(--sp-4) 0;
 }
 
+.notice {
+  color: var(--unknown);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border: 1px solid var(--unknown);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--unknown) 12%, transparent);
+}
+
 /* ============================================================
    Grafico / funil
    ============================================================ */
