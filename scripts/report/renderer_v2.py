@@ -221,7 +221,22 @@ def _bin_log1d(valores, n_bins):
     ]
 
 
+def _sem_comprimento_invalido(comprimentos, profundidades=None):
+    # Defesa contra fonte corrompida: comprimento <= 0 nao deveria existir
+    # (um contig tem pelo menos 1 base), mas um depth.txt truncado ou
+    # corrompido acontece, e math.log10(0)/math.log10(negativo) levanta
+    # ValueError -- sem este filtro, UM contig ruim derrubava o build do
+    # report inteiro em vez de so ficar de fora da distribuicao. Filtra os
+    # dois arrays em paralelo (mesmo indice) quando profundidades e dado, para
+    # nao desalinhar comprimento x profundidade em _build_depth_block.
+    if profundidades is None:
+        return [c for c in comprimentos if c > 0]
+    pares = [(c, d) for c, d in zip(comprimentos, profundidades) if c > 0]
+    return ([c for c, _ in pares], [d for _, d in pares])
+
+
 def _build_length_block(comprimentos):
+    comprimentos = _sem_comprimento_invalido(comprimentos)
     n = len(comprimentos)
     if n < LIMIAR_BRUTO:
         return {"values": list(comprimentos), "n": n}
@@ -238,6 +253,7 @@ def _build_depth_block(comprimentos, profundidades):
     # x = comprimento em log10 (sempre > 0); y = profundidade em log1p (a
     # jgi_summarize_bam_contig_depths emite 0.0 para contigs sem leitura
     # mapeada, e log10(0) nao existe -- log1p aceita zero sem inventar piso).
+    comprimentos, profundidades = _sem_comprimento_invalido(comprimentos, profundidades)
     n = len(comprimentos)
     if n < LIMIAR_BRUTO:
         return {"values": [[l, d] for l, d in zip(comprimentos, profundidades)], "n": n}
@@ -440,8 +456,12 @@ def _build_explorer(outdir):
             end = int(float(row.get("stop", row.get("end", "")) or 0))
         except (TypeError, ValueError):
             continue
+        # O consumidor e o GenomeTrack.jsx, que compara f.strand === '-'
+        # (string) -- emitir -1|1 (numero) aqui faz a comparacao falhar
+        # sempre, e todo gene em fita reversa desenharia apontando pro lado
+        # errado, silenciosamente. String e o contrato, nao numero.
         strand_bruta = (row.get("strand", "") or "").strip()
-        strand = -1 if strand_bruta in ("-", "-1") else 1
+        strand = "-" if strand_bruta in ("-", "-1") else "+"
         feat = {
             "start": start,
             "end": end,
@@ -453,6 +473,13 @@ def _build_explorer(outdir):
 
     linhas = [
         {"votu_id": contig,
+         # APROXIMACAO: "length" e o maior "end" entre as features do
+         # pharokka para este contig, NAO o comprimento real do contig (que
+         # este loader nao le -- so tem o TSV de anotacao). So afeta a
+         # ordenacao dos "50 mais longos" em _limita_explorer; quem ligar
+         # isto ao catalogo global de vOTUs pode trocar por um comprimento
+         # de verdade (ex.: FASTA de representantes) se a ordenacao exata
+         # importar.
          "length": max((f["end"] for f in feats), default=0),
          "features": project(EXPLORER_FEATURE_BLOCK, feats)}
         for contig, feats in por_contig.items()

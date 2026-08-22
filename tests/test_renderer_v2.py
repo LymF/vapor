@@ -8,7 +8,7 @@ from report.renderer_v2 import (
     render_html, write_report, _quebra_por_tier, _etapas,
     _funil_da_amostra, _contagem_votus_catalogo,
     build_sequencing, build_viral, _limita_explorer,
-    _build_length_block, _build_depth_block, LIMIAR_BRUTO,
+    _build_length_block, _build_depth_block, _build_explorer, LIMIAR_BRUTO,
 )
 from report.schema import PayloadOverBudget, payload_report
 
@@ -247,3 +247,46 @@ def test_payload_sequencing_da_rodada_real_cabe_abaixo_de_1mb():
     tamanhos = dict(payload_report(sequencing))
     total = sum(tamanhos.values())
     assert total < 1024 * 1024
+
+
+# ── Correcao Important 1: comprimento invalido nao derruba o build ─────────
+
+def test_length_block_sobrevive_a_comprimento_zero_e_negativo():
+    # depth.txt truncado/corrompido pode gerar comprimento <= 0. Antes da
+    # correcao, math.log10(0) e math.log10(negativo) levantavam ValueError
+    # e derrubavam o write_report inteiro por causa de UM contig ruim.
+    comprimentos = [0, -500] + list(range(1000, 1030))   # 30 validos
+    bloco = _build_length_block(comprimentos)
+    assert bloco["n"] == 30
+    assert bloco["min"] == 1000
+    assert bloco["max"] == 1029
+    assert sum(b["count"] for b in bloco["bins"]) == 30
+
+
+def test_depth_block_sobrevive_a_comprimento_zero_e_negativo():
+    comprimentos = [0, -500] + list(range(1000, 1030))
+    profundidades = [1.0, 2.0] + [5.0] * 30
+    bloco = _build_depth_block(comprimentos, profundidades)
+    assert bloco["n"] == 30
+    assert sum(b["count"] for b in bloco["bins2d"]) == 30
+
+
+# ── Correcao Important 2: strand sai como string, nao numero ───────────────
+
+def test_explorer_emite_strand_como_string_para_as_quatro_entradas(tmp_path):
+    # O GenomeTrack.jsx (consumidor) compara f.strand === '-'. -1 (numero)
+    # nunca bate com '-' (string) em JS -- toda fita reversa desenharia
+    # como se fosse direta, silenciosamente.
+    d = tmp_path / "votu_catalog" / "annotation" / "pharokka"
+    d.mkdir(parents=True)
+    (d / "pharokka_cds_final_merged_output.tsv").write_text(
+        "contig\tstart\tstop\tstrand\tgene\tphrog_category\n"
+        "v1\t1\t100\t-1\tgeneA\tcat\n"
+        "v1\t101\t200\t1\tgeneB\tcat\n"
+        "v1\t201\t300\t-\tgeneC\tcat\n"
+        "v1\t301\t400\t+\tgeneD\tcat\n",
+        encoding='utf-8')
+    linhas = _build_explorer(str(tmp_path))
+    strands = [f["strand"] for f in linhas[0]["features"]]
+    assert strands == ["-", "+", "-", "+"]
+    assert all(s in ("-", "+") for s in strands)
