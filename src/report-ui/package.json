@@ -1,0 +1,21 @@
+{
+  "name": "vapor-report-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.4.8",
+    "@testing-library/react": "^16.0.1",
+    "esbuild": "^0.23.0",
+    "jsdom": "^24.1.1",
+    "vitest": "^2.0.5"
+  }
+}

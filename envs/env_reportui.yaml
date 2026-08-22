@@ -1,0 +1,9 @@
+# Ambiente de DESENVOLVIMENTO do report — nenhuma regra do Snakemake o usa.
+# A pipeline consome apenas o bundle compilado, versionado em
+# scripts/report/assets/report-ui.js. Node nao e dependencia de runtime.
+name: env_reportui
+channels:
+  - conda-forge
+dependencies:
+  - nodejs>=20
+  - esbuild>=0.21
