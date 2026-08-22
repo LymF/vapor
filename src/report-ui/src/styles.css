@@ -316,6 +316,21 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
 .funnel__label { font-size: var(--fs-xs); fill: var(--text-2); }
 .funnel__value { font-size: var(--fs-xs); fill: var(--text); font-weight: 600; }
 
+.bar__label { font-size: var(--fs-xs); fill: var(--text-2); }
+
+.distplot__cutoff { stroke: var(--text-3); stroke-width: 1; }
+.distplot__cutoff-label { font-size: var(--fs-xs); fill: var(--text-3); text-anchor: middle; }
+.distplot__ridge-label { font-size: var(--fs-xs); fill: var(--text-2); }
+
+.heatmap__cell-label,
+.heatmap__axis-label { font-size: var(--fs-xs); fill: var(--text-2); }
+
+.upset__bar-label,
+.upset__set-label { font-size: var(--fs-xs); fill: var(--text-2); }
+.upset__dot--off { fill: var(--border); }
+.upset__dot--on { fill: var(--text-2); }
+.upset__link { stroke: var(--text-2); stroke-width: 2; }
+
 .legend {
   display: flex;
   flex-wrap: wrap;
