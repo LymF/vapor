@@ -108,7 +108,11 @@ export function DistPlot({ groups = [], xName = 'valor', log = false, cutoffs = 
             );
           }
 
-          // ridgeline: uma faixa por grupo, curvas de densidade sobrepostas levemente
+          // ridgeline: uma faixa por grupo. O gatilho de muitos grupos decide
+          // SO o empilhamento (caber na tela) -- cada faixa ainda escolhe seu
+          // proprio conteudo pelo n daquele grupo (TRIGGERS.densityMinN):
+          // faixas com poucos pontos desenham strip, nunca uma curva de
+          // densidade que a largura de banda inventaria sozinha.
           const faixaH = innerH / groups.length;
           const xVals = Array.from({ length: 80 }, (_, i) => dominioMin + (i / 79) * (dominioMax - dominioMin || 1));
           return (
@@ -116,10 +120,27 @@ export function DistPlot({ groups = [], xName = 'valor', log = false, cutoffs = 
               <AxisBottom scale={x} width={innerW} height={innerH} />
               {linhasCorte(innerH)}
               {groups.map((g, gi) => {
-                const densidades = g.values.length ? kde(g.values, xVals) : xVals.map(() => 0);
+                const formaFaixa = pickDistributionForm((g.values || []).length);
+                const baseY = gi * faixaH + faixaH * 0.9;
+                const cor = PAL[gi % PAL.length];
+
+                if (formaFaixa === 'strip') {
+                  return (
+                    <g key={g.name} data-lane={g.name} data-lane-form="strip">
+                      {(g.values || []).map((v, i) => (
+                        <circle key={i} cx={x(v)} cy={baseY - (faixaH * 0.9) / 2} r={4}
+                                fill={cor} fillOpacity={0.75}
+                                onMouseMove={(e) => show(e, `${g.name}: ${v}`)}
+                                onMouseLeave={hide} />
+                      ))}
+                      <text x={4} y={gi * faixaH + 12} className="distplot__ridge-label">{g.name}</text>
+                    </g>
+                  );
+                }
+
+                const densidades = kde(g.values, xVals);
                 const maxD = d3max(densidades) || 1;
                 const y = scaleLinear().domain([0, maxD]).range([faixaH * 0.9, 0]);
-                const baseY = gi * faixaH + faixaH * 0.9;
                 const area = [
                   `M${x(xVals[0])},${baseY}`,
                   ...xVals.map((xv, i) => `L${x(xv)},${gi * faixaH + y(densidades[i])}`),
@@ -127,9 +148,9 @@ export function DistPlot({ groups = [], xName = 'valor', log = false, cutoffs = 
                   'Z',
                 ].join(' ');
                 return (
-                  <g key={g.name}>
-                    <path d={area} fill={PAL[gi % PAL.length]} fillOpacity={0.55}
-                          stroke={PAL[gi % PAL.length]} strokeWidth={1}
+                  <g key={g.name} data-lane={g.name} data-lane-form="density">
+                    <path d={area} fill={cor} fillOpacity={0.55}
+                          stroke={cor} strokeWidth={1}
                           onMouseMove={(e) => show(e, g.name)} onMouseLeave={hide} />
                     <text x={4} y={gi * faixaH + 12} className="distplot__ridge-label">{g.name}</text>
                   </g>

@@ -94,7 +94,15 @@ export function StackedBar({ data = [], order, normalize = false, colors }) {
     });
   });
   const dobrado = foldOther(totalPorCategoria, 8);
-  const categorias = order && order.length ? order.filter((c) => dobrado.some(([k]) => k === c)) : dobrado.map(([k]) => k);
+  // 'order' explicito que omite 'Other' nao pode fazer a cauda dobrada sumir
+  // do desenho silenciosamente -- 'Other' e sempre acrescentado ao fim quando
+  // existe nos dados, mesmo que o chamador nao o tenha listado.
+  const categorias = order && order.length
+    ? [
+        ...order.filter((c) => dobrado.some(([k]) => k === c)),
+        ...(dobrado.some(([k]) => k === 'Other') && !order.includes('Other') ? ['Other'] : []),
+      ]
+    : dobrado.map(([k]) => k);
   const cores = colors || Object.fromEntries(categorias.map((c, i) => [c, c === 'Other' ? PAL_MUTED : PAL[i % PAL.length]]));
   const vazio = data.length === 0;
 

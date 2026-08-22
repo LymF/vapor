@@ -53,3 +53,43 @@ test('linhas de corte aparecem com rotulo', () => {
                    cutoffs={[{ value: 2, label: 'MQ' }]} />);
   expect(screen.getByText('MQ')).toBeTruthy();
 });
+
+test('ridgeline com poucos pontos por grupo: todas as faixas em strip', () => {
+  const g = Array.from({ length: 10 }, (_, i) =>
+    ({ name: `S${i}`, values: [1, 2, 3] }));
+  render(<DistPlot groups={g} xName="x" />);
+  expect(screen.getByTestId('distplot').getAttribute('data-form')).toBe('ridgeline');
+  const faixas = [...document.querySelectorAll('[data-lane]')];
+  expect(faixas).toHaveLength(10);
+  faixas.forEach((f) => expect(f.getAttribute('data-lane-form')).toBe('strip'));
+});
+
+test('ridgeline com muitos pontos por grupo: todas as faixas em densidade', () => {
+  const g = Array.from({ length: 10 }, (_, i) =>
+    ({ name: `S${i}`, values: Array.from({ length: 40 }, (_, j) => j) }));
+  render(<DistPlot groups={g} xName="x" />);
+  expect(screen.getByTestId('distplot').getAttribute('data-form')).toBe('ridgeline');
+  const faixas = [...document.querySelectorAll('[data-lane]')];
+  expect(faixas).toHaveLength(10);
+  faixas.forEach((f) => expect(f.getAttribute('data-lane-form')).toBe('density'));
+});
+
+test('ridgeline com grupos mistos: cada faixa escolhe pelo seu proprio n', () => {
+  const poucos = Array.from({ length: 5 }, (_, i) => ({ name: `pouco${i}`, values: [1, 2, 3] }));
+  const muitos = Array.from({ length: 5 }, (_, i) => ({ name: `muito${i}`, values: Array.from({ length: 40 }, (_, j) => j) }));
+  render(<DistPlot groups={[...poucos, ...muitos]} xName="x" />);
+  expect(screen.getByTestId('distplot').getAttribute('data-form')).toBe('ridgeline');
+  poucos.forEach((g) => {
+    expect(document.querySelector(`[data-lane="${g.name}"]`).getAttribute('data-lane-form')).toBe('strip');
+  });
+  muitos.forEach((g) => {
+    expect(document.querySelector(`[data-lane="${g.name}"]`).getAttribute('data-lane-form')).toBe('density');
+  });
+});
+
+test('StackedBar: order sem Other nao faz a cauda dobrada sumir', () => {
+  const partes = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`c${i}`, 12 - i]));
+  render(<StackedBar data={[{ name: 'S1', parts: partes }]} order={['c0', 'c1', 'c2']} />);
+  expect(screen.getByTestId('stacked').getAttribute('data-series')).toBe('4');
+  expect(document.querySelector('[data-part="Other"]')).toBeTruthy();
+});
