@@ -41,7 +41,12 @@ class PayloadOverBudget(Exception):
 
 
 def payload_report(data):
-    sizes = [(name, len(json.dumps(obj, ensure_ascii=False).encode('utf-8')))
+    # separators compactos: e o mesmo dumps que _data_script usa para
+    # escrever o HTML de verdade (renderer_v2.py) -- medir com os espacos
+    # default do json.dumps superestimaria o orcamento em relacao ao que
+    # realmente vai para o disco.
+    sizes = [(name, len(json.dumps(obj, ensure_ascii=False,
+                                    separators=(',', ':')).encode('utf-8')))
              for name, obj in data.items()]
     return sorted(sizes, key=lambda item: item[1], reverse=True)
 

@@ -1,12 +1,16 @@
 import json
 import os
 import pytest
+import math
+import random
+
 from report.renderer_v2 import (
     render_html, write_report, _quebra_por_tier, _etapas,
     _funil_da_amostra, _contagem_votus_catalogo,
     build_sequencing, build_viral, _limita_explorer,
+    _build_length_block, _build_depth_block, LIMIAR_BRUTO,
 )
-from report.schema import PayloadOverBudget
+from report.schema import PayloadOverBudget, payload_report
 
 DADOS = {"run": {"title": "VAPOR", "samples": ["S1"]}, "overview": {"kpis": []}}
 
@@ -166,3 +170,80 @@ def test_explorer_limita_a_50_votus():
     feats = [{"votu_id": f"v{i}", "length": i, "features": []} for i in range(200)]
     assert len(_limita_explorer(feats)) == 50
     assert _limita_explorer(feats)[0]["length"] == 199   # os mais longos primeiro
+
+
+# ── Binagem de lengths/depth (bloco sequencing) ─────────────────────────────
+
+def test_length_block_bina_sem_perder_nenhum_contig():
+    rng = random.Random(42)
+    comprimentos = [rng.randint(1000, 400_000) for _ in range(5000)]
+    bloco = _build_length_block(comprimentos)
+    assert "bins" in bloco
+    assert sum(b["count"] for b in bloco["bins"]) == 5000  # nenhum ponto perdido
+    assert bloco["min"] == min(comprimentos)
+    assert bloco["max"] == max(comprimentos)
+    assert bloco["n"] == 5000
+
+
+def test_length_block_poucos_pontos_fica_cru():
+    comprimentos = [1000, 2000, 3000, 4000, 5000]
+    bloco = _build_length_block(comprimentos)
+    assert "bins" not in bloco
+    assert bloco["values"] == comprimentos
+    assert bloco["n"] == 5
+
+
+def test_depth_block_omite_bins_de_contagem_zero():
+    rng = random.Random(7)
+    # Pontos concentrados numa unica regiao: a grade 50x50 tem 2500 celulas
+    # possiveis, mas so as poucas em torno do centro devem ter contagem > 0.
+    comprimentos = [5000 + rng.randint(-10, 10) for _ in range(500)]
+    profundidades = [10.0 + rng.uniform(-0.1, 0.1) for _ in range(500)]
+    bloco = _build_depth_block(comprimentos, profundidades)
+    assert "bins2d" in bloco
+    assert all(b["count"] > 0 for b in bloco["bins2d"])
+    assert len(bloco["bins2d"]) < 2500
+    assert sum(b["count"] for b in bloco["bins2d"]) == 500
+    # bordas nao vao mais por celula (so indice ix/iy) -- "grid" carrega os
+    # limites da amostra inteira, uma vez, para o cliente reconstruir.
+    assert "x0" not in bloco["bins2d"][0]
+    assert bloco["grid"]["x0"] <= min(comprimentos)
+    assert bloco["grid"]["x1"] >= max(comprimentos)
+
+
+def test_depth_block_poucos_pontos_fica_cru():
+    comprimentos = [1000, 2000, 3000]
+    profundidades = [1.0, 2.0, 3.0]
+    bloco = _build_depth_block(comprimentos, profundidades)
+    assert "bins2d" not in bloco
+    assert bloco["values"] == [[1000, 1.0], [2000, 2.0], [3000, 3.0]]
+    assert bloco["n"] == 3
+
+
+def test_payload_sequencing_da_rodada_real_cabe_abaixo_de_1mb():
+    # Simula a escala real (32 amostras, dezenas de milhares de contigs cada)
+    # sem depender de disco: a mesma rodada que embarcava 24 MB crus deve
+    # caber em menos de 1 MB so de bins/values agregados. Comprimento e
+    # profundidade de contigs seguem, na pratica, algo proximo de log-normal
+    # (poucos contigs muito longos/muito cobertos, a maioria concentrada
+    # numa faixa estreita) -- e o que lognormvariate reproduz sem numpy.
+    # Parametros calibrados pela rodada real (results/*/mapping/*_depth.txt):
+    # ~25 mil contigs/amostra, comprimento e profundidade correlacionados por
+    # um fator latente comum (contigs mais longos tendem a profundidade mais
+    # estavel) -- e essa correlacao, nao so a escala, que faz a grade 2D real
+    # ocupar uma fracao pequena das 2500 celulas possiveis.
+    rng = random.Random(1)
+    sequencing = {"lengths": {}, "depth": {}}
+    for i in range(32):
+        amostra = f"P{i}_amostra"
+        comprimentos, profundidades = [], []
+        for _ in range(25_000):
+            latente = rng.gauss(0, 1)
+            comprimentos.append(max(1, int(math.exp(7.3 + 0.5 * latente + rng.gauss(0, 0.25)))))
+            profundidades.append(math.exp(1.0 + 0.35 * latente + rng.gauss(0, 0.35)))
+        sequencing["lengths"][amostra] = _build_length_block(comprimentos)
+        sequencing["depth"][amostra] = _build_depth_block(comprimentos, profundidades)
+
+    tamanhos = dict(payload_report(sequencing))
+    total = sum(tamanhos.values())
+    assert total < 1024 * 1024

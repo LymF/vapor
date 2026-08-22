@@ -6,6 +6,7 @@ scripts/report/assets/report-ui.js.
 """
 import csv
 import json
+import math
 import os
 
 from .data_loaders import (
@@ -36,7 +37,10 @@ def _read(path):
 def _data_script(data):
     # O escape de "</" impede que uma string do dado feche o <script> que a
     # carrega -- e o mesmo cuidado do _jsstr do renderer antigo.
-    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    # separators compactos: mesma escolha de report.schema.payload_report,
+    # para que o orcamento medido corresponda ao que de fato vai pro disco.
+    payload = json.dumps(data, ensure_ascii=False,
+                          separators=(',', ':')).replace("</", "<\\/")
     return f"<script>window.VAPOR_DATA = {payload};</script>"
 
 
@@ -170,6 +174,106 @@ QUAST_BLOCK = Block(name="quast", fields=(
 MAPPING_BLOCK = Block(name="mapping", fields=("sample", "rate"))
 
 
+# O navegador so consome AGREGADOS de depth/lengths (DistPlot e uma grade 2D
+# de densidade) -- nunca os pontos crus por contig. Numa rodada de 788 mil
+# contigs isso sozinho era 24 MB de 25 MB de orcamento. Binamos no Python
+# porque binagem usa TODO o dado (amostrar descartaria parte da medida).
+#
+# Abaixo de LIMIAR_BRUTO contigs por amostra os pontos continuam crus: com n
+# pequeno a forma certa e um strip plot dos valores reais (REPORT_VIZ_GUIDE.md
+# secao 4), e binar destruiria a unica informacao honesta que existe.
+LIMIAR_BRUTO = 20
+N_BINS_LENGTH = 60
+N_BINS_DEPTH = 50
+
+
+def _mediana(xs):
+    ys = sorted(xs)
+    n = len(ys)
+    if n == 0:
+        return None
+    meio = n // 2
+    return ys[meio] if n % 2 else (ys[meio - 1] + ys[meio]) / 2
+
+
+def _bin_log1d(valores, n_bins):
+    # Bins iguais em escala log10. Todo ponto cai em algum bin (o clamp nos
+    # extremos e so para o arredondamento de ponto flutuante do ultimo valor
+    # de cada amostra) -- e por isso soma(count) == len(valores) sempre, sem
+    # excecao: e o teste que prova que binar nao descarta dado.
+    lo, hi = min(valores), max(valores)
+    if lo == hi:
+        return [{"x0": lo, "x1": hi, "count": len(valores)}]
+    log_lo, log_hi = math.log10(lo), math.log10(hi)
+    largura = (log_hi - log_lo) / n_bins
+    contagens = [0] * n_bins
+    for v in valores:
+        idx = int((math.log10(v) - log_lo) / largura)
+        idx = max(0, min(idx, n_bins - 1))
+        contagens[idx] += 1
+    # Arredondar as bordas para inteiro (bp): sub-bp nao tem sentido biologico
+    # e cada casa decimal a mais nos 60 bins e puro peso de JSON.
+    return [
+        {"x0": round(10 ** (log_lo + i * largura)),
+         "x1": round(10 ** (log_lo + (i + 1) * largura)),
+         "count": c}
+        for i, c in enumerate(contagens)
+    ]
+
+
+def _build_length_block(comprimentos):
+    n = len(comprimentos)
+    if n < LIMIAR_BRUTO:
+        return {"values": list(comprimentos), "n": n}
+    return {
+        "bins": _bin_log1d(comprimentos, N_BINS_LENGTH),
+        "n": n,
+        "min": min(comprimentos),
+        "max": max(comprimentos),
+        "median": _mediana(comprimentos),
+    }
+
+
+def _build_depth_block(comprimentos, profundidades):
+    # x = comprimento em log10 (sempre > 0); y = profundidade em log1p (a
+    # jgi_summarize_bam_contig_depths emite 0.0 para contigs sem leitura
+    # mapeada, e log10(0) nao existe -- log1p aceita zero sem inventar piso).
+    n = len(comprimentos)
+    if n < LIMIAR_BRUTO:
+        return {"values": [[l, d] for l, d in zip(comprimentos, profundidades)], "n": n}
+
+    xs = [math.log10(l) for l in comprimentos]
+    ys = [math.log1p(d) for d in profundidades]
+    lo_x, hi_x = min(xs), max(xs)
+    lo_y, hi_y = min(ys), max(ys)
+    passo_x = ((hi_x - lo_x) or 1e-9) / N_BINS_DEPTH
+    passo_y = ((hi_y - lo_y) or 1e-9) / N_BINS_DEPTH
+
+    grade = {}
+    for x, y in zip(xs, ys):
+        ix = max(0, min(int((x - lo_x) / passo_x), N_BINS_DEPTH - 1))
+        iy = max(0, min(int((y - lo_y) / passo_y), N_BINS_DEPTH - 1))
+        grade[(ix, iy)] = grade.get((ix, iy), 0) + 1
+
+    # Bins de contagem zero nao entram no dict acima -- e o que mantem a
+    # grade 2D pequena mesmo com 50x50 = 2500 celulas possiveis. Cada bin
+    # carrega so o INDICE da celula + contagem: repetir x0/x1/y0/y1 (4 bordas
+    # de ponto flutuante) em cada uma das ate 2500 celulas era, medido na
+    # rodada real, o proprio peso que a binagem deveria eliminar -- o cliente
+    # reconstroi as bordas a partir de "grid" (compartilhado por toda a
+    # amostra) com a MESMA transformacao (log10 / log1p) e o mesmo n_bins.
+    bins2d = [{"ix": ix, "iy": iy, "count": c} for (ix, iy), c in grade.items()]
+    return {
+        "bins2d": bins2d,
+        "grid": {
+            "x0": round(10 ** lo_x), "x1": round(10 ** hi_x),
+            "y0": round(math.expm1(lo_y), 2), "y1": round(math.expm1(hi_y), 2),
+            "n_bins": N_BINS_DEPTH, "x_scale": "log10", "y_scale": "log1p",
+        },
+        "n": n,
+    }
+
+
 def _q30_pct(reads):
     # parse_fastp_json nao devolve q30 isolado: ele ja o embutiu na formula
     # mean_quality = 10 + 25*q30 (q30 como fracao 0-1) para cada bloco
@@ -231,8 +335,8 @@ def build_sequencing(outdir, samples):
         comprimentos, profundidades = collect_depth_data(depth_path)
         if not comprimentos:
             continue
-        lengths[s] = comprimentos
-        depth[s] = [list(par) for par in zip(comprimentos, profundidades)]
+        lengths[s] = _build_length_block(comprimentos)
+        depth[s] = _build_depth_block(comprimentos, profundidades)
     if lengths:
         saida["lengths"] = lengths
     if depth:
