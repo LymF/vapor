@@ -289,6 +289,30 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
 
 .chart { width: 100%; overflow-x: auto; }
 
+.chart__title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 var(--sp-1);
+}
+
+.chart__sub {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  margin: 0 0 var(--sp-2);
+}
+
+.axis text {
+  font-size: var(--fs-xs);
+  fill: var(--text-3);
+}
+
+.axis .axis__grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
 .funnel__label { font-size: var(--fs-xs); fill: var(--text-2); }
 .funnel__value { font-size: var(--fs-xs); fill: var(--text); font-weight: 600; }
 
