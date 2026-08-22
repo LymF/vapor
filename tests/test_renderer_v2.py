@@ -1,8 +1,10 @@
+import json
 import os
 import pytest
 from report.renderer_v2 import (
     render_html, write_report, _quebra_por_tier, _etapas,
     _funil_da_amostra, _contagem_votus_catalogo,
+    build_sequencing, build_viral, _limita_explorer,
 )
 from report.schema import PayloadOverBudget
 
@@ -130,3 +132,37 @@ def test_contagem_votus_catalogo_conta_ids_distintos(tmp_path):
 
 def test_contagem_votus_catalogo_ausente_e_none(tmp_path):
     assert _contagem_votus_catalogo(str(tmp_path)) is None
+
+
+def test_sequencing_ausente_omite_a_chave_em_vez_de_lista_vazia(tmp_path):
+    # Fonte ausente e "trilha desligada", nao "medi zero" -- o painel precisa
+    # distinguir os dois casos, entao a chave nao pode existir vazia.
+    saida = build_sequencing(str(tmp_path), ["S1"])
+    assert "quast" not in saida
+
+
+def test_sequencing_le_quast_no_nivel_certo(tmp_path):
+    d = tmp_path / "S1" / "quast"
+    d.mkdir(parents=True)
+    (d / "report.tsv").write_text(
+        "Assembly\tassembly\n# contigs\t1234\nN50\t5678\n", encoding='utf-8')
+    saida = build_sequencing(str(tmp_path), ["S1"])
+    assert saida["quast"]["S1"]["# contigs"] == "1234"
+
+
+def test_viral_projeta_somente_campos_declarados(tmp_path):
+    d = tmp_path / "S1" / "viral" / "checkv"
+    d.mkdir(parents=True)
+    (d / "quality_summary.tsv").write_text(
+        "contig_id\tcheckv_quality\tcompleteness\tcampo_gigante\n"
+        "k141_1\tHigh-quality\t95.0\t" + "x" * 5000 + "\n", encoding='utf-8')
+    saida = build_viral(str(tmp_path), ["S1"])
+    tiers = saida["checkv_tiers"]["S1"]
+    assert tiers == {"High-quality": 1}
+    assert "campo_gigante" not in json.dumps(saida)
+
+
+def test_explorer_limita_a_50_votus():
+    feats = [{"votu_id": f"v{i}", "length": i, "features": []} for i in range(200)]
+    assert len(_limita_explorer(feats)) == 50
+    assert _limita_explorer(feats)[0]["length"] == 199   # os mais longos primeiro

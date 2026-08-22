@@ -10,8 +10,11 @@ import os
 
 from .data_loaders import (
     load_tool_status, parse_fasta_lengths, parse_quast_all, safe_int,
+    parse_fastp_json, parse_mapping_rate, collect_depth_data, parse_tsv,
+    parse_support_combos, load_viral_taxonomy, load_votu_catalog,
+    load_votu_presence, load_votu_lifestyle,
 )
-from .schema import check_budget
+from .schema import Block, project, check_budget
 
 _HERE = os.path.dirname(__file__)
 _ASSETS = os.path.join(_HERE, "assets")
@@ -157,6 +160,239 @@ def _funil_agregado(outdir, samples):
     }
 
 
+# ── Aba Sequenciamento ───────────────────────────────────────────────────────
+
+QC_BLOCK = Block(name="qc", fields=("sample", "reads_before", "reads_after", "q30"))
+QUAST_BLOCK = Block(name="quast", fields=(
+    "# contigs", "Largest contig", "Total length", "GC (%)",
+    "N50", "N75", "L50", "L75",
+))
+MAPPING_BLOCK = Block(name="mapping", fields=("sample", "rate"))
+
+
+def _q30_pct(reads):
+    # parse_fastp_json nao devolve q30 isolado: ele ja o embutiu na formula
+    # mean_quality = 10 + 25*q30 (q30 como fracao 0-1) para cada bloco
+    # before/after -- ver o comentario em parse_fastp_json. Invertemos essa
+    # mesma formula em vez de reabrir o JSON do fastp aqui.
+    for r in reads:
+        if r.get("stage") == "trimmed":
+            return round((r.get("mean_quality", 10.0) - 10.0) / 25.0 * 100, 2)
+    return None
+
+
+def build_sequencing(outdir, samples):
+    saida = {}
+
+    qc_rows = []
+    for s in samples:
+        fastp_path = os.path.join(outdir, s, "qc_raw", f"{s}_fastp.json")
+        if not os.path.exists(fastp_path):
+            continue
+        parsed = parse_fastp_json(outdir, s)
+        trim = parsed["trim"]
+        qc_rows.append({
+            "sample": s,
+            "reads_before": trim["reads_in"],
+            "reads_after": trim["reads_written"],
+            "q30": _q30_pct(parsed["reads"]),
+        })
+    if qc_rows:
+        saida["qc"] = project(QC_BLOCK, qc_rows)
+
+    quast = {}
+    for s in samples:
+        report_path = os.path.join(outdir, s, "quast", "report.tsv")
+        if not os.path.exists(report_path):
+            continue
+        parsed = parse_quast_all(report_path)
+        # ver comentario em _funil_da_amostra: a metrica fica um nivel abaixo
+        # do rotulo do assembly.
+        qd = parsed.get("assembly") or next(iter(parsed.values()), {}) if parsed else {}
+        quast[s] = project(QUAST_BLOCK, [qd])[0]
+    if quast:
+        saida["quast"] = quast
+
+    mapping_rows = []
+    for s in samples:
+        flagstat_path = os.path.join(outdir, s, "mapping", "flagstat.txt")
+        if not os.path.exists(flagstat_path):
+            continue
+        mapping_rows.append({"sample": s, "rate": parse_mapping_rate(outdir, s)})
+    if mapping_rows:
+        saida["mapping"] = project(MAPPING_BLOCK, mapping_rows)
+
+    lengths = {}
+    depth = {}
+    for s in samples:
+        depth_path = os.path.join(outdir, s, "mapping", f"{s}_depth.txt")
+        if not os.path.exists(depth_path):
+            continue
+        comprimentos, profundidades = collect_depth_data(depth_path)
+        if not comprimentos:
+            continue
+        lengths[s] = comprimentos
+        depth[s] = [list(par) for par in zip(comprimentos, profundidades)]
+    if lengths:
+        saida["lengths"] = lengths
+    if depth:
+        saida["depth"] = depth
+
+    return saida
+
+
+# ── Aba Catálogo viral ───────────────────────────────────────────────────────
+
+TAXONOMY_BLOCK = Block(name="viral_taxonomy", fields=(
+    "sample", "Phylum", "Class", "Order", "Family", "Genus", "count",
+))
+EXPLORER_FEATURE_BLOCK = Block(
+    name="explorer_feature", fields=("start", "end", "strand", "label", "kind"))
+
+
+def _checkv_tier_counts(quality_summary_path):
+    # A chave vazia ('') e uma categoria de verdade -- "CheckV nao avaliou
+    # este contig" -- e precisa sobreviver distinta de qualquer tier baixo.
+    # Ao contrario de _quebra_por_tier (funil), aqui NAO trocamos por
+    # SEM_AVALIACAO: o contrato desta aba pede a chave vazia literal.
+    if not os.path.exists(quality_summary_path):
+        return None
+    contagem = {}
+    for row in parse_tsv(quality_summary_path):
+        tier = (row.get("checkv_quality") or "").strip()
+        contagem[tier] = contagem.get(tier, 0) + 1
+    return contagem
+
+
+def _build_taxonomy(outdir, samples):
+    caminhos = [os.path.join(outdir, s, "viral", "taxonomy",
+                              "viral_taxonomy_merged.tsv") for s in samples]
+    if not any(os.path.exists(p) for p in caminhos):
+        return None
+    registros = load_viral_taxonomy(caminhos, samples)
+    if not registros:
+        return []
+    contagem = {}
+    for r in registros:
+        chave = (r.get("sample", ""), r.get("Order", ""),
+                 r.get("Family", ""), r.get("Genus", ""))
+        contagem[chave] = contagem.get(chave, 0) + 1
+    linhas = [
+        {"sample": s, "Phylum": "", "Class": "", "Order": o,
+         "Family": f, "Genus": g, "count": n}
+        for (s, o, f, g), n in contagem.items()
+    ]
+    return project(TAXONOMY_BLOCK, linhas)
+
+
+def _build_detectors(outdir, samples):
+    combos_totais = {}
+    algum_arquivo = False
+    for s in samples:
+        caminho = os.path.join(outdir, s, "viral", "consensus",
+                                f"{s}_tool_support.tsv")
+        if not os.path.exists(caminho):
+            continue
+        algum_arquivo = True
+        for chave, n in parse_support_combos(caminho).items():
+            combos_totais[chave] = combos_totais.get(chave, 0) + n
+    if not algum_arquivo:
+        return None
+
+    sets = {}
+    combos = []
+    for chave, n in sorted(combos_totais.items(), key=lambda kv: -kv[1]):
+        ferramentas = [t for t in chave.split(",") if t]
+        combos.append({"tools": ferramentas, "count": n})
+        for t in ferramentas:
+            sets[t] = sets.get(t, 0) + n
+    return {"sets": sets, "combos": combos}
+
+
+def _pharokka_rows(outdir):
+    caminho = os.path.join(outdir, "votu_catalog", "annotation", "pharokka",
+                            "pharokka_cds_final_merged_output.tsv")
+    if not os.path.exists(caminho):
+        return None
+    return parse_tsv(caminho)
+
+
+def _limita_explorer(linhas):
+    return sorted(linhas, key=lambda r: r["length"], reverse=True)[:50]
+
+
+def _build_explorer(outdir):
+    linhas_pharokka = _pharokka_rows(outdir)
+    if linhas_pharokka is None:
+        return None
+
+    por_contig = {}
+    for row in linhas_pharokka:
+        contig = row.get("contig") or row.get("contig_id") or ""
+        if not contig:
+            continue
+        try:
+            start = int(float(row.get("start", "") or 0))
+            end = int(float(row.get("stop", row.get("end", "")) or 0))
+        except (TypeError, ValueError):
+            continue
+        strand_bruta = (row.get("strand", "") or "").strip()
+        strand = -1 if strand_bruta in ("-", "-1") else 1
+        feat = {
+            "start": start,
+            "end": end,
+            "strand": strand,
+            "label": row.get("gene") or row.get("product") or row.get("top_hit") or "",
+            "kind": row.get("phrog_category") or row.get("category") or "",
+        }
+        por_contig.setdefault(contig, []).append(feat)
+
+    linhas = [
+        {"votu_id": contig,
+         "length": max((f["end"] for f in feats), default=0),
+         "features": project(EXPLORER_FEATURE_BLOCK, feats)}
+        for contig, feats in por_contig.items()
+    ]
+    return _limita_explorer(linhas)
+
+
+def build_viral(outdir, samples):
+    saida = {}
+
+    taxonomia = _build_taxonomy(outdir, samples)
+    if taxonomia is not None:
+        saida["taxonomy"] = taxonomia
+
+    checkv_tiers = {}
+    for s in samples:
+        caminho = os.path.join(outdir, s, "viral", "checkv", "quality_summary.tsv")
+        contagem = _checkv_tier_counts(caminho)
+        if contagem is not None:
+            checkv_tiers[s] = contagem
+    if checkv_tiers:
+        saida["checkv_tiers"] = checkv_tiers
+
+    detectores = _build_detectors(outdir, samples)
+    if detectores is not None:
+        saida["detectors"] = detectores
+
+    if os.path.exists(os.path.join(outdir, "votu_catalog", "vOTU_clusters.tsv")):
+        saida["catalog"] = load_votu_catalog(outdir)
+
+    if os.path.exists(os.path.join(outdir, "votu_catalog", "presence_matrix.tsv")):
+        saida["presence"] = load_votu_presence(outdir, samples)
+
+    if os.path.exists(os.path.join(
+            outdir, "votu_catalog", "bacphlip", "votu_lifestyle.tsv")):
+        saida["lifestyle"] = load_votu_lifestyle(outdir)
+
+    explorer = _build_explorer(outdir)
+    if explorer is not None:
+        saida["explorer"] = explorer
+
+    return saida
+
+
 def build_data(snakemake):
     """Monta o dicionario do report a partir do que ja existe em disco.
 
@@ -190,7 +426,17 @@ def build_data(snakemake):
     for s in samples:
         funil[s] = _funil_da_amostra(outdir, s)
 
-    return {
+    dados = {
         "run": {"title": "VAPOR", "samples": samples, "groups": grupos},
         "overview": {"kpis": kpis, "status": status, "funnel": funil},
     }
+
+    sequencing = build_sequencing(outdir, samples)
+    if sequencing:
+        dados["sequencing"] = sequencing
+
+    viral = build_viral(outdir, samples)
+    if viral:
+        dados["viral"] = viral
+
+    return dados
