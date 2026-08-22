@@ -87,6 +87,45 @@ test('ridgeline com grupos mistos: cada faixa escolhe pelo seu proprio n', () =>
   });
 });
 
+test('DistPlot com bins desenha histograma sem chamar KDE e mostra n no rodape', () => {
+  // kde() so produz <path> (a curva suavizada); o caminho de bins so produz
+  // <rect> (barras a partir das contagens prontas). Group sem `values` faz
+  // kde(g.values, ...) explodir se fosse chamado (values e undefined) --
+  // entao o proprio render sem excecao, mais a ausencia de <path>, ja prova
+  // que o KDE nunca roda para este grupo.
+  const grupo = {
+    name: 'S1',
+    n: 24680,
+    min: 1000,
+    max: 400000,
+    bins: [
+      { x0: 1000, x1: 2000, count: 12000 },
+      { x0: 2000, x1: 4000, count: 8000 },
+      { x0: 4000, x1: 400000, count: 4680 },
+    ],
+  };
+  render(<DistPlot groups={[grupo]} xName="comprimento" />);
+
+  expect(screen.getByTestId('distplot').getAttribute('data-form')).toBe('density');
+  expect(document.querySelector('[data-group-form="histogram"]')).toBeTruthy();
+  expect(document.querySelectorAll('rect[fill]').length).toBeGreaterThan(0);
+  expect(document.querySelector('path')).toBeNull();   // nenhuma curva de KDE desenhada
+  expect(screen.getByTestId('distplot-n').textContent).toContain('24.680');
+});
+
+test('DistPlot com values continua identico (strip/densidade por pontos crus)', () => {
+  const poucos = { name: 'g', values: [1, 2, 3] };
+  const muitos = { name: 'g', values: Array.from({ length: 40 }, (_, i) => i) };
+  const { rerender } = render(<DistPlot groups={[poucos]} xName="x" />);
+  expect(screen.getByTestId('distplot').getAttribute('data-form')).toBe('strip');
+  expect(screen.queryByTestId('distplot-n')).toBeNull(); // sem bins, sem rodape de n
+
+  rerender(<DistPlot groups={[muitos]} xName="x" />);
+  expect(screen.getByTestId('distplot').getAttribute('data-form')).toBe('density');
+  expect(document.querySelector('path')).toBeTruthy();   // curva de densidade, nao barras
+  expect(document.querySelector('[data-group-form="histogram"]')).toBeNull();
+});
+
 test('StackedBar: order sem Other nao faz a cauda dobrada sumir', () => {
   const partes = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`c${i}`, 12 - i]));
   render(<StackedBar data={[{ name: 'S1', parts: partes }]} order={['c0', 'c1', 'c2']} />);

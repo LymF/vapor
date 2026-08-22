@@ -356,6 +356,13 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
 .distplot__cutoff-label { font-size: var(--fs-xs); fill: var(--text-3); text-anchor: middle; }
 .distplot__ridge-label { font-size: var(--fs-xs); fill: var(--text-2); }
 
+.distplot__footer {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  margin: var(--sp-1) 0 0;
+  text-align: right;
+}
+
 .heatmap__cell-label,
 .heatmap__axis-label { font-size: var(--fs-xs); fill: var(--text-2); }
 

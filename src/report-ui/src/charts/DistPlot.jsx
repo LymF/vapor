@@ -5,6 +5,15 @@
 // forma viria da largura de banda, nao da medida. Muitos grupos
 // (> TRIGGERS.manyGroups) vira ridgeline em vez de uma fileira de boxplots
 // (boxplot e proibido neste report: esconde bimodalidade).
+//
+// Um grupo pode chegar de duas formas -- `values` (pontos crus, como sempre
+// foi) OU `bins` (histograma pre-agregado pelo Python: scripts/report/
+// renderer_v2.py binou em escala log porque a rodada real tem centenas de
+// milhares de contigs e o navegador so precisa da FORMA da distribuicao, nao
+// de cada ponto). `bins` e aditivo: nao troca o contrato de `values`, so
+// oferece um caminho que pula o KDE inteiramente e desenha barras a partir
+// das contagens ja prontas. Grupos com `bins` sempre chegam com `n` (o
+// tamanho real, que a agregacao apagaria) -- e esse `n` que o rodape mostra.
 import { scaleLinear, max as d3max, min as d3min, deviation, mean as d3mean } from 'd3';
 import { Chart } from '../viz/Chart.jsx';
 import { AxisBottom } from '../viz/Axis.jsx';
@@ -40,20 +49,44 @@ function kde(values, xVals) {
   });
 }
 
+// n efetivo de um grupo: bins carrega o "n" real (a contagem que a agregacao
+// apagaria); sem bins, e o proprio numero de pontos crus.
+function nOf(g) {
+  return g.n ?? (g.values || []).length;
+}
+
+function temBins(g) {
+  return Array.isArray(g.bins) && g.bins.length > 0;
+}
+
+// Extremos de um grupo para o dominio do eixo x: de bins usa min/max que o
+// Python ja mandou (a agregacao em si nao preserva os extremos exatos fora
+// das bordas do primeiro/ultimo bin), sem bins usa os proprios valores.
+function extremosDe(g) {
+  if (temBins(g)) {
+    const min = g.min ?? g.bins[0].x0;
+    const max = g.max ?? g.bins[g.bins.length - 1].x1;
+    return [min, max];
+  }
+  return [d3min(g.values || []), d3max(g.values || [])];
+}
+
 function decideForma(groups) {
   if (groups.length > TRIGGERS.manyGroups) return 'ridgeline';
-  const contagens = groups.map((g) => g.values.length);
+  const contagens = groups.map(nOf);
   return pickDistributionForm(mediana(contagens));
 }
 
 export function DistPlot({ groups = [], xName = 'valor', log = false, cutoffs = [] }) {
   const { show, hide, node } = useTooltip();
-  const vazio = groups.length === 0 || groups.every((g) => (g.values || []).length === 0);
+  const vazio = groups.length === 0 || groups.every((g) => nOf(g) === 0);
   const forma = decideForma(groups);
+  const algumTemBins = groups.some(temBins);
+  const totalN = groups.reduce((soma, g) => soma + nOf(g), 0);
 
-  const todosValores = groups.flatMap((g) => g.values || []);
-  const dominioMin = d3min(todosValores) ?? 0;
-  const dominioMax = d3max(todosValores) ?? 1;
+  const extremos = groups.flatMap(extremosDe).filter((v) => v !== undefined && v !== null);
+  const dominioMin = d3min(extremos) ?? 0;
+  const dominioMax = d3max(extremos) ?? 1;
 
   const altura = forma === 'ridgeline' ? Math.max(groups.length * 46, 120) : 240;
 
@@ -95,12 +128,34 @@ export function DistPlot({ groups = [], xName = 'valor', log = false, cutoffs = 
                 <AxisBottom scale={x} width={innerW} height={innerH} />
                 {linhasCorte(innerH)}
                 {groups.map((g, gi) => {
+                  const cor = PAL[gi % PAL.length];
+
+                  // Grupo ja binado: barras a partir das contagens prontas,
+                  // sem chamar kde() -- o histograma E a medida, uma curva
+                  // suavizada por cima so reintroduziria a hipotese de
+                  // largura de banda que binar no Python evitou.
+                  if (temBins(g)) {
+                    const maxC = d3max(g.bins, (b) => b.count) || 1;
+                    const y = scaleLinear().domain([0, maxC]).range([innerH, 0]);
+                    return (
+                      <g key={g.name} data-group={g.name} data-group-form="histogram">
+                        {g.bins.map((b, bi) => (
+                          <rect key={bi} x={x(b.x0)} width={Math.max(x(b.x1) - x(b.x0), 0.5)}
+                                y={y(b.count)} height={innerH - y(b.count)}
+                                fill={cor} fillOpacity={0.55}
+                                onMouseMove={(e) => show(e, `${g.name}: ${b.count}`)}
+                                onMouseLeave={hide} />
+                        ))}
+                      </g>
+                    );
+                  }
+
                   const densidades = kde(g.values, xVals);
                   const maxD = d3max(densidades) || 1;
                   const y = scaleLinear().domain([0, maxD]).range([innerH, 0]);
                   const linha = xVals.map((xv, i) => `${i === 0 ? 'M' : 'L'}${x(xv)},${y(densidades[i])}`).join(' ');
                   return (
-                    <path key={g.name} d={linha} fill="none" stroke={PAL[gi % PAL.length]} strokeWidth={2}
+                    <path key={g.name} d={linha} fill="none" stroke={cor} strokeWidth={2}
                           onMouseMove={(e) => show(e, g.name)} onMouseLeave={hide} />
                   );
                 })}
@@ -120,7 +175,7 @@ export function DistPlot({ groups = [], xName = 'valor', log = false, cutoffs = 
               <AxisBottom scale={x} width={innerW} height={innerH} />
               {linhasCorte(innerH)}
               {groups.map((g, gi) => {
-                const formaFaixa = pickDistributionForm((g.values || []).length);
+                const formaFaixa = pickDistributionForm(nOf(g));
                 const baseY = gi * faixaH + faixaH * 0.9;
                 const cor = PAL[gi % PAL.length];
 
@@ -132,6 +187,23 @@ export function DistPlot({ groups = [], xName = 'valor', log = false, cutoffs = 
                                 fill={cor} fillOpacity={0.75}
                                 onMouseMove={(e) => show(e, `${g.name}: ${v}`)}
                                 onMouseLeave={hide} />
+                      ))}
+                      <text x={4} y={gi * faixaH + 12} className="distplot__ridge-label">{g.name}</text>
+                    </g>
+                  );
+                }
+
+                if (temBins(g)) {
+                  const maxC = d3max(g.bins, (b) => b.count) || 1;
+                  const y = scaleLinear().domain([0, maxC]).range([faixaH * 0.9, 0]);
+                  return (
+                    <g key={g.name} data-lane={g.name} data-lane-form="histogram">
+                      {g.bins.map((b, bi) => (
+                        <rect key={bi} x={x(b.x0)} width={Math.max(x(b.x1) - x(b.x0), 0.5)}
+                              y={gi * faixaH + y(b.count)} height={faixaH * 0.9 - y(b.count)}
+                              fill={cor} fillOpacity={0.55}
+                              onMouseMove={(e) => show(e, `${g.name}: ${b.count}`)}
+                              onMouseLeave={hide} />
                       ))}
                       <text x={4} y={gi * faixaH + 12} className="distplot__ridge-label">{g.name}</text>
                     </g>
@@ -160,6 +232,9 @@ export function DistPlot({ groups = [], xName = 'valor', log = false, cutoffs = 
           );
         }}
       </Chart>
+      {algumTemBins ? (
+        <p className="distplot__footer" data-testid="distplot-n">n = {totalN.toLocaleString('pt-BR')}</p>
+      ) : null}
       {node}
     </div>
   );
