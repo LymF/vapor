@@ -56,7 +56,7 @@ export function Heatmap({ rows = [], cols = [], values = {}, normalize = 'none',
   const maxGlobal = d3max(todosValores) || 1;
 
   return (
-    <div data-testid="heatmap" data-mode={modo} className="chart-wrap">
+    <div data-testid="heatmap" data-mode={modo} data-normalize={normalize} className="chart-wrap">
       <Chart height={Math.max(rows.length * 28 + MARGEM.top, 120)} empty={vazio}>
         {({ width, height }) => {
           const innerW = Math.max(width - MARGEM.left - MARGEM.right, 10);
