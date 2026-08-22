@@ -205,6 +205,40 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
 .theme-toggle:hover { background: var(--surface-2); border-color: var(--border-strong); }
 
 /* ============================================================
+   Seletor de rank taxonomico (controle segmentado)
+   ============================================================ */
+
+.rank-selector {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.rank-selector__btn {
+  border: 0;
+  background: none;
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.rank-selector__btn:hover { color: var(--text); }
+
+.rank-selector__btn[data-active="true"] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ============================================================
    Layout principal
    ============================================================ */
 

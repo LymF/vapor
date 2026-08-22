@@ -7,10 +7,12 @@ export const TODAS = '__all__';
 export function ReportProvider({ data, children }) {
   const [sample, setSample] = useState(TODAS);
   const [tab, setTab] = useState('overview');
+  const [rank, setRank] = useState('Family');
+  const [taxonFilter, setTaxonFilter] = useState(null);
   const samples = data?.run?.samples ?? [];
   const valor = useMemo(
-    () => ({ data, sample, setSample, samples, tab, setTab }),
-    [data, sample, samples, tab],
+    () => ({ data, sample, setSample, samples, tab, setTab, rank, setRank, taxonFilter, setTaxonFilter }),
+    [data, sample, samples, tab, rank, taxonFilter],
   );
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }
