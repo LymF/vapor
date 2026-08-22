@@ -176,10 +176,16 @@ Expected: PASS, 1 teste
 
 ```bash
 cd src/report-ui && npm run build
-grep -c "https\?://" ../../scripts/report/assets/report-ui.js || echo "sem URL externa: ok"
+grep -oE "script[^>]*src=|fetch\(|XMLHttpRequest|importScripts" ../../scripts/report/assets/report-ui.js | sort -u
 ```
 
-Expected: nenhuma URL de CDN. Se `grep` achar algo, é violação da restrição global de arquivo único.
+Expected: saída vazia — nenhuma chamada de rede.
+
+Não procure por URL literal: o React minificado carrega `http://www.w3.org/2000/svg`
+e afins, que são **identificadores de namespace XML** passados a `createElementNS`, e
+uma URL de mensagem de erro (`reactjs.org/docs/error-decoder.html`). Nenhum dos dois
+faz requisição. O que viola a restrição de arquivo único é uma chamada de rede em
+runtime, não a presença de uma string com "http".
 
 - [ ] **Step 9: Commit**
 
@@ -213,7 +219,7 @@ Node em runtime e consome apenas o bundle versionado."
 
 ```python
 import pytest
-from scripts.report.schema import Block, project, project_strict, UndeclaredField
+from report.schema import Block, project, project_strict, UndeclaredField
 
 
 def test_project_mantem_apenas_campos_declarados():
@@ -319,7 +325,7 @@ git commit -m "feat(report): contrato de dados por projecao de campos declarados
 Acrescentar a `tests/test_report_schema.py`:
 
 ```python
-from scripts.report.schema import payload_report, check_budget, PayloadOverBudget
+from report.schema import payload_report, check_budget, PayloadOverBudget
 
 
 def test_payload_report_ordena_do_maior_para_o_menor():
@@ -1199,8 +1205,8 @@ git commit -m "feat(report): shell React com navegacao e filtro global de amostr
 ```python
 import os
 import pytest
-from scripts.report.renderer_v2 import render_html, write_report
-from scripts.report.schema import PayloadOverBudget
+from report.renderer_v2 import render_html, write_report
+from report.schema import PayloadOverBudget
 
 DADOS = {"run": {"title": "VAPOR", "samples": ["S1"]}, "overview": {"kpis": []}}
 
@@ -1407,7 +1413,7 @@ distinção é a razão de o sidecar existir.
 Acrescentar a `tests/test_renderer_v2.py`:
 
 ```python
-from scripts.report.renderer_v2 import _quebra_por_tier, _etapas
+from report.renderer_v2 import _quebra_por_tier, _etapas
 
 
 def test_quebra_por_tier_separa_nunca_avaliado_de_tier_baixo(tmp_path):
@@ -1641,7 +1647,7 @@ git commit -m "docs(report): registra o report v2 e corrige a regra da curva de 
 - [ ] `pytest tests/ -q` passa inteiro
 - [ ] `cd src/report-ui && npx vitest run` passa inteiro (19 testes)
 - [ ] o funil da aba Visão geral renderiza com dados reais da rodada, e a quebra do descarte aparece por tier do CheckV
-- [ ] `npm run build` produz bundle sem nenhuma URL externa
+- [ ] `npm run build` produz bundle sem nenhuma chamada de rede (`fetch`, `XMLHttpRequest`, `script src`)
 - [ ] `snakemake -n --use-conda --cores 1` conclui com `generate_report_v2` em 1 job
 - [ ] `{OUTDIR}/report_v2.html` abre no navegador via `file://`, navega e o filtro de amostra funciona
 - [ ] `{OUTDIR}/report.html` (o antigo) continua sendo gerado e funcionando
