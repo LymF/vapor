@@ -367,13 +367,41 @@ test('UpSet ordena as intersecoes por tamanho', () => {
 
 **Interfaces:**
 - Produces:
-  - `RANKS = ['Phylum','Class','Order','Family','Genus']` e, no store, `rank`/`setRank` mais `taxonFilter`/`setTaxonFilter` (`{rank, name}` ou `null`).
+  - `RANKS = ['Phylum','Class','Order','Family','Genus']` e `RANK_LABEL = {Phylum:'Filo', Class:'Classe', Order:'Ordem', Family:'Família', Genus:'Gênero'}` — as chaves são as colunas do dado (inglês, como saem do MMseqs2 e do GTDB-Tk), os rótulos são o que o usuário lê. Nunca traduza a chave.
+  - No store: `rank`/`setRank` (default `'Family'`) e `taxonFilter`/`setTaxonFilter` (`{rank, name}` ou `null`).
   - `<RankSelector />` — controle segmentado; muda o rank global.
   - `<Sunburst rows={[{Phylum, Class, ..., count}]} onDrill={(rank, name) => void} />` — clique num arco **desce o rank global e fixa o filtro de táxon**.
 
-- [ ] **Step 1: Testes**
+- [ ] **Step 1: Escrever os testes que falham**
+
+`src/report-ui/test/taxonomy.test.jsx`. Note os dois auxiliares no topo: `Prov`
+monta o provider (o rank é estado global, não prop) e `Espia` expõe esse estado
+para o teste ler.
 
 ```jsx
+import { render, screen, fireEvent } from '@testing-library/react';
+import { ReportProvider, useReport } from '../src/state/store.jsx';
+import { RankSelector, RANKS, RANK_LABEL } from '../src/viz/RankSelector.jsx';
+import { Sunburst } from '../src/charts/Sunburst.jsx';
+
+function Prov({ children }) {
+  return <ReportProvider data={{ run: { title: 'VAPOR', samples: [] } }}>{children}</ReportProvider>;
+}
+
+function Espia() {
+  const { rank, taxonFilter } = useReport();
+  return (<>
+    <span data-testid="rank">{rank}</span>
+    <span data-testid="taxon">{taxonFilter?.name ?? ''}</span>
+  </>);
+}
+
+test('os rotulos sao portugues sobre as chaves em ingles', () => {
+  expect(RANKS).toEqual(['Phylum', 'Class', 'Order', 'Family', 'Genus']);
+  expect(RANK_LABEL.Family).toBe('Família');
+  expect(RANK_LABEL.Phylum).toBe('Filo');
+});
+
 test('o seletor troca o rank global', () => {
   render(<Prov><RankSelector /><Espia /></Prov>);
   fireEvent.click(screen.getByRole('button', { name: 'Família' }));
@@ -395,7 +423,11 @@ test('rank mais fundo que o dado nao inventa nivel', () => {
 });
 ```
 
-- [ ] Steps 2-4 como nas anteriores. **Nenhum treemap** — decisão do usuário registrada no spec.
+- [ ] **Step 2: Rodar e confirmar que falham**
+- [ ] **Step 3: Implementar** `RankSelector.jsx`, `Sunburst.jsx` e as duas fatias novas do store (`rank`, `taxonFilter`), mantendo `sample`/`tab` intactos.
+- [ ] **Step 4: Rodar a suíte inteira, compilar e commitar.**
+
+**Nenhum treemap** — decisão do usuário, registrada no spec.
 
 ---
 
