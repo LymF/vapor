@@ -6,6 +6,7 @@ campos para consumir sete -- entre eles other_related_references, que e uma
 string enorme por genoma. A projecao explicita mata essa classe de bug.
 """
 from dataclasses import dataclass
+import json
 
 
 class UndeclaredField(Exception):
@@ -33,3 +34,26 @@ def project_strict(block, rows):
                 f"{sorted(extra)}"
             )
     return project(block, rows)
+
+
+class PayloadOverBudget(Exception):
+    """O JSON embarcado passou do orcamento."""
+
+
+def payload_report(data):
+    sizes = [(name, len(json.dumps(obj, ensure_ascii=False).encode('utf-8')))
+             for name, obj in data.items()]
+    return sorted(sizes, key=lambda item: item[1], reverse=True)
+
+
+def check_budget(data, limit_mb=25.0):
+    sizes = payload_report(data)
+    total = sum(size for _, size in sizes)
+    if total > limit_mb * 1024 * 1024:
+        piores = ", ".join(f"{n} ({s / 1024 / 1024:.1f} MB)" for n, s in sizes[:3])
+        raise PayloadOverBudget(
+            f"payload de {total / 1024 / 1024:.1f} MB excede o orcamento de "
+            f"{limit_mb} MB. Maiores blocos: {piores}. "
+            f"Projete os campos com schema.project antes de embarcar."
+        )
+    return sizes
