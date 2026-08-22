@@ -50,7 +50,9 @@ guarda-corpo da §8.
 | Toolchain | **bundle pré-compilado, versionado no git** | Snakemake continua sem Node em runtime; rodada offline/HPC não quebra. Node só para quem edita o report |
 | Framework | **React + D3** | componentes com estado (filtro global de amostra, seletor de rank, drill-down de rede) são o que o vanilla atual não sustenta |
 | Biblioteca de charts | **D3 puro, ECharts removida** | um só modelo mental e estética unificada; o custo é uma camada de primitivas, escrita uma vez |
-| Navegação | **por objeto biológico, amostra como filtro** | reflete a pipeline pós-agosto; amostra deixa de ser aba |
+| Navegação | **por objeto biológico, amostra como filtro** | reflete a pipeline pós-agosto; amostra deixa de ser o eixo das abas |
+| Vista por amostra | **obrigatória, com modo de comparação** | o usuário precisa analisar UMA amostra inteira — qualidade, taxonomia, MAGs, vOTUs — e não só o agregado (§5.8) |
+| Procedência do valor | **sempre marcada: medido aqui vs. herdado** | sob o princípio (h) a maioria dos valores exibidos sob uma amostra foi computada no representante do catálogo; exibi-los sem marca seria mentir |
 | Taxonomia | **seletor de rank, nunca rank fixo** | filo/classe/ordem/família/gênero trocáveis no lugar; clique no sunburst desce e filtra |
 | Treemap | **proibido** | decisão do usuário; o sunburst com drill cobre o caso de "uma unidade, hierarquia inteira" |
 | Redes | **graph-tool, SBM aninhado, layout no Python** | layout determinístico com semente fixa: o mesmo dado desenha igual, o que a figura de paper exige |
@@ -233,6 +235,45 @@ vieram de contagens**; escritos vazios por falta de contagem, a aba mostra a
 lacuna em vez de plotar zero. Trilha sylph: OTU por prevalência, hospedeiro
 colapsado com `host_source` (`db`/`none`) visível, e o aviso de espaço de IDs da
 §4.
+
+### 5.8 Vista por amostra
+
+Nenhuma das abas acima substitui a pergunta "como foi a amostra P01?". O filtro
+global de amostra repinta todos os painéis, mas isso não basta: a amostra precisa
+de uma **vista própria**, e ela tem dois modos.
+
+**Modo individual — uma amostra por vez.** Uma página com tudo o que se sabe
+daquela amostra, na ordem em que se investiga:
+
+| bloco | conteúdo |
+|---|---|
+| Execução | quais regras rodaram, falharam ou foram puladas nesta amostra |
+| Sequenciamento | fastp/NanoPlot, QUAST, taxa de mapeamento, cobertura |
+| Viral | contigs candidatos, o funil de atrição **desta** amostra com os descartes e seus motivos, vOTUs presentes com taxonomia (seletor de rank), qualidade CheckV, abundância |
+| Procariótico | MAGs binados aqui, CheckM2 × GUNC no scatter com zonas MIMAG, taxonomia GTDB, a que cluster do catálogo cada MAG pertence e se é representante |
+| Defesa/AMR/plasmídeo | o que os MAGs desta amostra carregam, com procedência marcada |
+| Diversidade | alfa desta amostra contra a distribuição das demais — a posição relativa é o que dá sentido a um valor de alfa isolado |
+
+**Modo comparação — duas ou mais amostras lado a lado.** Pergunta diferente,
+forma diferente: pequenos múltiplos alinhados no mesmo eixo para as
+distribuições, e barra empilhada no rank selecionado para composição. Nunca um
+sunburst por amostra lado a lado — hierarquia não se compara visualmente (§5.3).
+
+**Marca de procedência.** Sob o princípio (h) do `ROADMAP_SIMPLIFICACAO.md`,
+grande parte do que se exibe sob uma amostra **não foi computado nela**:
+
+| medido na amostra | herdado do representante do catálogo |
+|---|---|
+| QC, montagem, QUAST, mapeamento, cobertura | taxonomia GTDB, MMseqs2 |
+| binning (MetaBAT2/SemiBin2/Binette), CheckM2, GUNC | defesa, AMR, plasmídeo, VFDB |
+| abundância e presença de vOTU | KEGG, CAZy, bakta, eggNOG |
+| diversidade alfa/beta | taxonomia viral, pharokka/phold, estilo de vida |
+
+Todo valor da coluna da direita aparece com marca de herança e com o
+representante identificado no tooltip. Sem isso, "o MAG da P01 é Pseudomonadota"
+lido no report seria uma afirmação que a pipeline nunca fez — quem foi
+classificado foi o representante do cluster, que pode ter vindo de outra amostra
+ou de um grupo de co-montagem.
 
 ---
 
