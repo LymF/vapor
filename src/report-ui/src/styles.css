@@ -12,7 +12,7 @@
   --border-strong: #cbd5e1;
   --text: #1e293b;
   --text-2: #475569;
-  --text-3: #94a3b8;
+  --text-3: #64748b;
 
   /* --- estados de ferramenta: quatro cores distintas entre si --- */
   --ok: #16a34a;
@@ -70,7 +70,7 @@
     --border-strong: #475569;
     --text: #f1f5f9;
     --text-2: #cbd5e1;
-    --text-3: #64748b;
+    --text-3: #94a3b8;
 
     --ok: #4ade80;
     --skipped: #94a3b8;
@@ -134,10 +134,7 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
   height: 58px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  transition: box-shadow 0.15s ease;
 }
-
-.nav.is-scrolled { box-shadow: var(--shadow); }
 
 .nav__brand {
   font-size: var(--fs-lg);
