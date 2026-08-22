@@ -20,11 +20,16 @@ function temValor(v) {
   return v !== undefined && v !== null && v !== '';
 }
 
+// Um rank sem NENHUM dado na linhagem toda (ex.: Phylum/Class vazios porque
+// a fonte so classificou ate familia) nao pode derrubar a arvore inteira --
+// pula esse rank e tenta o proximo, em vez de abortar em depth=0. So aborta
+// (devolve []) quando NENHUM rank restante tem dado -- essa lista esgotada e
+// o unico caso de "sem taxonomia".
 function buildTree(rows, ranks, depth = 0) {
   if (depth >= ranks.length) return [];
   const rankKey = ranks[depth];
   const algumTemDado = rows.some((r) => temValor(r[rankKey]));
-  if (!algumTemDado) return [];
+  if (!algumTemDado) return buildTree(rows, ranks, depth + 1);
   const grupos = new Map();
   rows.forEach((r) => {
     const nome = temValor(r[rankKey]) ? r[rankKey] : NAO_CLASSIFICADO;
@@ -45,7 +50,13 @@ export function Sunburst({ rows = [], onDrill }) {
   const ateIndex = Math.max(RANKS.indexOf(rank), 0);
   const ranksAtivos = RANKS.slice(0, ateIndex + 1);
   const arvore = buildTree(rows, ranksAtivos);
-  const vazio = rows.length === 0 || arvore.length === 0;
+  // Duas causas bem diferentes de "vazio": nenhuma linha chegou (fonte
+  // ausente/filtrada) vs. linhas existem mas nenhuma tem taxonomia atribuida
+  // em rank algum ate o selecionado -- essa segunda precisa dizer isso, ou o
+  // usuario le como "a pipeline nao rodou" em vez de "nao classificou".
+  const semLinhas = rows.length === 0;
+  const semTaxonomiaAtribuida = !semLinhas && arvore.length === 0;
+  const vazio = semLinhas || semTaxonomiaAtribuida;
 
   function handleClick(d) {
     const idxAtual = RANKS.indexOf(d.data.rank);
@@ -57,7 +68,11 @@ export function Sunburst({ rows = [], onDrill }) {
 
   return (
     <div data-testid="sunburst" className="chart-wrap">
-      <Chart height={360} empty={vazio}>
+      <Chart
+        height={360}
+        empty={vazio}
+        emptyLabel={semTaxonomiaAtribuida ? 'Nenhuma taxonomia atribuída nesta rodada' : undefined}
+      >
         {({ width, height }) => {
           const raio = Math.min(width, height) / 2;
           const root = hierarchy({ name: 'root', children: arvore }, (d) => d.children)

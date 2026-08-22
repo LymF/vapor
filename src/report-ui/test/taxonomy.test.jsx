@@ -40,3 +40,41 @@ test('rank mais fundo que o dado nao inventa nivel', () => {
   render(<Prov><Sunburst rows={linhas} /></Prov>);
   expect(screen.queryByTestId('arc-undefined')).toBeNull();
 });
+
+test('Phylum e Class vazios nao apagam a arvore -- desenha a partir de Family', () => {
+  // Caso comum de taxonomia viral: classificado so ate familia. O rank
+  // global comeca em 'Family' (default do ReportProvider), entao a arvore
+  // deve desenhar o arco de familia em vez de ficar vazia por causa dos dois
+  // ranks iniciais sem dado nenhum.
+  const linhas = [
+    { Phylum: '', Class: '', Order: '', Family: 'Straboviridae', count: 7 },
+    { Phylum: '', Class: '', Order: '', Family: 'Straboviridae', count: 3 },
+  ];
+  render(<Prov><Sunburst rows={linhas} /></Prov>);
+  expect(screen.getByTestId('arc-Straboviridae')).toBeTruthy();
+  expect(screen.queryByText('Sem dados nesta rodada')).toBeNull();
+});
+
+test('sem nenhuma taxonomia atribuida mostra estado vazio especifico', () => {
+  const linhas = [{ count: 5 }];
+  render(<Prov><Sunburst rows={linhas} /></Prov>);
+  expect(screen.getByText('Nenhuma taxonomia atribuída nesta rodada')).toBeTruthy();
+});
+
+test('sem nenhuma linha mostra o estado vazio generico, nao o especifico', () => {
+  render(<Prov><Sunburst rows={[]} /></Prov>);
+  expect(screen.getByText('Sem dados nesta rodada')).toBeTruthy();
+});
+
+test('ranks sem dado ficam desabilitados no seletor, com title explicando', () => {
+  render(<Prov><RankSelector availableRanks={['Family', 'Genus']} /></Prov>);
+  const filo = screen.getByRole('button', { name: 'Filo' });
+  const classe = screen.getByRole('button', { name: 'Classe' });
+  const familia = screen.getByRole('button', { name: 'Família' });
+  const genero = screen.getByRole('button', { name: 'Gênero' });
+  expect(filo.disabled).toBe(true);
+  expect(classe.disabled).toBe(true);
+  expect(familia.disabled).toBe(false);
+  expect(genero.disabled).toBe(false);
+  expect(filo.title).toMatch(/não tem taxonomia atribuída/);
+});

@@ -9,6 +9,7 @@ from report.renderer_v2 import (
     _funil_da_amostra, _contagem_votus_catalogo,
     build_sequencing, build_viral, _limita_explorer,
     _build_length_block, _build_depth_block, _build_explorer, LIMIAR_BRUTO,
+    _ranks_from_lineage, _build_taxonomy,
 )
 from report.schema import PayloadOverBudget, payload_report
 
@@ -272,6 +273,84 @@ def test_depth_block_sobrevive_a_comprimento_zero_e_negativo():
 
 
 # ── Correcao Important 2: strand sai como string, nao numero ───────────────
+
+# ── Correcao (a): ranks ICTV extraidos por sufixo, nao por posicao ─────────
+
+def test_ranks_from_lineage_para_de_no_ultimo_rank_com_sufixo_reconhecido():
+    # Linhagem real da rodada: campo final vazio apos Class -- so ate classe.
+    linhagem = "Viruses;Duplodnaviria;Heunggongvirae;Uroviricota;Caudoviricetes;;"
+    ranks = _ranks_from_lineage(linhagem)
+    assert ranks == {
+        "Realm": "Duplodnaviria",
+        "Kingdom": "Heunggongvirae",
+        "Phylum": "Uroviricota",
+        "Class": "Caudoviricetes",
+    }
+
+
+def test_ranks_from_lineage_ignora_prefixo_e_token_unclassified():
+    # Linhagem real da rodada: prefixo "-_" no primeiro token, "Unclassified"
+    # no ultimo -- nenhum dos dois pode virar um rank.
+    linhagem = "-_Duplodnaviria;Heunggongvirae;Uroviricota;Caudoviricetes;Unclassified"
+    ranks = _ranks_from_lineage(linhagem)
+    assert ranks == {
+        "Realm": "Duplodnaviria",
+        "Kingdom": "Heunggongvirae",
+        "Phylum": "Uroviricota",
+        "Class": "Caudoviricetes",
+    }
+
+
+def test_ranks_from_lineage_linhagem_completa_ate_genero():
+    linhagem = ("Viruses;Duplodnaviria;Heunggongvirae;Uroviricota;"
+                "Caudoviricetes;Caudovirales;Straboviridae;Tequatrovirus")
+    ranks = _ranks_from_lineage(linhagem)
+    assert ranks["Order"] == "Caudovirales"
+    assert ranks["Family"] == "Straboviridae"
+    assert ranks["Genus"] == "Tequatrovirus"
+    assert ranks["Phylum"] == "Uroviricota"
+    assert ranks["Class"] == "Caudoviricetes"
+
+
+def test_ranks_from_lineage_vazia_devolve_dict_vazio():
+    assert _ranks_from_lineage("") == {}
+
+
+def test_build_taxonomy_preenche_phylum_e_classe_a_partir_da_linhagem(tmp_path):
+    # Linha real de rodada (votu_catalog.smk, ramo `elif gmd:`): geNomad so
+    # resolveu ate Class, entao final_family/final_genus/final_order saem
+    # vazios do gerador -- mas genomad_class carrega a info que faz a linha
+    # sobreviver ao filtro de load_viral_taxonomy (data_loaders.py, fora do
+    # escopo desta correcao). O que a correcao (a) garante e que Phylum e
+    # Class, que nunca tiveram campo explicito nenhum, vem de `lineage`.
+    d = tmp_path / "S1" / "viral" / "taxonomy"
+    d.mkdir(parents=True)
+    (d / "viral_taxonomy_merged.tsv").write_text(
+        "seq_name\tfinal_family\tfinal_genus\tfinal_order\tlineage\tsource\tconfidence\tgenomad_class\n"
+        "k141_1\t\t\t\tViruses;Duplodnaviria;Heunggongvirae;Uroviricota;Caudoviricetes;;\t"
+        "genomad\thigh\tCaudoviricetes\n",
+        encoding='utf-8')
+    linhas = _build_taxonomy(str(tmp_path), ["S1"])
+    assert len(linhas) == 1
+    assert linhas[0]["Phylum"] == "Uroviricota"
+    assert linhas[0]["Class"] == "Caudoviricetes"
+
+
+def test_build_taxonomy_campo_explicito_tem_precedencia_sobre_a_linhagem(tmp_path):
+    d = tmp_path / "S1" / "viral" / "taxonomy"
+    d.mkdir(parents=True)
+    (d / "viral_taxonomy_merged.tsv").write_text(
+        "seq_name\tfinal_family\tfinal_genus\tfinal_order\tlineage\tsource\tconfidence\n"
+        "k141_1\tStraboviridae\tTequatrovirus\tCaudovirales\t"
+        "Viruses;Duplodnaviria;Heunggongvirae;Uroviricota;Caudoviricetes;Caudovirales;OutraFamiliaviridae;OutroGenerovirus\t"
+        "mmseqs_inphared\thigh\n",
+        encoding='utf-8')
+    linhas = _build_taxonomy(str(tmp_path), ["S1"])
+    assert linhas[0]["Family"] == "Straboviridae"
+    assert linhas[0]["Genus"] == "Tequatrovirus"
+    assert linhas[0]["Phylum"] == "Uroviricota"
+    assert linhas[0]["Class"] == "Caudoviricetes"
+
 
 def test_explorer_emite_strand_como_string_para_as_quatro_entradas(tmp_path):
     # O GenomeTrack.jsx (consumidor) compara f.strand === '-'. -1 (numero)

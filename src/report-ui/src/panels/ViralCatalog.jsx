@@ -1,7 +1,7 @@
 // Aba Catalogo viral (task 9 do plano 2). Seis blocos, cada um com sua
 // propria fonte e seu proprio estado vazio -- nenhum grafico taxonomico fica
 // preso a um rank fixo (RankSelector e Sunburst usam o rank global).
-import { RankSelector } from '../viz/RankSelector.jsx';
+import { RankSelector, RANKS } from '../viz/RankSelector.jsx';
 import { BarChart, StackedBar } from '../charts/BarChart.jsx';
 import { Sunburst } from '../charts/Sunburst.jsx';
 import { Heatmap } from '../charts/Heatmap.jsx';
@@ -60,6 +60,9 @@ export function ViralCatalog() {
   }
 
   const taxonomyRows = viral.taxonomy ?? [];
+  // So os ranks com pelo menos um valor real nesta rodada ficam clicaveis no
+  // seletor -- ver RankSelector.jsx.
+  const availableRanks = RANKS.filter((r) => taxonomyRows.some((row) => temValor(row[r])));
   const totaisRank = agregaPorRank(taxonomyRows, rank);
   const barrasTaxon = foldOther(totaisRank, 8).map(([name, value]) => ({ name, value }));
 
@@ -102,7 +105,7 @@ export function ViralCatalog() {
         <h2>Composição taxonômica</h2>
         {taxonomyRows.length ? (
           <>
-            <RankSelector />
+            <RankSelector availableRanks={availableRanks} />
             <BarChart orientation="horizontal" sort="desc" valueName="sequências" data={barrasTaxon} />
             <Sunburst rows={taxonomyRows} />
           </>

@@ -8,6 +8,7 @@ import csv
 import json
 import math
 import os
+import re
 
 from .data_loaders import (
     load_tool_status, parse_fasta_lengths, parse_quast_all, safe_int,
@@ -366,6 +367,50 @@ def build_sequencing(outdir, samples):
 TAXONOMY_BLOCK = Block(name="viral_taxonomy", fields=(
     "sample", "Phylum", "Class", "Order", "Family", "Genus", "count",
 ))
+
+# A nomenclatura viral do ICTV e padronizada por SUFIXO, nao por posicao no
+# campo `lineage` -- o numero de campos e o prefixo de cada token variam entre
+# ferramentas (geNomad e mmseqs2 nao concordam), entao contar campos (como o
+# _deepest_level de data_loaders.py faz, so como fallback de family/genus/
+# order) erra silenciosamente quando um rank intermediario falta. Sufixos mais
+# longos primeiro: nao ha overlap real entre eles (nenhum e sufixo de outro),
+# mas testar do mais longo pro mais curto e a defesa correta mesmo assim.
+_ICTV_RANK_SUFFIXES = (
+    ("Class", "viricetes"),
+    ("Phylum", "viricota"),
+    ("Order", "virales"),
+    ("Family", "viridae"),
+    ("Kingdom", "virae"),
+    ("Genus", "virus"),
+    ("Realm", "viria"),
+)
+_LINEAGE_NULL = {"unclassified", ""}
+
+
+def _ictv_rank_of(token):
+    # Prefixos observados na rodada real: "-_" (mmseqs2/custom) e estilos
+    # tipo GTDB "d__"/"p__". Ambos sao ruido antes do nome do taxon --
+    # descartamos qualquer prefixo nao alfabetico.
+    limpo = re.sub(r'^[^A-Za-z]+', '', (token or '').strip())
+    if not limpo or limpo.lower() in _LINEAGE_NULL:
+        return None, None
+    baixo = limpo.lower()
+    for rank, sufixo in _ICTV_RANK_SUFFIXES:
+        if baixo.endswith(sufixo):
+            return rank, limpo
+    return None, None
+
+
+def _ranks_from_lineage(lineage):
+    """Classifica cada token de `lineage` (separado por ';') pelo sufixo
+    ICTV do seu nome, nao pela posicao. Devolve um dict rank -> nome, so com
+    os ranks efetivamente encontrados."""
+    ranks = {}
+    for token in (lineage or "").split(";"):
+        rank, nome = _ictv_rank_of(token)
+        if rank:
+            ranks[rank] = nome
+    return ranks
 EXPLORER_FEATURE_BLOCK = Block(
     name="explorer_feature", fields=("start", "end", "strand", "label", "kind"))
 
@@ -394,13 +439,25 @@ def _build_taxonomy(outdir, samples):
         return []
     contagem = {}
     for r in registros:
-        chave = (r.get("sample", ""), r.get("Order", ""),
-                 r.get("Family", ""), r.get("Genus", ""))
+        # final_family/final_genus/final_order sao a decisao final da
+        # pipeline (load_viral_taxonomy ja aplicou seu proprio fallback
+        # posicional) -- tem precedencia. `lineage` so preenche o que eles
+        # nao trazem, e e a UNICA fonte de Phylum/Class (nunca existiram como
+        # campo explicito).
+        da_linhagem = _ranks_from_lineage(r.get("Lineage", ""))
+        chave = (
+            r.get("sample", ""),
+            da_linhagem.get("Phylum", ""),
+            da_linhagem.get("Class", ""),
+            r.get("Order") or da_linhagem.get("Order", ""),
+            r.get("Family") or da_linhagem.get("Family", ""),
+            r.get("Genus") or da_linhagem.get("Genus", ""),
+        )
         contagem[chave] = contagem.get(chave, 0) + 1
     linhas = [
-        {"sample": s, "Phylum": "", "Class": "", "Order": o,
+        {"sample": s, "Phylum": p, "Class": c, "Order": o,
          "Family": f, "Genus": g, "count": n}
-        for (s, o, f, g), n in contagem.items()
+        for (s, p, c, o, f, g), n in contagem.items()
     ]
     return project(TAXONOMY_BLOCK, linhas)
 
