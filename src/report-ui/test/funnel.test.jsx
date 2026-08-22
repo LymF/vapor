@@ -35,3 +35,36 @@ test('a primeira etapa nao tem perda', () => {
   render(<AttritionFunnel stages={stages} losses={losses} />);
   expect(screen.queryByTestId('loss-contigs')).toBeNull();
 });
+
+test('unidades iguais desenham a barra de perda', () => {
+  const comUnidade = [
+    { name: 'contigs', value: 1000, unit: 'contig' },
+    { name: 'candidatos virais', value: 400, unit: 'contig' },
+  ];
+  render(<AttritionFunnel stages={comUnidade} />);
+  expect(screen.getByTestId('loss-candidatos virais')).toBeTruthy();
+});
+
+test('unidades diferentes nao desenham a barra de perda, mas a etapa aparece', () => {
+  const unidadesDiferentes = [
+    { name: 'candidatos virais', value: 400, unit: 'contig' },
+    { name: 'sequências virais retidas', value: 120, unit: 'sequência' },
+  ];
+  render(<AttritionFunnel stages={unidadesDiferentes} />);
+  expect(screen.getByTestId('stage-sequências virais retidas')).toBeTruthy();
+  expect(screen.queryByTestId('loss-sequências virais retidas')).toBeNull();
+});
+
+test('ausencia de unit e tratada como mesma unidade (compatibilidade)', () => {
+  const semUnit = [
+    { name: 'contigs', value: 1000 },
+    { name: 'candidatos virais', value: 400 },
+  ];
+  render(<AttritionFunnel stages={semUnit} />);
+  expect(screen.getByTestId('loss-candidatos virais')).toBeTruthy();
+});
+
+test('sem stages nao quebra (default [])', () => {
+  render(<AttritionFunnel />);
+  expect(screen.queryByRole('img')).toBeTruthy();
+});

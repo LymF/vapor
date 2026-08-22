@@ -8,7 +8,7 @@ import { useResize } from '../viz/useResize.js';
 const ALTURA_LINHA = 46;
 const ROTULO_W = 190;
 
-export function AttritionFunnel({ stages, losses = {}, onSelectLoss }) {
+export function AttritionFunnel({ stages = [], losses = {}, onSelectLoss }) {
   const ref = useRef(null);
   const { width } = useResize(ref);
   const largura = width || 720;
@@ -20,8 +20,16 @@ export function AttritionFunnel({ stages, losses = {}, onSelectLoss }) {
       <svg width="100%" height={stages.length * ALTURA_LINHA + 8} role="img"
            aria-label="funil de atricao da rodada">
         {stages.map((etapa, i) => {
-          const anterior = i > 0 ? stages[i - 1].value : null;
-          const perda = anterior === null ? null : anterior - etapa.value;
+          const etapaAnterior = i > 0 ? stages[i - 1] : null;
+          const anterior = etapaAnterior ? etapaAnterior.value : null;
+          // 'unit' ausente e tratado como "mesma unidade" -- compatibilidade
+          // com dados antigos que nao declaram unit. Unidades DIFERENTES (ex.:
+          // contig -> sequencia, apos o vRhyme consolidar N contigs num vMAG)
+          // nao desenham a barra de perda: a diferenca embute consolidacao,
+          // nao descarte.
+          const mesmaUnidade = !etapaAnterior ||
+            (etapaAnterior.unit ?? null) === (etapa.unit ?? null);
+          const perda = anterior === null || !mesmaUnidade ? null : anterior - etapa.value;
           const y = i * ALTURA_LINHA;
           const motivos = losses[etapa.name] ?? [];
           return (

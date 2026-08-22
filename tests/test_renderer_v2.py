@@ -1,6 +1,9 @@
 import os
 import pytest
-from report.renderer_v2 import render_html, write_report, _quebra_por_tier, _etapas
+from report.renderer_v2 import (
+    render_html, write_report, _quebra_por_tier, _etapas,
+    _funil_da_amostra, _contagem_votus_catalogo,
+)
 from report.schema import PayloadOverBudget
 
 DADOS = {"run": {"title": "VAPOR", "samples": ["S1"]}, "overview": {"kpis": []}}
@@ -66,5 +69,64 @@ def test_quebra_por_tier_sem_arquivo_e_lista_vazia(tmp_path):
 
 
 def test_etapas_omite_a_etapa_cuja_fonte_nao_existe():
-    etapas = _etapas({"contigs": 10, "candidatos virais": 0, "vOTUs retidos": 3})
-    assert [e["name"] for e in etapas] == ["contigs", "vOTUs retidos"]
+    etapas = _etapas({
+        "contigs": 10, "candidatos virais": None,
+        "sequências virais retidas": 3,
+    })
+    assert [e["name"] for e in etapas] == ["contigs", "sequências virais retidas"]
+
+
+def test_etapas_mantem_contagem_zero_real_quando_fonte_existe():
+    # fonte AUSENTE (None) some; fonte PRESENTE com zero biologico aparece com
+    # valor 0 -- e a distincao da correcao 5.
+    etapas = _etapas({
+        "contigs": 10, "candidatos virais": 0,
+        "sequências virais retidas": None,
+    })
+    nomes = [e["name"] for e in etapas]
+    assert nomes == ["contigs", "candidatos virais"]
+    valor = next(e["value"] for e in etapas if e["name"] == "candidatos virais")
+    assert valor == 0
+
+
+def test_etapas_inclui_a_unidade_de_cada_uma():
+    etapas = _etapas({
+        "contigs": 5, "candidatos virais": 5, "sequências virais retidas": 5,
+    })
+    unidades = {e["name"]: e["unit"] for e in etapas}
+    assert unidades == {
+        "contigs": "contig",
+        "candidatos virais": "contig",
+        "sequências virais retidas": "sequência",
+    }
+
+
+def test_funil_le_contagem_de_contigs_do_quast_report(tmp_path):
+    # parse_quast_all devolve {rotulo: {metrica: valor}} -- a metrica fica um
+    # nivel abaixo do rotulo do assembly. Este e o bug da correcao 1: sem o
+    # nivel extra, n_contigs era sempre 0 e "contigs" nunca aparecia.
+    sample = "S1"
+    quast_dir = tmp_path / sample / "quast"
+    quast_dir.mkdir(parents=True)
+    (quast_dir / "report.tsv").write_text(
+        "Assembly\tassembly\n# contigs\t1234\n", encoding='utf-8')
+    funil = _funil_da_amostra(str(tmp_path), sample)
+    etapa = next((e for e in funil["stages"] if e["name"] == "contigs"), None)
+    assert etapa is not None
+    assert etapa["value"] == 1234
+
+
+def test_contagem_votus_catalogo_conta_ids_distintos(tmp_path):
+    caminho = tmp_path / "votu_catalog" / "vOTU_clusters.tsv"
+    caminho.parent.mkdir(parents=True)
+    caminho.write_text(
+        "votu_id\trepresentative\tmember\n"
+        "vOTU_1\tk141_1\tk141_1\n"
+        "vOTU_1\tk141_1\tk141_2\n"
+        "vOTU_2\tk141_9\tk141_9\n",
+        encoding='utf-8')
+    assert _contagem_votus_catalogo(str(tmp_path)) == 2
+
+
+def test_contagem_votus_catalogo_ausente_e_none(tmp_path):
+    assert _contagem_votus_catalogo(str(tmp_path)) is None

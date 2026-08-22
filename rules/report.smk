@@ -134,6 +134,9 @@ rule generate_report_v2:
     scripts/report/assets/report-ui.js -- sem Node em runtime."""
     input:
         rules.generate_report.input,
+        bundle_js  = "scripts/report/assets/report-ui.js",
+        bundle_css = "scripts/report/assets/report-ui.css",
+        shell      = "scripts/report/components/shell_v2.html",
     output:
         html = f"{OUTDIR}/report_v2.html",
     params:

@@ -10,7 +10,9 @@ export function Overview() {
   const status = ov.status ?? [];
   const funil = (ov.funnel ?? {})[sample] ?? (ov.funnel ?? {})[TODAS] ?? null;
 
-  if (!kpis.length && !status.length && !funil) {
+  const temFunil = Boolean(funil?.stages?.length);
+
+  if (!kpis.length && !status.length && !temFunil) {
     return <p className="empty">Sem dados para esta aba nesta rodada.</p>;
   }
 
@@ -20,7 +22,7 @@ export function Overview() {
         {kpis.map((k) => <StatTile key={k.label} {...k} />)}
       </div>
 
-      {funil ? (
+      {temFunil ? (
         <section className="card">
           <h2>Atrição da rodada</h2>
           <p className="card__scope">
