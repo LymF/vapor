@@ -361,7 +361,15 @@ print(f"[Snakemake] Samples ({'LR' if LONG_READS else 'SR'}): {list(SAMPLES.keys
 # A validacao contra SAMPLES e deliberada: um nome digitado errado aqui
 # ficaria silenciosamente sem efeito, e a amostra rodaria fastp achando-se
 # no cutadapt.
-QC_CUTADAPT_SAMPLES = [str(x) for x in (config.get("qc_cutadapt_samples") or [])]
+_qc_cutadapt_cfg = config.get("qc_cutadapt_samples") or []
+if isinstance(_qc_cutadapt_cfg, str):
+    # "all" existe para a lista nao sair de sincronia com as amostras: uma
+    # lista escrita a mao que esquece uma amostra a devolve em silencio ao
+    # fastp, que e o mesmo modo de falha que a validacao abaixo pega para
+    # nome errado.
+    _qc_cutadapt_cfg = (list(SAMPLES) if _qc_cutadapt_cfg.strip().lower() == "all"
+                        else [_qc_cutadapt_cfg])
+QC_CUTADAPT_SAMPLES = [str(x) for x in _qc_cutadapt_cfg]
 _qc_desconhecidas = [s for s in QC_CUTADAPT_SAMPLES if s not in SAMPLES]
 if _qc_desconhecidas:
     raise ValueError(
