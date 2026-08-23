@@ -851,6 +851,56 @@ existe para evitar: "não avaliável" e "membro de outro cluster" não são
 "o organismo não tem o gene", e tratá-los como o mesmo estado visual é a
 versão de UI do bug do `done.txt` vazio lido como zero biológico.
 
+**Parcialmente fechada em 2026-08-23, mas só no report novo.** O report v2
+(`src/report-ui/`, aba Pangenoma) lê as duas tabelas e desenha a matriz com o
+`?` hachurado — textura, não um tom mais claro da cor de ausência, justamente
+porque um tom mais fraco leria como "meio ausente". O `-` é filtrado ainda no
+Python, para que não possa chegar ao navegador como ausência. **O report
+antigo (`scripts/report/components/`) continua sem nada disso**, e enquanto os
+dois coexistirem (ver "Report v2 — o que falta" abaixo) é o antigo que já foi
+validado contra dado real. Quem for decidir a fase 2 hoje ainda deve olhar o
+TSV.
+
+### Lacuna conhecida, deliberadamente não fechada agora: cluster sem gene nenhum SOME do sumário
+
+Achada pela revisão do conserto do `defensefinder_summary.tsv` (2026-08-19), e
+**anterior a ele** — existe desde que `summarize_clusters` foi escrita, e o
+conserto do DefenseFinder não a tocou. Fica registrada, não corrigida, por
+decisão do usuário.
+
+`summarize_clusters` (`scripts/pangenome_matrix.py`) monta seu índice por
+cluster a partir das **linhas da matriz** (`by_rep.setdefault(row[...])`), não a
+partir da lista de clusters elegíveis. Consequência: um cluster que passou no
+portão mas cujos membros não produzem **nenhuma** linha — nem de defesa, nem de
+AMR — nunca entra nesse índice, e a linha dele **desaparece inteira do
+`cluster_summary.tsv`**. Não sai com contagens zeradas: some.
+
+Some, ainda por cima, exatamente do arquivo com que se decide a fase 2 (ver
+"Critério de saída da fase 1" abaixo). Quem contar linhas ali para saber quantos
+clusters foram avaliados vai contar a menos, sem nada indicando a falta.
+
+**O guarda de contradição não cobre este caso.** O `mag_pangenome_matrix` já
+escreve `failed:` quando um cluster eleito por `criterio` igual a `ilha` ou
+`sistemas` termina com zero linhas `tipo=defesa` — porque aí há contradição
+lógica: ele foi eleito *por causa* da defesa da representante. Mas um cluster
+eleito por `criterio='amr'` (a representante tinha ARG de consenso) cujos
+membros individuais não passem o filtro `n_tools >= 2` do consenso por membro
+não dispara esse guarda, não tem contradição detectável, e simplesmente evapora
+do sumário.
+
+**O conserto, quando for feito:** `summarize_clusters` deve iterar sobre
+`clusters`/`members_by_rep` — a lista de quem foi eleito — e não sobre `by_rep`,
+que é derivado do que sobreviveu. Um cluster sem gene nenhum tem de aparecer com
+`n_genes_core`, `n_genes_variaveis` e `n_genes_singleton` em zero, e com
+`n_membros`/`n_membros_avaliaveis` reais — que continuam vindo de
+`completeness`/`annotated`, e portanto existem mesmo sem linha de matriz. Vale
+estender o guarda de contradição para o caso `amr` na mesma passada.
+
+É a diferença entre **"este cluster não tem nada"** e **"este cluster não
+existe"**, e é a mesma família do `done.txt` vazio lido como zero biológico que
+este documento persegue desde o começo: a ausência de linha sendo indistinguível
+da ausência de objeto.
+
 ### Números medidos
 
 - **DAG:** dry-run `--forceall` antes/depois, mesmo config de referência:
@@ -1829,6 +1879,69 @@ zero jobs, como projetado.
 
 ---
 
+## Report v2 (React + D3) — o que falta (2026-08-23)
+
+Desenho em `docs/superpowers/specs/2026-08-22-report-react-d3-design.md`. Vive
+em `src/report-ui/`, compilado por esbuild num bundle único **versionado em
+git** (`scripts/report/assets/report-ui.js`) — Node nunca é dependência de
+runtime. `_t_report()` pede os dois alvos, então cada rodada gera
+`report.html` e `report_v2.html` lado a lado.
+
+**Feito** (planos 1 a 3, branch `report-v2-design`): fundação e design system;
+abas Visão geral, Sequenciamento, Viral, Catálogo de MAGs, Defesa/AMR/
+plasmídeos, Pangenoma, Diversidade, Leituras e Por amostra; marca de
+procedência obrigatória (`viz/Provenance.jsx`) onde o número é herdado do
+representante do cluster; inventário honesto da matriz de status. 301 testes
+pytest, 117 vitest.
+
+### (1) Paridade em dado real — é o que bloqueia todo o resto
+
+A rodada de referência (`/media/nas1/LITRP.DBs/lmelo/amazon/results`, 32
+amostras) parou no QC e no sylph: **não existem `mag_catalog/`,
+`votu_catalog/` nem `pangenome/` em disco**. As abas Catálogo de MAGs,
+Defesa/AMR, Pangenoma e Diversidade só foram exercitadas contra fixtures.
+
+O que já foi verificado com dado real: `build_data` roda sem exceção, emite só
+os blocos que existem (`run`, `overview`, `sequencing`, `reads`), as abas sem
+dado somem em vez de quebrar, e o HTML sai com 391 KB — bem dentro do
+orçamento de 25 MB. A armadilha de coluna do sylph em paired-end foi
+confirmada consertada ali: as 32 colunas `{amostra}_R1_fastp.fq.gz` resolvem
+para as 32 amostras, todas com valor maior que zero.
+
+**Destravar exige uma rodada que passe do binning.** Nada abaixo deve ser
+feito antes disso.
+
+### (2) Remoção do report antigo — task 7 do plano 3, BLOQUEADA
+
+Em commit separado, para que o diff da remoção não se misture ao da
+construção: apagar `scripts/report/components/*.js` e
+`scripts/report/assets/echarts.min.js`, remover `rule generate_report` de
+`rules/report.smk`, e trocar o alvo em `_t_report()`. Enquanto (1) não estiver
+resolvido, o report antigo é o único validado contra dado real e removê-lo é
+destrutivo sem evidência.
+
+### (3) Camada de redes — plano 4, não começado
+
+`envs/env_network.yaml` (graph-tool), `rules/report_network.smk` com
+`report_gene_network` e `report_host_network` — **contagem de jobs fixa em
+duas para a rodada inteira, e nenhum `checkpoint`**, porque DAG dinâmico
+quebraria o invariante de dry-run de que a verificação deste documento
+depende. SBM aninhado (Peixoto, 2014) sobre o gene-sharing entre vOTUs e SBM
+bipartido sobre o PHIST. **O layout SFDP sai do Python com semente fixa**: o
+D3 desenha e filtra, não simula — rede que muda a cada abertura não serve para
+figura de paper. Verificação própria: rodar o pré-cálculo duas vezes com a
+mesma semente tem de produzir `nodes.tsv` byte a byte idêntico.
+
+### (4) Checklist de verificação ainda aberto
+
+- Report de uma rodada real abrindo com todas as abas.
+- **Modo escuro conferido em cada aba nova** — nunca foi visto.
+- Cada trilha desligada em `config.yaml` gerando estado vazio, não eixo
+  quebrado.
+- `validate_palette.js` em modo claro e escuro. ΔE não se avalia a olho.
+
+---
+
 ## Como verificar cada passo
 
 Invariante do DAG: o conjunto ordenado de arquivos de output do dry-run.
@@ -1875,9 +1988,16 @@ Shaffer, M., Borton, M. A., McGivern, B. B., Zayed, A. A., La Rosa, S. L., Solde
 
 Hockenberry, A. J., & Wilke, C. O. (2021). BACPHLIP: predicting bacteriophage lifestyle from conserved protein domains. *PeerJ*, 9, e11396. https://doi.org/10.7717/peerj.11396
 
+Peixoto, T. P. (2014). Hierarchical block structures and high-resolution model selection in large networks. *Physical Review X*, 4(1), 011047. https://doi.org/10.1103/PhysRevX.4.011047
+
+Bin Jang, H., Bolduc, B., Zablocki, O., Kuhn, J. H., Roux, S., Adriaenssens, E. M., Brister, J. R., Kropinski, A. M., Krupovic, M., Lavigne, R., Turner, D., & Sullivan, M. B. (2019). Taxonomic assignment of uncultivated prokaryotic virus genomes is enabled by gene-sharing networks. *Nature Biotechnology*, 37(6), 632-639. https://doi.org/10.1038/s41587-019-0100-8
+
 ### Documentos irmãos neste repo
 
 - `docs/ANALISE_TOOLS_VOMIX_METAFUN.md` — análise ferramenta a ferramenta das duas pipelines de referência
 - `docs/BENCHMARK_VOMIX_METAFUN.md` — arquitetura e performance
 - `docs/VAPOR_TOOLS_MAP.md` — inventário por estágio das ferramentas da vapor
 - `docs/AUDITORIA_COASSEMBLY_PARES.md` — laudo par a par da unificação amostra/grupo
+- `docs/superpowers/specs/2026-08-22-report-react-d3-design.md` — desenho do report v2
+- `docs/superpowers/plans/2026-08-23-report-abas-procarioticas-e-vista-amostra.md` — plano 3, com a task 7 bloqueada
+- `docs/REPORT_VIZ_GUIDE.md` — regras de visualização (paleta, estados vazios, nunca cor sozinha)
