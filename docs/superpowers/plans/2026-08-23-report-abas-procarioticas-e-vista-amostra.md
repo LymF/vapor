@@ -41,25 +41,39 @@ Valem inteiras as do plano 2, e mais três que são específicas do lado procari
 
 Heatmap MAG × tipo de sistema ordenado pela taxonomia; ARGs por classe de droga a partir do consenso (`n_tools >= 2`) com o número de ferramentas como encoding secundário; a ligação plasmídeo–AMR–defesa em três formas (UpSet de MAGs, trilha genômica do contig, stat tile da fração), com a ressalva de que replicon em contig de MAG é evidência de origem, não prova de plasmídeo intacto.
 
-### Task 3: Aba Pangenoma
+### Task 3: Aba Pangenoma — CONCLUÍDA (8373bfa)
 
 Matriz gene × membro em três estados; core/shell/cloud por cluster; tabela de candidatos com o critério que qualificou cada um, PlasmidFinder marcado como sinal de mobilidade e não como critério.
 
-### Task 4: Abas Diversidade e Leituras
+### Task 4: Abas Diversidade e Leituras — CONCLUÍDA (ed7ede5)
 
 Alfa em strip/ridgeline conforme n; PCoA com % de variância nos eixos; Simpson e Chao1 só quando vieram de contagens; trilha sylph com `host_source` visível e o aviso de que o espaço de IDs do sylph não conversa com o dos contigs montados.
 
-### Task 5: Vista por amostra (modos individual e comparação)
+### Task 5: Vista por amostra (modos individual e comparação) — CONCLUÍDA (5672ed5)
 
 Os seis blocos da §5.8 no modo individual; pequenos múltiplos alinhados no modo comparação. Marca de procedência em tudo que é herdado.
 
-### Task 6: Inventário da matriz de status
+### Task 6: Inventário da matriz de status — CONCLUÍDA (06d6d67)
 
 Hoje só três regras per-sample entram em `load_tool_status`. Ampliar para o conjunto real de regras da rodada, mantendo `ok`/`skipped`/`failed`/`unknown` distintos.
 
-### Task 7: Remoção do report antigo
+### Task 7: Remoção do report antigo — BLOQUEADA
 
-Só depois da paridade, em commit separado: `scripts/report/components/*.js`, `assets/echarts.min.js`, `rule generate_report`, e a troca do alvo em `_t_report()`.
+**Pré-condição não atendida (2026-08-23).** A rodada de referência
+(`/media/nas1/LITRP.DBs/lmelo/amazon/results`, 32 amostras) parou no QC e no
+sylph: não existem `mag_catalog/`, `votu_catalog/` nem `pangenome/` em disco.
+As abas Catálogo de MAGs, Defesa/AMR, Pangenoma e Diversidade nunca foram
+vistas com dado real — só com fixtures. O report antigo é o único que já foi
+validado contra dado real, e removê-lo agora seria destrutivo sem evidência.
+
+Verificado hoje o que dava para verificar: `build_data` roda sobre a rodada
+real sem exceção, emite os blocos que de fato existem (`overview`,
+`sequencing`, `reads`), e as abas sem dado somem em vez de quebrar. O HTML
+sai com 391 KB. A trilha de leituras traz dado real e a resolução de coluna
+paired-end funciona (32/32 amostras com valor > 0).
+
+**Destravar exige** uma rodada que passe do binning. Só depois, em commit
+separado: `scripts/report/components/*.js`, `assets/echarts.min.js`, `rule generate_report`, e a troca do alvo em `_t_report()`.
 
 ---
 
