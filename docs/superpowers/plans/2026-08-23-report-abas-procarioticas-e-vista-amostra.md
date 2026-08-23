@@ -20,7 +20,7 @@ Valem inteiras as do plano 2, e mais três que são específicas do lado procari
 
 ---
 
-### Task 1: Aba Catálogo de MAGs
+### Task 1: Aba Catálogo de MAGs — CONCLUÍDA (a16451b)
 
 **Files:**
 - Modify: `scripts/report/renderer_v2.py`
@@ -32,12 +32,12 @@ Valem inteiras as do plano 2, e mais três que são específicas do lado procari
 
 **Blocos:** qualidade (CheckM2 × GUNC com zonas MIMAG), estrutura do catálogo (tamanho dos clusters + proveniência), taxonomia GTDB com o seletor de rank, metabolismo (KEGG por módulo com `missing_ko` no tooltip; CAZy por classe).
 
-- [ ] Testes primeiro (pytest para o bloco `prokaryotic`, vitest para o painel)
-- [ ] `build_prokaryotic()` lendo `mag_catalog/` — nunca as vistas por amostra
-- [ ] `Scatter.jsx` com as linhas de corte MIMAG desenhadas
-- [ ] Painel, aba condicionada a `data.prokaryotic`, bundle recompilado e commitado
+- [x] Testes primeiro (pytest para o bloco `prokaryotic`, vitest para o painel)
+- [x] `build_prokaryotic()` lendo `mag_catalog/` — nunca as vistas por amostra
+- [x] `Scatter.jsx` com as linhas de corte MIMAG desenhadas
+- [x] Painel, aba condicionada a `data.prokaryotic`, bundle recompilado e commitado
 
-### Task 2: Aba Defesa, AMR e plasmídeos
+### Task 2: Aba Defesa, AMR e plasmídeos — CONCLUÍDA (4cfa63b)
 
 Heatmap MAG × tipo de sistema ordenado pela taxonomia; ARGs por classe de droga a partir do consenso (`n_tools >= 2`) com o número de ferramentas como encoding secundário; a ligação plasmídeo–AMR–defesa em três formas (UpSet de MAGs, trilha genômica do contig, stat tile da fração), com a ressalva de que replicon em contig de MAG é evidência de origem, não prova de plasmídeo intacto.
 
