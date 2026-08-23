@@ -1110,6 +1110,155 @@ def build_defense_amr(outdir):
     return saida
 
 
+# ── Aba Pangenoma ────────────────────────────────────────────────────────────
+
+CANDIDATE_BLOCK = Block(name="pangenome_candidate", fields=(
+    "representative", "n_members", "n_islands", "n_systems", "n_args",
+    "n_plasmid", "criterio", "eligible"))
+CLUSTER_BLOCK = Block(name="pangenome_cluster", fields=(
+    "representative", "n_members", "n_evaluable", "n_core", "n_variable",
+    "n_singleton", "completeness_median", "size_median", "taxonomy"))
+
+# Estados da matriz. Os TRES primeiros sao biologia; o quarto e formato: as
+# colunas do TSV sao TODOS os membros de TODOS os clusters, e '-' marca a
+# celula que nao pertence aquele cluster. Ele nunca pode virar ausencia.
+NAO_AVALIAVEL = "?"
+FORA_DO_CLUSTER = "-"
+
+
+def _bool_tsv(valor):
+    return (valor or "").strip().lower() in ("true", "1", "yes")
+
+
+def _build_pangenome_candidates(pg_dir):
+    caminho = os.path.join(pg_dir, "candidates.tsv")
+    if not os.path.exists(caminho):
+        return None
+    linhas = []
+    for row in parse_tsv(caminho):
+        rep = (row.get("representative_id") or "").strip()
+        if not rep:
+            continue
+        linhas.append({
+            "representative": rep,
+            "n_members": safe_int(row.get("n_members", 0)),
+            "n_islands": safe_int(row.get("n_islands", 0)),
+            "n_systems": safe_int(row.get("n_systems", 0)),
+            "n_args": safe_int(row.get("n_args", 0)),
+            # Sinal de MOBILIDADE, nunca criterio: o portao da regra nao
+            # elege cluster por plasmidio sozinho, e o report nao pode
+            # sugerir que elege.
+            "n_plasmid": safe_int(row.get("n_plasmid", 0)),
+            "criterio": (row.get("criterio") or "").strip(),
+            "eligible": _bool_tsv(row.get("eligible")),
+        })
+    return project(CANDIDATE_BLOCK, linhas) if linhas else None
+
+
+def _build_pangenome_clusters(pg_dir):
+    caminho = os.path.join(pg_dir, "cluster_summary.tsv")
+    if not os.path.exists(caminho):
+        return None
+    linhas = []
+    for row in parse_tsv(caminho):
+        rep = (row.get("representative_id") or "").strip()
+        if not rep:
+            continue
+        linhas.append({
+            "representative": rep,
+            "n_members": safe_int(row.get("n_members", 0)),
+            "n_evaluable": safe_int(row.get("n_members_avaliaveis", 0)),
+            "n_core": safe_int(row.get("n_genes_core", 0)),
+            "n_variable": safe_int(row.get("n_genes_variaveis", 0)),
+            "n_singleton": safe_int(row.get("n_genes_singleton", 0)),
+            "completeness_median": _float_ou_none(row.get("completude_mediana")),
+            "size_median": _float_ou_none(row.get("tamanho_mediana_bp")),
+            "taxonomy": (row.get("gtdb_taxonomy") or "").strip(),
+        })
+    return project(CLUSTER_BLOCK, linhas) if linhas else None
+
+
+def _parse_completude_cabecalho(linha):
+    """'# completude: S1__bin1=98.0, S1__bin8=42.0' -> {membro: float}.
+
+    A completude viaja no cabecalho da matriz porque "1/2" so e
+    interpretavel com ela a vista -- e o report nao pode separar as duas.
+    """
+    saida = {}
+    _rotulo, _sep, corpo = linha.partition(":")
+    for item in corpo.split(","):
+        nome, _sep2, valor = item.strip().partition("=")
+        v = _float_ou_none(valor)
+        if nome and v is not None:
+            saida[nome.strip()] = v
+    return saida
+
+
+def _build_pangenome_matrix(pg_dir):
+    caminho = os.path.join(pg_dir, "gene_by_member.tsv")
+    if not os.path.exists(caminho):
+        return None, {}
+
+    completude = {}
+    cabecalho = None
+    linhas_dados = []
+    with open(caminho, encoding='utf-8') as fh:
+        for linha in fh:
+            linha = linha.rstrip("\n")
+            if linha.startswith("#"):
+                if "completude" in linha:
+                    completude = _parse_completude_cabecalho(linha)
+                continue
+            if cabecalho is None:
+                cabecalho = linha.split("\t")
+                continue
+            if linha.strip():
+                linhas_dados.append(linha.split("\t"))
+    if not cabecalho or not linhas_dados:
+        return None, completude
+
+    N_FIXAS = 6      # cluster, tipo, gene, freq, n_present, n_evaluable
+    membros_globais = cabecalho[N_FIXAS:]
+
+    por_cluster = {}
+    for campos in linhas_dados:
+        rep = campos[0]
+        estados_crus = dict(zip(membros_globais, campos[N_FIXAS:]))
+        # Os membros DESTE cluster sao os que nao trazem '-'. Filtrar aqui,
+        # e nao no navegador, e o que impede a celula de formato de ser
+        # desenhada como ausencia biologica.
+        membros = [m for m in membros_globais
+                   if estados_crus.get(m) != FORA_DO_CLUSTER]
+        d = por_cluster.setdefault(rep, {"members": membros, "rows": []})
+        d["rows"].append({
+            "tipo": campos[1],
+            "gene": campos[2],
+            "freq": campos[3],
+            "n_present": safe_int(campos[4]),
+            # Denominador ja calculado pela regra, excluindo os '?'. Recontar
+            # aqui criaria uma segunda fonte de verdade que poderia discordar.
+            "n_evaluable": safe_int(campos[5]),
+            "states": {m: estados_crus[m] for m in membros},
+        })
+    return por_cluster, completude
+
+
+def build_pangenome(outdir):
+    pg_dir = os.path.join(outdir, "mag_catalog", "pangenome")
+    candidates = _build_pangenome_candidates(pg_dir)
+    clusters = _build_pangenome_clusters(pg_dir)
+    matrix, completude = _build_pangenome_matrix(pg_dir)
+
+    saida = {}
+    for chave, valor in (("candidates", candidates), ("clusters", clusters),
+                          ("matrix", matrix)):
+        if valor:
+            saida[chave] = valor
+    if saida and completude:
+        saida["completeness"] = completude
+    return saida
+
+
 def build_data(snakemake):
     """Monta o dicionario do report a partir do que ja existe em disco.
 
@@ -1163,5 +1312,9 @@ def build_data(snakemake):
     defesa = build_defense_amr(outdir)
     if defesa:
         dados["defense_amr"] = defesa
+
+    pangenoma = build_pangenome(outdir)
+    if pangenoma:
+        dados["pangenome"] = pangenoma
 
     return dados

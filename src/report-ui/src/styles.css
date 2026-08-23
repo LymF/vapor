@@ -382,6 +382,16 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
 }
 .plain-list li { padding: 2px 0; }
 
+/* Rotulo de linha da matriz de estados: carrega gene, tipo e frequencia, e
+   por isso e mais legivel que um tick de eixo comum. */
+.matrix__row-label { font-size: var(--fs-xs); fill: var(--text-2); }
+
+/* Cluster elegivel na tabela de candidatos: marca de posicao (borda), nao
+   so cor de fundo -- a linha recusada continua legivel e presente. */
+.table tbody tr.is-eligible td:first-child {
+  border-left: 3px solid var(--ok, #0d9488);
+}
+
 .funnel__label { font-size: var(--fs-xs); fill: var(--text-2); }
 .funnel__value { font-size: var(--fs-xs); fill: var(--text); font-weight: 600; }
 
