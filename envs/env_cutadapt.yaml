@@ -1,0 +1,12 @@
+# QC alternativo, temporario: cutadapt no lugar do fastp para as amostras
+# listadas em `qc_cutadapt_samples`. Env separado de propósito -- env_qc.yaml
+# e um ambiente resolvido, com o fastp pinado em 1.3.3 para casar com o
+# container; acrescentar pacote la dentro obrigaria a re-resolver o env e
+# faria as duas vias de execucao (conda e container) divergirem.
+name: env_cutadapt
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.12
+  - cutadapt=5.0

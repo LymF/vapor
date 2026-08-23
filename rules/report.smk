@@ -153,7 +153,13 @@ rule generate_report_v2:
 rule multiqc:
     """MultiQC consolida fastp + QUAST (short reads only)."""
     input:
-        expand(f"{OUTDIR}/{{sample}}/qc_raw/{{sample}}_fastp.json", sample=SAMPLES),
+        # Uma amostra que rodou cutadapt (qc_cutadapt_samples) nao tem
+        # fastp.json; pedir esse arquivo aqui manteria a regra pendurada
+        # para sempre. O MultiQC le os dois formatos.
+        [f"{OUTDIR}/{s}/qc_raw/{s}_cutadapt.json"
+         if s in QC_CUTADAPT_SAMPLES
+         else f"{OUTDIR}/{s}/qc_raw/{s}_fastp.json"
+         for s in SAMPLES],
         expand(f"{OUTDIR}/{{sample}}/quast/report.tsv",             sample=SAMPLES),
     output:
         report = f"{OUTDIR}/multiqc_report/multiqc_report.html",

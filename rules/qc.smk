@@ -66,8 +66,90 @@ rule fastp:
                 --complexity_threshold 30 \
                 2> {log}
         fi
-        touch {output.done}
+        # 'ok' explicito, nao arquivo vazio: _read_status_file() le
+        # done.txt vazio como 'unknown', entao um fastp que terminou
+        # bem aparecia no report como lacuna.
+        echo ok > {output.done}
         """
+
+
+# ── QC alternativo por amostra: cutadapt ──────────────────────────────
+# TEMPORARIO. Existe porque algumas libs paired-end grandes nao terminam no
+# fastp. So e definida quando `qc_cutadapt_samples` tem alguem, e o
+# wildcard_constraints limita a regra a essas amostras -- as demais continuam
+# no fastp, sem ambiguidade de DAG.
+#
+# NAO e um fastp equivalente, e a diferenca importa na hora de comparar
+# numeros entre amostras:
+#   - `-q 20` do cutadapt apara PONTAS de baixa qualidade; o
+#     `--qualified_quality_phred 20` do fastp e o limiar do filtro de
+#     percentual de bases nao qualificadas. Nao sao a mesma operacao.
+#   - o cutadapt nao tem equivalente de `--low_complexity_filter`, entao
+#     leituras de baixa complexidade que o fastp descartaria passam aqui.
+#   - o adaptador vai fixo (TruSeq), que foi o que o proprio fastp detectou
+#     nestas libs; nao ha auto-deteccao equivalente ao
+#     `--detect_adapter_for_pe`.
+# Por isso o relatorio NAO recebe um `{sample}_fastp.json` falso: a aba de QC
+# mostra lacuna para estas amostras, em vez de exibir numero de cutadapt sob
+# o nome do fastp.
+if QC_CUTADAPT_SAMPLES:
+
+    ruleorder: cutadapt > fastp
+
+    rule cutadapt:
+        """Adapter/quality trimming com cutadapt, para as amostras listadas
+        em `qc_cutadapt_samples`. Escreve os MESMOS FASTQ aparados que o
+        fastp escreveria, entao tudo a jusante (`_clean_r1`/`_clean_r2`)
+        segue sem saber a diferenca."""
+        wildcard_constraints:
+            sample = "|".join(re.escape(s) for s in QC_CUTADAPT_SAMPLES) or "^$",
+        input:
+            r1 = lambda wc: SAMPLES[wc.sample]["R1"],
+            r2 = lambda wc: SAMPLES[wc.sample].get("R2", []),
+        output:
+            tr1  = f"{OUTDIR}/{{sample}}/trimmed/{{sample}}_R1_fastp.fq.gz",
+            tr2  = f"{OUTDIR}/{{sample}}/trimmed/{{sample}}_R2_fastp.fq.gz",
+            json = f"{OUTDIR}/{{sample}}/qc_raw/{{sample}}_cutadapt.json",
+            done = f"{OUTDIR}/{{sample}}/qc_raw/done.txt",
+        log:
+            f"{OUTDIR}/{{sample}}/logs/cutadapt.log"
+        benchmark:
+            f"{OUTDIR}/{{sample}}/benchmarks/cutadapt.tsv"
+        conda:      "../envs/env_cutadapt.yaml"
+        container:  CONTAINERS.get("cutadapt")
+        threads: min(THREADS, 16)
+        params:
+            single_end = SINGLE_END,
+            # TruSeq, os mesmos que o --detect_adapter_for_pe do fastp
+            # identificou no log destas libs.
+            a1 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA",
+            a2 = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
+        shell:
+            """
+            mkdir -p {OUTDIR}/{wildcards.sample}/trimmed \
+                     {OUTDIR}/{wildcards.sample}/qc_raw
+            if [ "{params.single_end}" = "True" ]; then
+                cutadapt \
+                    -a {params.a1} \
+                    -q 20 -m 50 \
+                    -j {threads} \
+                    --json {output.json} \
+                    -o {output.tr1} \
+                    {input.r1} \
+                    > {log} 2>&1
+                touch {output.tr2}
+            else
+                cutadapt \
+                    -a {params.a1} -A {params.a2} \
+                    -q 20 -m 50 \
+                    -j {threads} \
+                    --json {output.json} \
+                    -o {output.tr1} -p {output.tr2} \
+                    {input.r1} {input.r2} \
+                    > {log} 2>&1
+            fi
+            echo "ok: cutadapt (substituto temporario do fastp)" > {output.done}
+            """
 
 
 # ── Long read QC ──────────────────────────────────────────────────────

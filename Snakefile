@@ -351,6 +351,25 @@ if not SAMPLES:
 
 print(f"[Snakemake] Samples ({'LR' if LONG_READS else 'SR'}): {list(SAMPLES.keys())}")
 
+# ── QC alternativo, TEMPORARIO ────────────────────────────────────────
+# Amostras listadas em `qc_cutadapt_samples` rodam cutadapt no lugar do
+# fastp (rules/qc.smk). Existe porque algumas libs paired-end grandes nao
+# terminam no fastp; e uma valvula de escape por amostra, nao uma troca de
+# ferramenta da pipeline -- lista vazia (o padrao) deixa tudo no fastp e o
+# DAG identico ao de antes.
+#
+# A validacao contra SAMPLES e deliberada: um nome digitado errado aqui
+# ficaria silenciosamente sem efeito, e a amostra rodaria fastp achando-se
+# no cutadapt.
+QC_CUTADAPT_SAMPLES = [str(x) for x in (config.get("qc_cutadapt_samples") or [])]
+_qc_desconhecidas = [s for s in QC_CUTADAPT_SAMPLES if s not in SAMPLES]
+if _qc_desconhecidas:
+    raise ValueError(
+        "qc_cutadapt_samples cita amostras que nao existem nesta rodada: "
+        f"{_qc_desconhecidas}. Amostras conhecidas: {sorted(SAMPLES)}")
+if QC_CUTADAPT_SAMPLES:
+    print(f"[Snakemake] QC via cutadapt (temporario): {QC_CUTADAPT_SAMPLES}")
+
 # Pre-create logs/ directories — Snakemake creates output dirs automatically
 # but NOT log dirs, which causes redirect failures on first run.
 _outdir_expanded = Path(OUTDIR).expanduser()
