@@ -66,6 +66,9 @@ function Individual({ amostra, assumida }) {
                   <code>{r.rule}</code> — {r.status === 'failed' ? 'falhou' : 'pulada'}
                   {r.reason ? `: ${r.reason}` : ''}. Os números desta regra são
                   {' '}lacuna, não zero biológico.
+                  {r.kind === 'view'
+                    ? ' Esta entrada é uma vista: o cálculo acontece uma vez, no representante do cluster, e aqui só é distribuído.'
+                    : ''}
                 </p>
               ))}
           </>

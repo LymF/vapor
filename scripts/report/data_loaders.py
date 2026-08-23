@@ -19,11 +19,79 @@ from defense_islands import find_islands as _find_islands, genes_by_contig as _g
 # biological zero across every sample. A rule whose status is 'failed' must be
 # rendered as a gap, never as a count of 0.
 
+# Regras que rodam POR AMOSTRA de verdade e sempre entram na matriz: numa
+# rodada normal todas deveriam existir, entao um done.txt ausente aqui e
+# 'unknown' -- uma lacuna que merece ser vista.
+#
+# Ate 2026-08-23 esta lista tinha tres entradas, e as tres eram VISTAS
+# (STATUS_VIEW_TOOLS, abaixo). O efeito era duplo: uma falha do fastp, da
+# montagem, do mapeamento ou do binning nao aparecia em lugar nenhum do
+# report, e as tres que apareciam sugeriam que a ferramenta rodara naquela
+# amostra -- quando ela rodou uma vez, sobre o representante do cluster.
+#
+# O MEGAHIT nao esta aqui porque nao escreve done.txt: `rule megahit` produz
+# so o final.contigs.fa. Uma falha dele derruba o DAG inteiro (nada a jusante
+# tem entrada), entao a ausencia de sentinela nao esconde resultado errado --
+# ao contrario das regras soft-fail, que continuam e emitem tabela vazia.
 STATUS_TRACKED_TOOLS = {
-    "amrfinderplus": "bins/amrfinderplus/done.txt",
-    "rgi":           "bins/rgi/done.txt",
-    "gtdbtk":        "bins/gtdbtk/done.txt",
+    "fastp":      "qc_raw/done.txt",
+    "mapping":    "mapping/bwa_mem_done.txt",
+    "metabat2":   "bins/metabat2/done.txt",
+    "semibin2":   "bins/semibin2/done.txt",
+    "binette":    "bins/binette/done.txt",
+    "vrhyme":     "bins/vrhyme/done.txt",
+    "genomad":    "viral/genomad/done.txt",
+    "final":      "final/done.txt",
 }
+
+# Regras per-sample de trilha OPCIONAL (long read, COBRA, PHIST, sylph). Sao
+# mostradas apenas quando o done.txt existe: numa rodada Illumina, listar
+# flye/medaka/NanoPlot como 'unknown' produziria uma coluna inteira de
+# lacunas falsas -- e "esta trilha nao faz parte desta rodada" e uma coisa
+# bem diferente de "esta regra falhou".
+STATUS_OPTIONAL_TOOLS = {
+    "nanoplot":       "qc_lr/nanoplot_done.txt",
+    "flye":           "assembly/lr/flye/done.txt",
+    "medaka":         "assembly/lr/medaka_done.txt",
+    "metamdbg":       "assembly/lr/metaMDBG/done.txt",
+    "cobra":          "cobra/megahit/done.txt",
+    "scaffold2bin":   "bins/scaffold2bin/done.txt",
+    "phist":          "viral/phist/done.txt",
+    "reads_classify": "reads_classify/taxprof_done.txt",
+}
+
+# VISTAS: escritas por `mag_views_sample` / `viral_taxonomy`, que distribuem
+# para os bins da amostra o que foi computado UMA vez sobre o representante
+# do cluster. Um 'ok' aqui nao diz que a ferramenta rodou nesta amostra --
+# diz que a distribuicao do resultado global chegou. A matriz precisa marcar
+# a diferenca, ou ela afirma que 32 amostras rodaram GTDB-Tk quando o
+# classify_wf rodou uma vez.
+#
+# Sao agrupadas por REGRA PRODUTORA porque a ativacao e all-or-nothing dentro
+# do grupo: `mag_views_sample` escreve todos os done.txt do primeiro grupo de
+# uma vez. Se algum deles existe, o grupo rodou -- e um que falte ai e
+# 'unknown' de verdade, nao "trilha desligada". Se nenhum existe, o grupo
+# inteiro sai da matriz em vez de virar uma coluna de lacunas falsas.
+STATUS_VIEW_GROUPS = (
+    {
+        "gtdbtk":               "bins/gtdbtk/done.txt",
+        "mmseqs_taxonomy_prok": "bins/mmseqs_taxonomy_prok/done.txt",
+        "defensefinder":        "bins/defensefinder/done.txt",
+        "amrfinderplus":        "bins/amrfinderplus/done.txt",
+        "rgi":                  "bins/rgi/done.txt",
+        "deeparg":              "bins/deeparg/done.txt",
+        "abricate":             "bins/abricate/done.txt",
+        "argnorm":              "bins/argnorm/done.txt",
+        "amr_consensus":        "bins/amr_consensus/done.txt",
+        "bakta":                "annotation/bakta/done.txt",
+    },
+    # `viral_taxonomy` e uma vista tambem (sobre o catalogo de vOTU), mas de
+    # OUTRA regra: numa rodada so procariotica ela nao existe, e agrupa-la
+    # com as de cima faria sua ausencia parecer falha das vistas de MAG.
+    {"viral_taxonomy": "viral/taxonomy/taxonomy_done.txt"},
+)
+
+STATUS_VIEW_TOOLS = {k: v for grupo in STATUS_VIEW_GROUPS for k, v in grupo.items()}
 
 # Global (non-per-sample) rules tracked the same way, except their done.txt
 # lives directly under {outdir}/ with no sample component -- e.g. the global
@@ -112,27 +180,57 @@ def load_tool_status(outdir, samples, groups=()):
 
     status = {}
     for sample in samples:
-        status[sample] = {}
-        for tool, rel in STATUS_TRACKED_TOOLS.items():
-            path = os.path.join(outdir, sample, rel)
-            status[sample][tool] = _read_status_file(path)
+        status[sample] = _status_de_uma_unidade(os.path.join(outdir, sample))
 
     for group in (groups or ()):
         key = f"{GROUP_STATUS_PREFIX}{group}"
         if key in status:
             raise ValueError(f"co-assembly group key {key!r} collides with a sample name")
-        status[key] = {}
-        for tool, rel in STATUS_TRACKED_TOOLS.items():
-            path = os.path.join(outdir, "coassembly", group, rel)
-            status[key][tool] = _read_status_file(path)
+        status[key] = _status_de_uma_unidade(
+            os.path.join(outdir, "coassembly", group))
 
     if STATUS_TRACKED_GLOBAL_TOOLS:
         status[GLOBAL_STATUS_LABEL] = {}
         for tool, rel in STATUS_TRACKED_GLOBAL_TOOLS.items():
-            path = os.path.join(outdir, rel)
-            status[GLOBAL_STATUS_LABEL][tool] = _read_status_file(path)
+            entry = _read_status_file(os.path.join(outdir, rel))
+            entry["kind"] = "global"
+            status[GLOBAL_STATUS_LABEL][tool] = entry
 
     return status
+
+
+def _status_de_uma_unidade(base):
+    """Status de todas as regras rastreadas sob `base` (amostra ou grupo).
+
+    `kind` viaja em cada entrada porque 'ok' significa coisas diferentes numa
+    regra e numa vista: a regra rodou nesta amostra, a vista so distribuiu
+    para ela o resultado computado no representante do cluster.
+    """
+    saida = {}
+    for tool, rel in STATUS_TRACKED_TOOLS.items():
+        entry = _read_status_file(os.path.join(base, rel))
+        entry["kind"] = "rule"
+        saida[tool] = entry
+    # Opcionais: cada uma e de uma trilha diferente (long read, COBRA, PHIST,
+    # sylph), entao a ativacao e por arquivo. "Esta trilha nao faz parte desta
+    # rodada" nao pode ser desenhado como lacuna.
+    for tool, rel in STATUS_OPTIONAL_TOOLS.items():
+        caminho = os.path.join(base, rel)
+        if os.path.exists(caminho):
+            entry = _read_status_file(caminho)
+            entry["kind"] = "rule"
+            saida[tool] = entry
+
+    # Vistas: ativacao por GRUPO, porque uma regra so escreve o grupo inteiro.
+    for grupo in STATUS_VIEW_GROUPS:
+        caminhos = {t: os.path.join(base, rel) for t, rel in grupo.items()}
+        if not any(os.path.exists(p) for p in caminhos.values()):
+            continue
+        for tool, caminho in caminhos.items():
+            entry = _read_status_file(caminho)
+            entry["kind"] = "view"
+            saida[tool] = entry
+    return saida
 
 
 def tool_failed(status, sample, tool):

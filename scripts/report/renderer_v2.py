@@ -1397,7 +1397,11 @@ def build_data(snakemake):
     status = [
         {"rule": tool, "sample": unidade,
          "status": entrada.get("state", "unknown"),
-         "reason": entrada.get("reason", "")}
+         "reason": entrada.get("reason", ""),
+         # 'rule' rodou nesta unidade; 'view' so distribuiu para ela o que foi
+         # computado no representante do cluster. Sem isto a matriz afirma
+         # que 32 amostras rodaram GTDB-Tk, quando o classify_wf rodou uma vez.
+         "kind": entrada.get("kind", "rule")}
         for unidade, ferramentas in load_tool_status(outdir, samples, grupos).items()
         for tool, entrada in sorted(ferramentas.items())
     ]

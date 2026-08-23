@@ -7,7 +7,8 @@ const dados = {
     kpis: [],
     status: [
       { rule: 'megahit', sample: 'S1', status: 'ok', reason: '' },
-      { rule: 'gunc', sample: 'S1', status: 'failed', reason: 'disco cheio' },
+      { rule: 'gunc', sample: 'S1', status: 'failed', reason: 'disco cheio', kind: 'rule' },
+      { rule: 'gtdbtk', sample: 'S1', status: 'skipped', reason: 'sem MAG', kind: 'view' },
       { rule: 'megahit', sample: 'S2', status: 'ok', reason: '' },
     ],
     funnel: {
@@ -124,4 +125,12 @@ test('o modo comparacao alinha as distribuicoes no mesmo eixo', () => {
   // Um DistPlot com as duas amostras como grupos: mesmo eixo x, que e o que
   // torna a comparacao legivel.
   expect(screen.getByTestId('compare-lengths')).toBeTruthy();
+});
+
+test('uma vista que falhou diz que o calculo e do representante', () => {
+  abre('S1');
+  const status = screen.getByTestId('sample-status');
+  // 'gtdbtk pulada' numa amostra nao significa que a amostra ficou sem
+  // classificacao: o classify_wf roda uma vez, sobre as representantes.
+  expect(status.textContent).toMatch(/vista.*representante do cluster/i);
 });

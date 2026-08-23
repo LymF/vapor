@@ -155,8 +155,14 @@ def test_load_tool_status_reads_coassembly_groups(tmp_path):
     # an absent group done.txt stays 'unknown', which also counts as a gap
     assert status[key]["gtdbtk"]["state"] == "unknown"
     assert tool_failed(status, key, "gtdbtk")
-    # samples are unaffected
-    assert set(status["S1"]) == set(status[key])
+    # As regras SEMPRE rastreadas sao as mesmas nas duas unidades; o que
+    # difere e o que cada unidade de fato produziu. Aqui o grupo tem as
+    # vistas de MAG e a amostra nao escreveu nenhuma, entao a amostra nao
+    # ganha uma coluna de lacunas falsas por elas (2026-08-23).
+    from report.data_loaders import STATUS_TRACKED_TOOLS
+    assert set(STATUS_TRACKED_TOOLS) <= set(status["S1"])
+    assert set(STATUS_TRACKED_TOOLS) <= set(status[key])
+    assert "gtdbtk" not in status["S1"]
 
 
 def test_load_tool_status_group_key_cannot_collide_with_sample(tmp_path):
