@@ -304,6 +304,16 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
   margin-bottom: var(--sp-1);
 }
 
+/* Subsecao dentro de um card (ex.: "Famílias CAZy" sob Metabolismo). Menor e
+   mais discreta que o h2 do card, para nao competir com o titulo da secao. */
+.card h3 {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: var(--sp-5) 0 var(--sp-2);
+}
+
 .card__scope {
   font-size: var(--fs-xs);
   color: var(--text-3);
@@ -357,6 +367,10 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
   stroke-width: 1;
   shape-rendering: crispEdges;
 }
+
+/* Nome do eixo (a grandeza), nao o rotulo do tick (o valor): mais forte que
+   os ticks, porque um scatter sem unidade nomeada nao se le. */
+.axis__name { font-size: var(--fs-xs); fill: var(--text-2); font-weight: 600; }
 
 .funnel__label { font-size: var(--fs-xs); fill: var(--text-2); }
 .funnel__value { font-size: var(--fs-xs); fill: var(--text); font-weight: 600; }

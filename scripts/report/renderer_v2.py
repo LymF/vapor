@@ -581,6 +581,265 @@ def build_viral(outdir, samples):
     return saida
 
 
+# ── Aba Catálogo de MAGs ─────────────────────────────────────────────────────
+#
+# A fonte e SEMPRE `mag_catalog/`, nunca as vistas `{sample}/bins/...`. As
+# vistas existem para as ferramentas a jusante e implementam heranca: o mesmo
+# MAG representante aparece sob cada amostra cujo cluster ele representa. Ler
+# delas aqui contaria o mesmo organismo uma vez por amostra.
+
+MAG_QUALITY_BLOCK = Block(name="mag_quality", fields=(
+    "genome", "source", "completeness", "contamination", "css", "gunc_pass",
+    "is_representative", "representative",
+))
+MAG_TAXONOMY_BLOCK = Block(name="mag_taxonomy", fields=(
+    "genome", "source", "Phylum", "Class", "Order", "Family", "Genus",
+    "count", "inherited", "representative",
+))
+
+# Prefixo do GTDB -> rank do RankSelector. `d__`/`s__` ficam de fora: o
+# seletor vai de filo a genero, e embarcar campo que nenhum grafico consome e
+# exatamente o padrao que o schema existe para impedir.
+_GTDB_PREFIXOS = (
+    ("p__", "Phylum"), ("c__", "Class"), ("o__", "Order"),
+    ("f__", "Family"), ("g__", "Genus"),
+)
+
+GUNC_TSV = "GUNC.progenomes_2.1.maxCSS_level.tsv"
+
+
+def _gtdb_ranks(classification):
+    """'d__Bacteria;p__Bacillota;...' -> {rank: nome}, so os ranks do seletor.
+
+    Um token sem nome depois do prefixo (`o__`) e "nao classificado neste
+    rank" -- entra como string vazia, distinta de rank ausente na linhagem.
+    """
+    ranks = {}
+    for token in (classification or "").split(";"):
+        token = token.strip()
+        for prefixo, rank in _GTDB_PREFIXOS:
+            if token.startswith(prefixo):
+                ranks[rank] = token[len(prefixo):].strip()
+    return ranks
+
+
+def _le_membership(caminho):
+    """[(source_id, original_bin_id, member_id, representative_id)]."""
+    linhas = []
+    for row in parse_tsv(caminho):
+        member = (row.get("member_id") or "").strip()
+        if not member:
+            continue
+        linhas.append((
+            (row.get("source_id") or "").strip(),
+            (row.get("original_bin_id") or "").strip(),
+            member,
+            (row.get("representative_id") or "").strip() or member,
+        ))
+    return linhas
+
+
+def _float_ou_none(valor):
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return None
+
+
+def _le_gunc(outdir, membership):
+    """{member_id: (css, pass)} a partir dos TSVs por fonte.
+
+    A coluna `genome` do GUNC traz o nome ORIGINAL do bin, e esse nome colide
+    entre fontes: o Binette emite `binette_bin1` em toda amostra e o VAMB
+    emite inteiros nus. Casar sem prefixar a fonte daria o CSS de um
+    organismo a outro, em silencio -- a mesma familia de bug que o namespace
+    do catalogo existe para matar.
+    """
+    fontes = {}
+    for source_id, bin_name, member_id, _rep in membership:
+        fontes.setdefault(source_id, {})[bin_name] = member_id
+
+    saida = {}
+    for source_id, bins in fontes.items():
+        candidatos = [
+            os.path.join(outdir, source_id, "bins", "gunc", GUNC_TSV),
+            os.path.join(outdir, "coassembly", source_id, "bins", "gunc", GUNC_TSV),
+        ]
+        caminho = next((c for c in candidatos if os.path.exists(c)), None)
+        if caminho is None:
+            continue
+        for row in parse_tsv(caminho):
+            member_id = bins.get((row.get("genome") or "").strip())
+            if not member_id:
+                continue
+            passou = (row.get("pass.GUNC") or "").strip().lower()
+            saida[member_id] = (
+                _float_ou_none(row.get("clade_separation_score")),
+                True if passou == "true" else (False if passou == "false" else None),
+            )
+    return saida
+
+
+def _build_mag_quality(outdir, membership, catalog_dir):
+    checkm2 = {}
+    for row in parse_tsv(os.path.join(catalog_dir, "checkm2_quality_report.tsv")):
+        nome = (row.get("Name") or "").strip()
+        if nome:
+            checkm2[nome] = (_float_ou_none(row.get("Completeness")),
+                             _float_ou_none(row.get("Contamination")))
+    gunc = _le_gunc(outdir, membership)
+
+    linhas = []
+    for source_id, _bin_name, member_id, rep in membership:
+        completude, contaminacao = checkm2.get(member_id, (None, None))
+        css, passou = gunc.get(member_id, (None, None))
+        linhas.append({
+            "genome": member_id,
+            "source": source_id,
+            "completeness": completude,
+            "contamination": contaminacao,
+            "css": css,
+            "gunc_pass": passou,
+            "is_representative": member_id == rep,
+            "representative": rep,
+        })
+    return project(MAG_QUALITY_BLOCK, linhas)
+
+
+def _build_mag_clusters(membership):
+    clusters = {}
+    for source_id, _bin_name, _member, rep in membership:
+        d = clusters.setdefault(rep, {"n_members": 0, "sources": set()})
+        d["n_members"] += 1
+        d["sources"].add(source_id)
+    tamanhos = [
+        {"representative": rep, "n_members": d["n_members"],
+         "n_sources": len(d["sources"])}
+        for rep, d in clusters.items()
+    ]
+    tamanhos.sort(key=lambda c: (-c["n_members"], c["representative"]))
+    return {
+        "n_mags": len(membership),
+        "n_clusters": len(clusters),
+        "sizes": tamanhos,
+    }
+
+
+def _build_mag_taxonomy(membership, catalog_dir):
+    """Uma linha por MAG, com a linhagem do seu REPRESENTANTE.
+
+    Herdar e o ponto: o GTDB-Tk rodou uma vez, sobre as representantes. Um
+    membro que nao e representante nunca aparece na tabela do classify_wf, e
+    filtrar essa tabela pelo prefixo da fonte devolveria quase nada -- foi
+    exatamente esse o bug do `viral_taxonomy` em 2026-08-18.
+    """
+    classificacao = {}
+    for arquivo in ("gtdbtk.bac120.summary.tsv", "gtdbtk.ar53.summary.tsv"):
+        caminho = os.path.join(catalog_dir, "gtdbtk", "classify", arquivo)
+        for row in parse_tsv(caminho):
+            genoma = (row.get("user_genome") or "").strip()
+            if genoma:
+                classificacao[genoma] = _gtdb_ranks(row.get("classification"))
+    if not classificacao:
+        return None
+
+    linhas = []
+    for source_id, _bin_name, member_id, rep in membership:
+        ranks = classificacao.get(rep)
+        if ranks is None:
+            continue
+        linhas.append({
+            "genome": member_id,
+            "source": source_id,
+            "Phylum": ranks.get("Phylum", ""),
+            "Class": ranks.get("Class", ""),
+            "Order": ranks.get("Order", ""),
+            "Family": ranks.get("Family", ""),
+            "Genus": ranks.get("Genus", ""),
+            # O sunburst e a barra somam `count`; aqui a unidade e o MAG.
+            "count": 1,
+            "inherited": member_id != rep,
+            "representative": rep,
+        })
+    return project(MAG_TAXONOMY_BLOCK, linhas) if linhas else None
+
+
+def _build_mag_kegg(catalog_dir):
+    caminho = os.path.join(catalog_dir, "kegg_modules", "module_completeness.tsv")
+    if not os.path.exists(caminho):
+        return None
+    valores, modulos, genomas = {}, {}, []
+    for row in parse_tsv(caminho):
+        mag = (row.get("mag") or "").strip()
+        modulo = (row.get("module_accession") or "").strip()
+        completude = _float_ou_none(row.get("completeness"))
+        if not mag or not modulo or completude is None:
+            continue
+        if mag not in valores:
+            valores[mag] = {}
+            genomas.append(mag)
+        valores[mag][modulo] = completude
+        d = modulos.setdefault(modulo, {
+            "module": modulo,
+            "name": (row.get("pathway_name") or "").strip(),
+            # missing_ko por GENOMA, nao um so por modulo: o passo que falta
+            # e diferente em cada MAG, e e ele que torna a via interpretavel.
+            "missing": {},
+        })
+        faltando = (row.get("missing_ko") or "").strip()
+        if faltando:
+            d["missing"][mag] = faltando
+    if not valores:
+        return None
+    ordenados = sorted(modulos.values(), key=lambda m: m["module"])
+    return {"genomes": genomas, "modules": ordenados, "values": valores}
+
+
+def _build_mag_cazy(catalog_dir):
+    caminho = os.path.join(catalog_dir, "kegg", "cazy_per_mag.tsv")
+    if not os.path.exists(caminho):
+        return None
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        from annotation_tables import cazy_class
+    except ImportError:
+        return None
+
+    por_genoma = {}
+    for row in parse_tsv(caminho):
+        mag = (row.get("mag") or "").strip()
+        familia = (row.get("cazy_family") or "").strip()
+        if not mag or not familia:
+            continue
+        classes = por_genoma.setdefault(mag, {})
+        cls = cazy_class(familia)
+        classes[cls] = classes.get(cls, 0) + 1
+    if not por_genoma:
+        return None
+    return [{"genome": g, "parts": partes} for g, partes in por_genoma.items()]
+
+
+def build_prokaryotic(outdir, samples, groups):
+    catalog_dir = os.path.join(outdir, "mag_catalog")
+    membership = _le_membership(os.path.join(catalog_dir, "mag_membership.tsv"))
+    if not membership:
+        return {}
+
+    saida = {
+        "quality": _build_mag_quality(outdir, membership, catalog_dir),
+        "clusters": _build_mag_clusters(membership),
+    }
+    for chave, valor in (
+        ("taxonomy", _build_mag_taxonomy(membership, catalog_dir)),
+        ("kegg", _build_mag_kegg(catalog_dir)),
+        ("cazy", _build_mag_cazy(catalog_dir)),
+    ):
+        if valor is not None:
+            saida[chave] = valor
+    return saida
+
+
 def build_data(snakemake):
     """Monta o dicionario do report a partir do que ja existe em disco.
 
@@ -626,5 +885,9 @@ def build_data(snakemake):
     viral = build_viral(outdir, samples)
     if viral:
         dados["viral"] = viral
+
+    prokaryotic = build_prokaryotic(outdir, samples, grupos)
+    if prokaryotic:
+        dados["prokaryotic"] = prokaryotic
 
     return dados

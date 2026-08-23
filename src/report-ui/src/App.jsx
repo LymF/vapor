@@ -2,6 +2,7 @@ import { ReportProvider, useReport, TODAS } from './state/store.jsx';
 import { Overview } from './panels/Overview.jsx';
 import { Sequencing } from './panels/Sequencing.jsx';
 import { ViralCatalog } from './panels/ViralCatalog.jsx';
+import { MagCatalog } from './panels/MagCatalog.jsx';
 import { ThemeToggle } from './viz/theme.js';
 
 // As abas do desenho. Os paineis dos planos 3+ entram aqui; enquanto nao
@@ -11,6 +12,7 @@ const ABAS = [
   { id: 'overview', label: 'Visão geral', Painel: Overview, temDado: () => true },
   { id: 'sequencing', label: 'Sequenciamento', Painel: Sequencing, temDado: (data) => Boolean(data?.sequencing) },
   { id: 'viral', label: 'Catálogo viral', Painel: ViralCatalog, temDado: (data) => Boolean(data?.viral) },
+  { id: 'prokaryotic', label: 'Catálogo de MAGs', Painel: MagCatalog, temDado: (data) => Boolean(data?.prokaryotic) },
 ];
 
 function Shell() {
