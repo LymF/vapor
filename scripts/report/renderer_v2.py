@@ -840,6 +840,276 @@ def build_prokaryotic(outdir, samples, groups):
     return saida
 
 
+# ── Aba Defesa, AMR e plasmídeos ─────────────────────────────────────────────
+
+DEFENSE_BLOCK = Block(name="defense", fields=("genome", "system", "count"))
+AMR_BLOCK = Block(name="amr", fields=(
+    "genome", "contig", "gene", "drug_class", "n_tools", "tools"))
+PLASMID_BLOCK = Block(name="plasmid", fields=(
+    "genome", "contig", "gene", "start", "end"))
+
+# Rotulos das evidencias do UpSet. Ficam num so lugar porque aparecem em
+# `sets`, em `combos` e no painel -- tres copias divergiriam.
+EV_REPLICON = "replicon"
+EV_ARG = "ARG de consenso"
+EV_DEFESA = "sistema de defesa"
+
+# O consenso de AMR so vale com duas ferramentas concordando. Uma so e
+# exploratorio, e misturar os dois niveis na mesma barra apagaria a diferenca.
+MIN_TOOLS_AMR = 2
+
+
+def _contig_do_orf(orf_id):
+    """'k141_1_5' -> 'k141_1'. Corte no ULTIMO '_', que e a convencao do
+    Prodigal ('{contig}_{n}') -- o nome do contig contem '_', entao cortar no
+    primeiro devolveria 'k141' e nenhuma colocalizacao casaria."""
+    return (orf_id or "").rsplit("_", 1)[0] if "_" in (orf_id or "") else ""
+
+
+def _representantes(outdir):
+    membership = _le_membership(
+        os.path.join(outdir, "mag_catalog", "mag_membership.tsv"))
+    return membership, {rep for _s, _b, _m, rep in membership}
+
+
+def _genoma_da_proteina(protein_id, representantes):
+    """('{rep}__{orf}', reps) -> (genoma, orf).
+
+    NUNCA cortar no primeiro '__': um ID do catalogo ja e '{source}__{bin}',
+    entao 'S1__binette_bin1__k141_1_5' cortado ali devolve 'S1' e credita o
+    achado a AMOSTRA. Casa-se contra os representantes conhecidos, do prefixo
+    mais longo para o mais curto, como em scripts/checkv_provirus.py.
+    """
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from mag_catalog import resolve_prefixed_id
+    return resolve_prefixed_id(protein_id, representantes)
+
+
+def _build_defense(catalog_dir):
+    caminho = os.path.join(catalog_dir, "defensefinder", "defensefinder_systems.tsv")
+    if not os.path.exists(caminho):
+        return None
+    contagem = {}
+    for row in parse_tsv(caminho):
+        # `genome` ja e o ID do representante: o DefenseFinder roda uma vez
+        # por genoma (o MacSyFinder precisa de ordem genica no repliconte),
+        # entao a regra escreve a coluna e nao ha prefixo a resolver aqui.
+        genome = (row.get("genome") or "").strip()
+        sistema = (row.get("type") or row.get("subtype") or "").strip()
+        if not genome or not sistema:
+            continue
+        contagem[(genome, sistema)] = contagem.get((genome, sistema), 0) + 1
+    if not contagem:
+        return None
+    linhas = [{"genome": g, "system": s, "count": n}
+              for (g, s), n in sorted(contagem.items())]
+    return project(DEFENSE_BLOCK, linhas)
+
+
+def _build_amr(catalog_dir, representantes):
+    caminho = os.path.join(catalog_dir, "amr_consensus", "amr_consensus.tsv")
+    if not os.path.exists(caminho):
+        return None
+    linhas = []
+    for row in parse_tsv(caminho):
+        locus = (row.get("locus") or "").strip()
+        if not locus or safe_int(row.get("n_tools", 0)) < MIN_TOOLS_AMR:
+            continue
+        genome, orf = _genoma_da_proteina(locus, representantes)
+        if not genome:
+            continue
+        linhas.append({
+            "genome": genome,
+            "contig": _contig_do_orf(orf),
+            "gene": (row.get("gene_name") or "").strip(),
+            "drug_class": (row.get("drug_class") or "").strip(),
+            "n_tools": safe_int(row.get("n_tools", 0)),
+            "tools": (row.get("tools_detected") or "").strip(),
+        })
+    return project(AMR_BLOCK, linhas) if linhas else None
+
+
+def _build_plasmids(catalog_dir):
+    caminho = os.path.join(catalog_dir, "abricate", "plasmidfinder_results.tsv")
+    if not os.path.exists(caminho):
+        return None
+    linhas = []
+    for row in parse_tsv(caminho):
+        # O ABRicate identifica o genoma pelo CAMINHO do arquivo que recebeu.
+        arquivo = (row.get("#FILE") or row.get("FILE") or "").strip()
+        contig = (row.get("SEQUENCE") or "").strip()
+        if not arquivo or not contig:
+            continue
+        genome = os.path.basename(arquivo)
+        for ext in (".fa", ".fna", ".fasta"):
+            if genome.endswith(ext):
+                genome = genome[: -len(ext)]
+                break
+        linhas.append({
+            "genome": genome,
+            "contig": contig,
+            "gene": (row.get("GENE") or "").strip(),
+            "start": safe_int(row.get("START", 0)),
+            "end": safe_int(row.get("END", 0)),
+        })
+    return project(PLASMID_BLOCK, linhas) if linhas else None
+
+
+ISLAND_GENE_BLOCK = Block(name="island_gene", fields=(
+    "start", "end", "strand", "label", "kind"))
+MAX_ILHAS = 20
+
+
+def _build_islands(catalog_dir):
+    """Ilhas de defesa sobre os representantes, com coordenadas em bp.
+
+    O nucleo e `scripts/defense_islands.py`, o MESMO que o portao do
+    pangenoma usa -- duas definicoes de "ilha" divergiriam em silencio.
+
+    Os IDs de `protein_in_syst` sao NUS (`k141_1_2`): o DefenseFinder roda
+    uma vez por genoma, sobre o .faa daquele genoma. O prefixo `{genome}__`
+    so existe no .faa concatenado que as ferramentas de AMR consomem, e
+    confundir os dois faria nenhuma ilha casar com gene nenhum.
+    """
+    manifest = os.path.join(catalog_dir, "proteins", "manifest.txt")
+    systems = os.path.join(catalog_dir, "defensefinder", "defensefinder_systems.tsv")
+    if not (os.path.exists(manifest) and os.path.exists(systems)):
+        return None
+
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from defense_islands import genes_by_contig, find_islands
+
+    por_genoma = {}
+    for row in parse_tsv(systems):
+        genome = (row.get("genome") or "").strip()
+        sistema = (row.get("type") or row.get("subtype") or "").strip()
+        for prot in (row.get("protein_in_syst") or "").split(","):
+            prot = prot.strip()
+            if genome and sistema and prot:
+                por_genoma.setdefault(genome, {})[prot] = (
+                    genome, sistema, (row.get("sys_id") or sistema).strip())
+
+    ilhas = []
+    for linha in _read_manifest_lines(manifest):
+        genome, faa = linha[0], linha[3]
+        prot_to_sys = por_genoma.get(genome)
+        if not prot_to_sys:
+            continue
+        for isl in find_islands(genes_by_contig(faa), prot_to_sys):
+            genes = [
+                {"start": g.get("Start"), "end": g.get("End"),
+                 "strand": "-" if g.get("Strand") == -1 else "+",
+                 "label": g.get("System") or "",
+                 # `kind` separa gene de defesa de gene qualquer dentro da
+                 # janela: sem isso a trilha pintaria a ilha inteira como
+                 # defesa, que e uma afirmacao mais forte que o dado.
+                 "kind": "defense" if g.get("System") else "outro"}
+                for g in isl.get("window_genes", [])
+                if g.get("Start") is not None and g.get("End") is not None
+            ]
+            ilhas.append({
+                "genome": genome,
+                "contig": isl["Contig"],
+                "start": isl.get("Start_bp"),
+                "end": isl.get("End_bp"),
+                "n_genes": isl["n_genes"],
+                "n_systems": isl["n_systems"],
+                "systems": isl["Systems"],
+                "genes": project(ISLAND_GENE_BLOCK, genes),
+            })
+    if not ilhas:
+        return None
+    # Densidade de sistemas e o criterio de ranking: uma ilha de 3 sistemas em
+    # 6 genes diz mais que uma de 3 sistemas em 40.
+    ilhas.sort(key=lambda i: (-i["n_systems"], i["n_genes"]))
+    return ilhas[:MAX_ILHAS]
+
+
+def _read_manifest_lines(path):
+    linhas = []
+    with open(path, encoding='utf-8') as fh:
+        for linha in fh:
+            partes = linha.rstrip("\n").split("\t")
+            if len(partes) >= 5:
+                linhas.append(partes)
+    return linhas
+
+
+def _build_colocalizacao(amr, plasmids):
+    """ARGs num contig que carrega replicon plasmidial, no MESMO genoma.
+
+    A chave e o PAR (genoma, contig), nunca o contig sozinho: nomes de contig
+    colidem entre MAGs -- todo assembly do MEGAHIT emite `k141_1` -- e casar
+    so pelo nome afirmaria colocalizacao entre organismos diferentes.
+
+    Isto e evidencia de ORIGEM plasmidial do ARG, nao prova de plasmidio
+    intacto: a montagem pode ter quebrado o elemento. A ressalva vai escrita
+    na aba, nao so aqui.
+    """
+    contigs_com_replicon = {(p["genome"], p["contig"]) for p in plasmids}
+    marcados = [f"{a['genome']}|{a['contig']}|{a['gene']}" for a in amr
+                if (a["genome"], a["contig"]) in contigs_com_replicon]
+    return {
+        "n_args": len(amr),
+        "n_args_on_replicon": len(marcados),
+        "args_on_replicon": sorted(marcados),
+    }
+
+
+def _build_upset(defense, amr, plasmids, islands):
+    """MAGs por combinacao de evidencias. A unidade e o MAG, nunca o hit."""
+    evidencias = {}
+    for rows, rotulo in ((plasmids, EV_REPLICON), (amr, EV_ARG),
+                         (defense, EV_DEFESA)):
+        for r in rows or []:
+            evidencias.setdefault(r["genome"], set()).add(rotulo)
+    for i in islands or []:
+        evidencias.setdefault(i["genome"], set()).add("ilha de defesa")
+
+    sets, combos = {}, {}
+    for genome, marcas in evidencias.items():
+        chave = tuple(sorted(marcas))
+        combos[chave] = combos.get(chave, 0) + 1
+        for m in marcas:
+            sets[m] = sets.get(m, 0) + 1
+    return {
+        "sets": sets,
+        "combos": [{"tools": list(k), "count": n}
+                   for k, n in sorted(combos.items(), key=lambda kv: -kv[1])],
+    }
+
+
+def build_defense_amr(outdir):
+    catalog_dir = os.path.join(outdir, "mag_catalog")
+    _membership, representantes = _representantes(outdir)
+    if not representantes:
+        return {}
+
+    defense = _build_defense(catalog_dir)
+    amr = _build_amr(catalog_dir, representantes)
+    plasmids = _build_plasmids(catalog_dir)
+    islands = _build_islands(catalog_dir)
+
+    saida = {}
+    for chave, valor in (("defense", defense), ("amr", amr),
+                          ("plasmids", plasmids), ("islands", islands)):
+        if valor is not None:
+            saida[chave] = valor
+    if not saida:
+        return {}
+
+    # Sem replicon nao existe pergunta de colocalizacao. Emitir zero aqui
+    # seria afirmar "nenhum ARG em plasmidio", que e diferente de "a trilha
+    # do PlasmidFinder nao rodou".
+    if amr and plasmids:
+        saida["colocalization"] = _build_colocalizacao(amr, plasmids)
+
+    saida["upset"] = _build_upset(defense, amr, plasmids, islands)
+    return saida
+
+
 def build_data(snakemake):
     """Monta o dicionario do report a partir do que ja existe em disco.
 
@@ -889,5 +1159,9 @@ def build_data(snakemake):
     prokaryotic = build_prokaryotic(outdir, samples, grupos)
     if prokaryotic:
         dados["prokaryotic"] = prokaryotic
+
+    defesa = build_defense_amr(outdir)
+    if defesa:
+        dados["defense_amr"] = defesa
 
     return dados

@@ -372,6 +372,16 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
    os ticks, porque um scatter sem unidade nomeada nao se le. */
 .axis__name { font-size: var(--fs-xs); fill: var(--text-2); font-weight: 600; }
 
+/* Lista curta de identificadores (ex.: os ARGs colocalizados com replicon).
+   Sem marcador: sao IDs, nao itens de argumento. */
+.plain-list {
+  list-style: none;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  margin-top: var(--sp-2);
+}
+.plain-list li { padding: 2px 0; }
+
 .funnel__label { font-size: var(--fs-xs); fill: var(--text-2); }
 .funnel__value { font-size: var(--fs-xs); fill: var(--text); font-weight: 600; }
 

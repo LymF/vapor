@@ -3,6 +3,7 @@ import { Overview } from './panels/Overview.jsx';
 import { Sequencing } from './panels/Sequencing.jsx';
 import { ViralCatalog } from './panels/ViralCatalog.jsx';
 import { MagCatalog } from './panels/MagCatalog.jsx';
+import { DefenseAmr } from './panels/DefenseAmr.jsx';
 import { ThemeToggle } from './viz/theme.js';
 
 // As abas do desenho. Os paineis dos planos 3+ entram aqui; enquanto nao
@@ -13,6 +14,7 @@ const ABAS = [
   { id: 'sequencing', label: 'Sequenciamento', Painel: Sequencing, temDado: (data) => Boolean(data?.sequencing) },
   { id: 'viral', label: 'Catálogo viral', Painel: ViralCatalog, temDado: (data) => Boolean(data?.viral) },
   { id: 'prokaryotic', label: 'Catálogo de MAGs', Painel: MagCatalog, temDado: (data) => Boolean(data?.prokaryotic) },
+  { id: 'defense_amr', label: 'Defesa, AMR e plasmídeos', Painel: DefenseAmr, temDado: (data) => Boolean(data?.defense_amr) },
 ];
 
 function Shell() {
