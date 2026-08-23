@@ -382,6 +382,25 @@ h1, h2, h3 { font-weight: 700; line-height: 1.25; }
 }
 .plain-list li { padding: 2px 0; }
 
+/* Marca de procedencia. Duas variantes visualmente distintas porque a
+   distincao que elas carregam e a diferenca entre "a pipeline mediu isto
+   aqui" e "isto veio do representante do cluster" -- e a segunda e uma
+   afirmacao mais fraca que a primeira. */
+.prov {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.prov code { font-size: inherit; font-weight: 400; }
+.prov--herdado { color: var(--unknown); }
+.prov--medido { color: var(--ok); }
+
 /* Rotulo de linha da matriz de estados: carrega gene, tipo e frequencia, e
    por isso e mais legivel que um tick de eixo comum. */
 .matrix__row-label { font-size: var(--fs-xs); fill: var(--text-2); }

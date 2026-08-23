@@ -7,6 +7,7 @@ import { DefenseAmr } from './panels/DefenseAmr.jsx';
 import { Pangenome } from './panels/Pangenome.jsx';
 import { Diversity } from './panels/Diversity.jsx';
 import { Reads } from './panels/Reads.jsx';
+import { SampleView } from './panels/SampleView.jsx';
 import { ThemeToggle } from './viz/theme.js';
 
 // As abas do desenho. Os paineis dos planos 3+ entram aqui; enquanto nao
@@ -21,6 +22,7 @@ const ABAS = [
   { id: 'pangenome', label: 'Pangenoma', Painel: Pangenome, temDado: (data) => Boolean(data?.pangenome) },
   { id: 'diversity', label: 'Diversidade', Painel: Diversity, temDado: (data) => Boolean(data?.diversity) },
   { id: 'reads', label: 'Leituras', Painel: Reads, temDado: (data) => Boolean(data?.reads) },
+  { id: 'sample', label: 'Por amostra', Painel: SampleView, temDado: (data) => Boolean(data?.run?.samples?.length) },
 ];
 
 function Shell() {
