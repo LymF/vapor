@@ -5,6 +5,8 @@ import { ViralCatalog } from './panels/ViralCatalog.jsx';
 import { MagCatalog } from './panels/MagCatalog.jsx';
 import { DefenseAmr } from './panels/DefenseAmr.jsx';
 import { Pangenome } from './panels/Pangenome.jsx';
+import { Diversity } from './panels/Diversity.jsx';
+import { Reads } from './panels/Reads.jsx';
 import { ThemeToggle } from './viz/theme.js';
 
 // As abas do desenho. Os paineis dos planos 3+ entram aqui; enquanto nao
@@ -17,6 +19,8 @@ const ABAS = [
   { id: 'prokaryotic', label: 'Catálogo de MAGs', Painel: MagCatalog, temDado: (data) => Boolean(data?.prokaryotic) },
   { id: 'defense_amr', label: 'Defesa, AMR e plasmídeos', Painel: DefenseAmr, temDado: (data) => Boolean(data?.defense_amr) },
   { id: 'pangenome', label: 'Pangenoma', Painel: Pangenome, temDado: (data) => Boolean(data?.pangenome) },
+  { id: 'diversity', label: 'Diversidade', Painel: Diversity, temDado: (data) => Boolean(data?.diversity) },
+  { id: 'reads', label: 'Leituras', Painel: Reads, temDado: (data) => Boolean(data?.reads) },
 ];
 
 function Shell() {

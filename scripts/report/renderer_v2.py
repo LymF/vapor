@@ -14,7 +14,8 @@ from .data_loaders import (
     load_tool_status, parse_fasta_lengths, parse_quast_all, safe_int,
     parse_fastp_json, parse_mapping_rate, collect_depth_data, parse_tsv,
     parse_support_combos, load_viral_taxonomy, load_votu_catalog,
-    load_votu_presence, load_votu_lifestyle,
+    load_votu_presence, load_votu_lifestyle, load_alpha_diversity,
+    load_pcoord, load_reads_classify,
 )
 from .schema import Block, project, check_budget
 
@@ -1259,6 +1260,127 @@ def build_pangenome(outdir):
     return saida
 
 
+# ── Abas Diversidade e Leituras ──────────────────────────────────────────────
+
+ALPHA_BLOCK = Block(name="alpha", fields=("sample", "domain", "index", "value"))
+PCOA_BLOCK = Block(name="pcoa", fields=(
+    "sample", "pc1", "pc2", "var_pc1", "var_pc2"))
+PROCRUSTES_BLOCK = Block(name="procrustes_pair", fields=(
+    "sample", "viral_pc1", "viral_pc2", "prok_pc1", "prok_pc2"))
+
+# Os quatro indices que compute_diversity.py pode escrever. Simpson e Chao1
+# saem VAZIOS quando nao ha contagens de reads -- os dois sao estimadores de
+# contagem (f1/f2 e a*(a-1)) e nao se calculam sobre RPKM. Vazio vira lacuna
+# declarada, nunca 0.0: zero e um valor, e Simpson 0 diria "uma unica especie
+# domina completamente".
+INDICES_ALFA = ("observed", "shannon", "simpson", "chao1")
+
+PCOA_TRILHAS = (("viral", "beta_pcoord_viral.tsv"),
+                ("prok", "beta_pcoord_prok.tsv"),
+                ("combined", "beta_pcoord_combined.tsv"))
+
+# Quantos taxa por dominio viajam para o navegador. A tabela do sylph tem uma
+# linha por clado x uma coluna por amostra; embarca-la inteira e o padrao que
+# o orcamento de payload existe para impedir. O corte e por abundancia total,
+# e o painel diz quantos ficaram de fora.
+MAX_TAXA_READS = 60
+
+
+def build_diversity(outdir, samples):
+    div_dir = os.path.join(outdir, "diversity")
+    saida = {}
+
+    alpha_path = os.path.join(div_dir, "alpha_diversity.tsv")
+    if os.path.exists(alpha_path):
+        linhas = load_alpha_diversity(alpha_path)
+        if linhas:
+            saida["alpha"] = project(ALPHA_BLOCK, linhas)
+            presentes = {r["index"] for r in linhas}
+            # O que a rodada NAO calculou tem de ser nomeado; senao o indice
+            # simplesmente some do painel e o leitor conclui que a pipeline
+            # nao roda Chao1, em vez de "esta rodada nao tinha contagens".
+            saida["alpha_missing"] = [i for i in INDICES_ALFA if i not in presentes]
+
+    pcoa = {}
+    for nome, arquivo in PCOA_TRILHAS:
+        caminho = os.path.join(div_dir, arquivo)
+        if not os.path.exists(caminho):
+            continue
+        linhas = load_pcoord(caminho)
+        if linhas:
+            pcoa[nome] = project(PCOA_BLOCK, linhas)
+    if pcoa:
+        saida["pcoa"] = pcoa
+
+    proc_path = os.path.join(div_dir, "procrustes_coords.tsv")
+    if os.path.exists(proc_path):
+        pares, disparidade = [], None
+        for row in parse_tsv(proc_path):
+            amostra = (row.get("sample") or "").strip()
+            if not amostra:
+                continue
+            pares.append({
+                "sample": amostra,
+                "viral_pc1": _float_ou_none(row.get("viral_PC1")),
+                "viral_pc2": _float_ou_none(row.get("viral_PC2")),
+                "prok_pc1": _float_ou_none(row.get("prok_PC1")),
+                "prok_pc2": _float_ou_none(row.get("prok_PC2")),
+            })
+            disparidade = _float_ou_none(row.get("disparity"))
+        if pares:
+            saida["procrustes"] = {
+                "pairs": project(PROCRUSTES_BLOCK, pares),
+                "disparity": disparidade,
+            }
+    return saida
+
+
+# Escrito por extenso porque e uma restricao de INTERPRETACAO, nao um detalhe
+# de implementacao: o sylph identifica genomas de referencia do IMG/VR
+# ('t__IMGVR_UViG_...') e a trilha de montagem identifica contigs do MEGAHIT
+# ('k141_...'). Nenhum join entre as duas e valido, e o report diz isso na
+# cara do usuario em vez de deixar a tentacao de cruzá-los.
+AVISO_ESPACO_IDS = (
+    "Os identificadores desta aba são genomas de referência do banco do sylph "
+    "(t__IMGVR_UViG_…) e não têm relação com os contigs montados (k141_…) das "
+    "demais abas. Nenhum cruzamento entre as duas trilhas é válido."
+)
+
+
+def _corta_por_abundancia(linhas, samples, limite=MAX_TAXA_READS):
+    ordenadas = sorted(linhas,
+                       key=lambda r: sum(r.get(s, 0.0) or 0.0 for s in samples),
+                       reverse=True)
+    return ordenadas[:limite], max(len(ordenadas) - limite, 0)
+
+
+def build_reads(outdir, samples):
+    rc_dir = os.path.join(outdir, "reads_classify")
+    otu = os.path.join(rc_dir, "otu_table.tsv")
+    host = os.path.join(rc_dir, "viral_abundance_by_host.tsv")
+    if not os.path.exists(otu) and not os.path.exists(host):
+        return {}
+
+    dados = load_reads_classify(otu if os.path.exists(otu) else "",
+                                host if os.path.exists(host) else "",
+                                samples)
+    if not (dados.get("has_data") or dados.get("host")):
+        return {}
+
+    saida = {"id_space_warning": AVISO_ESPACO_IDS}
+    for chave in ("viral", "prok", "archaea"):
+        linhas = dados.get(chave) or []
+        if not linhas:
+            continue
+        cortadas, omitidos = _corta_por_abundancia(linhas, samples)
+        saida[chave] = cortadas
+        if omitidos:
+            saida.setdefault("truncated", {})[chave] = omitidos
+    if dados.get("host"):
+        saida["host"] = dados["host"][:MAX_TAXA_READS]
+    return saida
+
+
 def build_data(snakemake):
     """Monta o dicionario do report a partir do que ja existe em disco.
 
@@ -1316,5 +1438,13 @@ def build_data(snakemake):
     pangenoma = build_pangenome(outdir)
     if pangenoma:
         dados["pangenome"] = pangenoma
+
+    diversidade = build_diversity(outdir, samples)
+    if diversidade:
+        dados["diversity"] = diversidade
+
+    leituras = build_reads(outdir, samples)
+    if leituras:
+        dados["reads"] = leituras
 
     return dados
