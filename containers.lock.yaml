@@ -12,6 +12,7 @@ checkm2: docker://quay.io/biocontainers/checkm2:1.1.0--pyh7e72e81_1
 checkv: docker://quay.io/biocontainers/checkv:1.0.3--pyhdfd78af_0
 cobra_meta: docker://quay.io/biocontainers/cobra-meta:1.2.3--pyhdfd78af_0
 coverm: docker://quay.io/biocontainers/coverm:0.7.0--hcb7b614_4
+cutadapt: docker://quay.io/biocontainers/cutadapt:5.0--py39hbcbf7aa_0
 deeparg: docker://quay.io/biocontainers/deeparg:1.0.4--pyhdfd78af_0
 defense_finder: docker://quay.io/biocontainers/defense-finder:3.0.0--pyhdfd78af_0
 diamond: docker://quay.io/biocontainers/diamond:2.1.8--h43eeafb_0

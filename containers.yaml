@@ -21,6 +21,14 @@ fastp:
   # execucao rodarem fastp diferentes.
   version: "1.3.3"
 
+cutadapt:
+  # QC alternativo TEMPORARIO por amostra (qc_cutadapt_samples), alinhado a
+  # envs/env_cutadapt.yaml. Sem esta entrada a regra ficaria com
+  # container: None e, sob `--executor apptainer`, rodaria no host -- onde o
+  # cutadapt nao existe.
+  image: cutadapt
+  version: "5.0"
+
 quast:
   image: quast
   version: "5.3.0"
