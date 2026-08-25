@@ -294,6 +294,7 @@ rule coverm_prok:
             --min-read-percent-identity 95 \
             --min-read-aligned-length 45 \
             --contig-end-exclusion 75 \
+            --min-covered-fraction 0 \
             --methods {params.method} mean covered_fraction count \
             --threads {threads} \
             --output-file {output.tsv} \
