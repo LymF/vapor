@@ -261,6 +261,8 @@ def build_command(args, snakefile, config_path):
         cmd.append("--dry-run")
     if args.rerun_incomplete:
         cmd.append("--rerun-incomplete")
+    if not args.no_keep_going:
+        cmd.append("--keep-going")
     if args.force:
         cmd.append("--forceall")
     if args.forcerun:
@@ -361,6 +363,20 @@ def main():
         "--rerun-incomplete",
         action="store_true",
         help="Re-run jobs that were left incomplete in a previous run",
+    )
+    parser.add_argument(
+        "--no-keep-going",
+        action="store_true",
+        help=(
+            "Abort the whole run as soon as any single job fails "
+            "(Snakemake's own default). By default vapor passes "
+            "--keep-going instead: on this project's NAS-mounted output "
+            "dir, a rare 1-in-30ish spurious failure of a fast run: rule "
+            "(e.g. votu_abundance finishing correctly but Snakemake still "
+            "flagging it failed) otherwise kills an entire multi-hundred-"
+            "step run over one job that a --rerun-incomplete would mop up "
+            "in seconds anyway."
+        ),
     )
     parser.add_argument(
         "--force",
