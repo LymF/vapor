@@ -263,6 +263,8 @@ def build_command(args, snakefile, config_path):
         cmd.append("--rerun-incomplete")
     if not args.no_keep_going:
         cmd.append("--keep-going")
+    if not args.no_force_use_threads:
+        cmd.append("--force-use-threads")
     if args.force:
         cmd.append("--forceall")
     if args.forcerun:
@@ -370,12 +372,32 @@ def main():
         help=(
             "Abort the whole run as soon as any single job fails "
             "(Snakemake's own default). By default vapor passes "
-            "--keep-going instead: on this project's NAS-mounted output "
-            "dir, a rare 1-in-30ish spurious failure of a fast run: rule "
-            "(e.g. votu_abundance finishing correctly but Snakemake still "
-            "flagging it failed) otherwise kills an entire multi-hundred-"
-            "step run over one job that a --rerun-incomplete would mop up "
-            "in seconds anyway."
+            "--keep-going instead, as a safety net on top of "
+            "--force-use-threads below: a run of hundreds of steps "
+            "shouldn't die over one straggler that a plain "
+            "--rerun-incomplete would mop up in seconds."
+        ),
+    )
+    parser.add_argument(
+        "--no-force-use-threads",
+        action="store_true",
+        help=(
+            "Let Snakemake spawn a fresh subprocess per `run:` rule "
+            "(its own default), instead of vapor's default "
+            "--force-use-threads (runs `run:` rules as threads in the "
+            "main process). Root-caused on this host: every `run:` job "
+            "(e.g. votu_abundance, ~32 of them dispatched at once whenever "
+            "the vOTU catalog changes) normally re-execs a whole new "
+            "snakemake process, and this host's /dev/shm had accumulated "
+            "80k+ stale __KMP_REGISTERED_LIB_* files (OpenMP/MKL lock "
+            "files from unrelated tools, never cleaned) -- Snakemake's "
+            "own --force-use-threads help text names exactly this failure "
+            "mode ('shared memory full or unavailable'), and it matches "
+            "what was observed: run: jobs whose own log+benchmark prove "
+            "they finished successfully, still reported as failed with no "
+            "traceback. /dev/shm was cleaned on 2026-08-26, but keeping "
+            "this on avoids the whole subprocess-respawn path rather than "
+            "trusting that directory to be clean next time too.",
         ),
     )
     parser.add_argument(
