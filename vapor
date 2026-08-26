@@ -212,6 +212,7 @@ def build_command(args, snakefile, config_path):
         "--snakefile", str(snakefile),
         "--configfile", str(config_path),
         "--cores", str(args.threads) if args.threads else "all",
+        "--latency-wait", str(args.latency_wait),
     ]
 
     executor = args.executor if args.executor != "auto" else _detect_executor()
@@ -382,6 +383,22 @@ def main():
         metavar="TARGET",
         nargs="+",
         help="Run pipeline only up to specific output file(s)",
+    )
+    parser.add_argument(
+        "--latency-wait",
+        type=int,
+        metavar="SECONDS",
+        default=60,
+        help=(
+            "Seconds Snakemake waits for output files to appear before "
+            "declaring a job failed (Snakemake default: 5). Raised to 60 "
+            "here because on this project's NAS-mounted (NFS) output dir, "
+            "very fast jobs (e.g. votu_abundance) can finish and write "
+            "their output/log/benchmark files correctly while the parent "
+            "Snakemake process still sees a stale NFS attribute cache and "
+            "wrongly reports the job as failed, deleting the output it "
+            "just wrote."
+        ),
     )
 
     # ── Utilities ─────────────────────────────────────────────────────

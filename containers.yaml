@@ -121,7 +121,6 @@ prodigal:
 prodigal_gv:
   image: prodigal-gv
   version: "2.11.0"
-  version: "2.6.3"
 
 genomad:
   image: genomad

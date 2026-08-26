@@ -39,6 +39,7 @@ phist: docker://quay.io/biocontainers/phist:1.0.0--py39h475c85d_1
 phold: docker://quay.io/biocontainers/phold:1.2.5--pyhdfd78af_0
 porechop_abi: docker://quay.io/biocontainers/porechop_abi:0.5.1--py39h475c85d_0
 prodigal: docker://quay.io/biocontainers/prodigal:2.6.3--hec16e2b_5
+prodigal_gv: docker://quay.io/biocontainers/prodigal-gv:2.11.0--he4a0461_4
 quast: docker://quay.io/biocontainers/quast:5.3.0--py39pl5321heaaa4ec_0
 rgi: docker://quay.io/biocontainers/rgi:6.0.5--pyh05cac1d_0
 samtools: docker://quay.io/biocontainers/samtools:1.23--h96c455f_0

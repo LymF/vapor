@@ -163,6 +163,17 @@ rule sylph_tax:
         """
         export SYLPH_TAXONOMY_CONFIG={params.tax_dir}/config.json
 
+        # sylph-tax refuses to overwrite a .sylphmpa that already carries the
+        # sample's name ("A .sylphmpa file exists ... will cause a file to be
+        # overwritten"). Its own output is NOT declared to Snakemake (the
+        # filename depends on the Sample_file column inside input.tsv, not
+        # just {{wildcards.sample}}), so a rerun (--rerun-incomplete, a killed
+        # run, --forcerun) leaves the previous .sylphmpa in place and this
+        # exits 1 with an empty log every time. Safe to delete unconditionally:
+        # taxprof always regenerates it from scratch, and sylph_merge/
+        # reads_host_map re-glob "*.sylphmpa" fresh on every run.
+        rm -f {params.prefix}*.sylphmpa
+
         sylph-tax taxprof {input.tsv} \
             -t {params.tax_ids} \
             -o {params.prefix} \
