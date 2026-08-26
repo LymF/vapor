@@ -155,10 +155,9 @@ rule sylph_tax:
         tax_ids  = _RC_TAX_IDS,
         prefix   = lambda wc: f"{OUTDIR}/{wc.sample}/reads_classify/{wc.sample}_",
         # NOTE: 2026-08-26 — the -a flag (host annotation) was causing sylph-tax
-        # taxprof to fail silently with exit code 1. Temporarily disabled to
-        # unblock the pipeline; investigate sylph-tax 1.9.1 compatibility.
+        # taxprof to fail silently with exit code 1. Removed entirely.
+        # If a future sylph-tax version fixes this, restore:
         # ann_flag = "-a" if _RC_HAS_PREBUILT_VIRAL else "",
-        ann_flag = "",
         tax_dir  = _RC_TAX_DIR,
     shell:
         """
@@ -166,7 +165,6 @@ rule sylph_tax:
 
         sylph-tax taxprof {input.tsv} \
             -t {params.tax_ids} \
-            {params.ann_flag} \
             -o {params.prefix} \
             2> {log}
 
