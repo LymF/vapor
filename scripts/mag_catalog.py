@@ -120,35 +120,50 @@ def merge_checkm2(pairs, out_path):
     representante por outro criterio sem avisar.
 
     Devolve (n_linhas, n_fontes_lidas).
+
+    Fontes discordam de esquema: uma amostra sem bins escreve so o cabecalho
+    de compatibilidade (`Name\tCompleteness\tContamination\tGenome_Size`,
+    zero linhas), enquanto uma amostra com bins escreve as 14 colunas reais
+    do CheckM2. Ler por NOME de coluna (DictReader/DictWriter), nunca por
+    posicao, e essencial: a versao anterior travava o cabecalho da PRIMEIRA
+    fonte lida e escrevia as linhas de fontes seguintes por baixo dele sem
+    verificar a contagem de colunas -- se essa primeira fonte fosse a de
+    esquema curto, linhas de 14 campos iam parar sob um cabecalho de 4, e o
+    parser Rust do galah (`checkm-0.3.0`) sofria panic com
+    `Option::unwrap() on a None value` ao indexar uma coluna que o cabecalho
+    dizia nao existir.
     """
-    header = None
+    fieldnames = []
+    seen = set()
     rows = []
     n_sources = 0
     for source_id, path in pairs:
         if not path or not os.path.exists(path) or os.path.getsize(path) == 0:
             continue
         with open(path, newline="") as fh:
-            r = csv.reader(fh, delimiter="\t")
-            h = next(r, None)
-            if h is None:
+            r = csv.DictReader(fh, delimiter="\t")
+            if not r.fieldnames or CHECKM2_NAME_COL not in r.fieldnames:
                 continue
-            if CHECKM2_NAME_COL not in h:
-                continue
-            idx = h.index(CHECKM2_NAME_COL)
-            if header is None:
-                header = h
+            for col in r.fieldnames:
+                if col not in seen:
+                    seen.add(col)
+                    fieldnames.append(col)
             n_sources += 1
             for row in r:
-                if idx >= len(row) or not row[idx].strip():
+                name = (row.get(CHECKM2_NAME_COL) or "").strip()
+                if not name:
                     continue
-                row = list(row)
-                row[idx] = namespaced_id(source_id, strip_ext(row[idx].strip()))
+                row[CHECKM2_NAME_COL] = namespaced_id(source_id, strip_ext(name))
                 rows.append(row)
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", newline="") as out:
-        w = csv.writer(out, delimiter="\t")
-        w.writerow(header or [CHECKM2_NAME_COL, "Completeness", "Contamination"])
+        w = csv.DictWriter(
+            out, delimiter="\t",
+            fieldnames=fieldnames or [CHECKM2_NAME_COL, "Completeness", "Contamination"],
+            restval="", extrasaction="ignore",
+        )
+        w.writeheader()
         w.writerows(rows)
     return len(rows), n_sources
 

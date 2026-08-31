@@ -136,6 +136,36 @@ def test_merge_checkm2_sem_fonte_ainda_escreve_cabecalho(tmp_path):
     assert open(out).read().startswith("Name\t")
 
 
+def test_merge_checkm2_esquemas_diferentes_nao_desalinha_colunas(tmp_path):
+    """Amostra sem bins escreve so o cabecalho curto de compatibilidade
+    (Name/Completeness/Contamination/Genome_Size, zero linhas); amostra com
+    bins escreve as 14 colunas reais do CheckM2. Travar o cabecalho na
+    primeira fonte lida (a curta) e escrever linhas de 14 campos por baixo
+    dele e o bug que fazia o parser Rust do galah sofrer panic."""
+    vazia = tmp_path / "vazia.tsv"
+    vazia.write_text("Name\tCompleteness\tContamination\tGenome_Size\n")
+
+    cheia = tmp_path / "cheia.tsv"
+    cheia.write_text(
+        "Name\tCompleteness\tContamination\tCompleteness_Model_Used\t"
+        "Genome_Size\tAdditional_Notes\n"
+        "binette_bin1\t95.0\t1.0\tGeneral\t2000000\tNone\n"
+    )
+
+    out = tmp_path / "merged.tsv"
+    n_rows, n_src = merge_checkm2(
+        [("S_sem_bins", str(vazia)), ("S_com_bins", str(cheia))], str(out))
+
+    assert n_rows == 1
+    lines = open(out).read().splitlines()
+    header = lines[0].split("\t")
+    row = lines[1].split("\t")
+    assert len(header) == len(row)
+    assert header[0] == "Name"
+    assert row[header.index("Name")] == "S_com_bins__binette_bin1"
+    assert row[header.index("Additional_Notes")] == "None"
+
+
 # ── clusters e vista ─────────────────────────────────────────────────────
 
 def test_parse_galah_converte_caminho_em_id(tmp_path):
