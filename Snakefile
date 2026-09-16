@@ -63,6 +63,14 @@ if os.path.exists(_LOCK):
     CONTAINERS = _yaml.safe_load(open(_LOCK)) or {}
 else:
     CONTAINERS = {}
+# Imagens locais (`local:` em containers.yaml) ficam no lock como caminho
+# relativo ao repo; sem scheme, o Snakemake as trataria relativas ao cwd.
+for _k, _v in list(CONTAINERS.items()):
+    if isinstance(_v, str) and "://" not in _v:
+        CONTAINERS[_k] = os.path.join(PIPELINE_DIR, _v)
+        if not os.path.exists(CONTAINERS[_k]):
+            print(f"WARNING: container image for '{_k}' not found: {CONTAINERS[_k]} "
+                  f"(see containers.yaml for the build command)", file=_sys.stderr)
 
 
 # ══════════════════════════════════════════════════════════════════════

@@ -93,8 +93,12 @@ virsorter:
   version: "2.2.4"
 
 bacphlip:
-  image: bacphlip
-  version: "0.9.6"
+  # A unica imagem publicada (quay.io/biocontainers/bacphlip:0.9.6--py_0) NAO
+  # traz o hmmsearch, e o bacphlip falha com FileNotFoundError: 'hmmsearch'.
+  # Imagem local = essa mesma imagem + hmmsearch copiado da imagem oficial do
+  # HMMER 3.4 (docker/Apptainerfile.bacphlip). Build uma vez, sem root:
+  #   apptainer build --fakeroot containers/bacphlip-0.9.6-hmmer3.4.sif docker/Apptainerfile.bacphlip
+  local: "containers/bacphlip-0.9.6-hmmer3.4.sif"
 
 checkv:
   image: checkv

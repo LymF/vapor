@@ -1,0 +1,25 @@
+# BACPHLIP 0.9.6 + hmmsearch (HMMER 3.4)
+#
+# A unica imagem publicada do bacphlip (quay.io/biocontainers/bacphlip:0.9.6--py_0,
+# de 2020) NAO traz o HMMER, e o bacphlip chama `hmmsearch` por subprocess:
+# a regra falhava com FileNotFoundError: 'hmmsearch' mesmo dentro do container.
+#
+# Nada e instalado aqui: o binario vem da imagem oficial do HMMER (so depende
+# da glibc) e e copiado para a imagem oficial do bacphlip.
+#
+# Build (sem root, via subuid):
+#   apptainer build --fakeroot containers/bacphlip-0.9.6-hmmer3.4.sif docker/Apptainerfile.bacphlip
+
+Bootstrap: docker
+From: quay.io/biocontainers/hmmer:3.4--hdbdd923_2
+Stage: hmmer
+
+Bootstrap: docker
+From: quay.io/biocontainers/bacphlip:0.9.6--py_0
+Stage: final
+
+%files from hmmer
+    /usr/local/bin/hmmsearch /usr/local/bin/hmmsearch
+
+%labels
+    Description BACPHLIP 0.9.6 with hmmsearch from HMMER 3.4

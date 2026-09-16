@@ -83,6 +83,12 @@ def best_tag(tags: list[str], version: str) -> str | None:
 
 def resolve(key: str, cfg: dict) -> str | None:
     """Return full docker:// URI for one entry, or None on failure."""
+    # Local SIF built from a definition in docker/: stored repo-relative in the
+    # lock; the Snakefile resolves it against the pipeline directory.
+    if cfg.get("local"):
+        print(f"  [{key}] local image {cfg['local']}")
+        return cfg["local"]
+
     # Custom images (not from quay.io/biocontainers) pass through as-is.
     if cfg.get("custom"):
         return f"docker://{cfg['image']}:{cfg['version']}"

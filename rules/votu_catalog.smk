@@ -983,10 +983,15 @@ rule bacphlip_votu:
             write_status(str(output.done), "skipped: no vOTU at required CheckV quality")
             return
 
-        rc = subprocess.run(
-            ["bacphlip", "-i", tmp_fasta, "--multi_fasta"],
-            stdout=open(str(log[0]), "a"), stderr=subprocess.STDOUT,
-        ).returncode
+        # shell(), NAO subprocess.run: dentro de um bloco `run:` so as chamadas
+        # shell() entram no `container:` da regra. Com subprocess.run o
+        # bacphlip era procurado no HOST e a regra falhava com
+        # "PermissionError: [Errno 13] Permission denied: 'bacphlip'".
+        try:
+            shell("bacphlip -i {tmp_fasta} --multi_fasta -f >> {log} 2>&1")
+            rc = 0
+        except subprocess.CalledProcessError as exc:
+            rc = exc.returncode
 
         bacphlip_out = tmp_fasta + ".bacphlip"
         if rc != 0 or not os.path.exists(bacphlip_out):

@@ -8,6 +8,9 @@ fastqs/
 *.bai
 *.sam
 
+# ── Imagens Apptainer locais (build: ver containers.yaml) ──────────────
+containers/*.sif
+
 # ── Snakemake runtime ─────────────────────────────────────────────────
 .snakemake/
 *.log
