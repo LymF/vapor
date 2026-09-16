@@ -182,6 +182,26 @@ rule mag_eggnog_prok:
         N_PROT=$(grep -c "^>" {params.all_faa} || echo 0)
         echo "[eggnog] Running on $N_PROT proteins" | tee -a {log}
 
+        # --dbmem carrega o eggnog.db (~41 GB) inteiro na RAM antes de anotar.
+        # Sem ele o emapper faz leitura ALEATORIA no SQLite; com a DB em NFS
+        # isso poe os workers em estado D (nfs_wait_bit_killable) e a fase de
+        # anotacao arrasta por DIAS a ~14% de um core. Com a DB em memoria a
+        # leitura vira um unico streaming sequencial e a anotacao cai para
+        # minutos. So liga se houver RAM folgada: a alternativa e um OOM no
+        # meio da regra, que custa mais que a lentidao.
+        DBMEM=""
+        DB_FILE="{EGGNOG_DB}/eggnog.db"
+        if [ -f "$DB_FILE" ]; then
+            DB_GB=$(( $(stat -c %s "$DB_FILE") / 1073741824 ))
+            AVAIL_GB=$(awk '/MemAvailable/ {{ printf "%d", $2/1048576 }}' /proc/meminfo)
+            if [ "$AVAIL_GB" -gt $(( DB_GB + 16 )) ]; then
+                DBMEM="--dbmem"
+                echo "[eggnog] --dbmem ON (db ${{DB_GB}}G, RAM disponivel ${{AVAIL_GB}}G)" | tee -a {log}
+            else
+                echo "[eggnog] --dbmem OFF (db ${{DB_GB}}G, RAM disponivel ${{AVAIL_GB}}G, precisa > $(( DB_GB + 16 ))G)" | tee -a {log}
+            fi
+        fi
+
         emapper.py \
             -m diamond \
             --itype proteins \
@@ -189,6 +209,7 @@ rule mag_eggnog_prok:
             -o eggnog_annotations \
             --output_dir {params.outdir} \
             --cpu {threads} \
+            $DBMEM \
             --data_dir {EGGNOG_DB} \
             --override \
             >> {log} 2>&1
