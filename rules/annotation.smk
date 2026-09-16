@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════
 # rules/annotation.smk — BLOCK 6: Genome Annotation
 #
-# bakta       — prokaryotic MAG annotation (HQ/MQ bins from CheckM2)
+# mag_prokka  — prokaryotic MAG annotation (replaced BAKTA with Prokka, 2026-09-09)
 # eggnog_prok — COG/KEGG/CAZy/GO functional annotation of MAG proteins
 # extract_kegg_kos — KO extraction per MAG from EggNOG output (KOALA-format TSV)
 #
@@ -16,15 +16,20 @@
 # existiam para alimenta-los: votu_catalog_quality_summary e
 # votu_catalog_genomad_genes.
 #
-# All rules soft-fail (touch output) when their database is not configured.
-# Config keys: bakta_db, bakta_min_completeness,
-#              bakta_max_contamination, eggnog_db
+# BAKTA → PROKKA: Replaced on 2026-09-09 due to persistent DIAMOND 2.1.8
+# hanging issues. Prokka offers:
+#   • Built-in databases (no external DB config needed)
+#   • Lightweight container (2.15GB vs 83GB)
+#   • Compatible GFF/FAA output for downstream rules
+#   • No DB path configuration required
+#
+# Config keys: prok_min_completeness, prok_max_contamination, eggnog_db
 # ══════════════════════════════════════════════════════════════════════
 
 
-rule mag_bakta:
+rule mag_prokka:
     """
-    Bakta — prokaryotic MAG annotation (replaces Prokka).
+    Prokka — prokaryotic MAG annotation (replaced BAKTA on 2026-09-09).
 
     GLOBAL desde 2026-08-19: anota as REPRESENTANTES do catálogo
     (rules/mag_catalog.smk) que passam no corte de qualidade, uma vez cada,
@@ -34,42 +39,33 @@ rule mag_bakta:
     `representatives/`.
 
     Thresholds (config.yaml):
-      bakta_min_completeness:  70.0  (%)
-      bakta_max_contamination: 10.0  (%)
-    Skipped if BAKTA_DB is not configured (empty string).
+      prok_min_completeness:  50.0  (%)
+      prok_max_contamination: 10.0  (%)
+
+    Uses Prokka with built-in databases (no external DB required).
     """
     input:
         checkm2 = rules.mag_catalog_quality.output.tsv,
         derep   = rules.mag_catalog_derep.output.done,
     output:
-        done    = f"{MAG_CATALOG_DIR}/bakta/done.txt",
-        summary = f"{MAG_CATALOG_DIR}/bakta/bakta_summary.tsv",
+        done    = f"{MAG_CATALOG_DIR}/prokka/done.txt",
+        summary = f"{MAG_CATALOG_DIR}/prokka/prokka_summary.tsv",
     log:
-        f"{OUTDIR}/logs/mag_bakta.log"
+        f"{OUTDIR}/logs/mag_prokka.log"
     benchmark:
-        f"{OUTDIR}/benchmarks/mag_bakta.tsv"
-    conda: "../envs/env_annotation.yaml"
-    container:  CONTAINERS.get("bakta")
+        f"{OUTDIR}/benchmarks/mag_prokka.tsv"
+    conda: "../envs/env_prokka.yaml"
+    container:  CONTAINERS.get("prokka")
     threads: THREADS
     params:
         outdir    = lambda wc, output: os.path.dirname(output.done),
-        # O pool normaliza toda extensao para .fa, entao aqui nao ha mais a
-        # bifurcacao Binette (*.fa) / VAMB (*.fna) que existia quando esta
-        # regra era herdada pela trilha de grupo.
         bins_dir  = f"{MAG_CATALOG_DIR}/representatives",
         bin_ext   = ".fa",
-        min_comp  = BAKTA_MIN_COMPLETENESS,
-        max_cont  = BAKTA_MAX_CONTAMINATION,
+        min_comp  = PROK_MIN_COMPLETENESS,
+        max_cont  = PROK_MAX_CONTAMINATION,
     shell:
         """
         mkdir -p {params.outdir}
-        export BAKTA_DB="{BAKTA_DB}"
-
-        if [ -z "{BAKTA_DB}" ] || [ ! -d "{BAKTA_DB}" ]; then
-            echo "[bakta] BAKTA_DB not configured — skipping" | tee {log}
-            echo -e "bin\tstatus" > {output.summary}
-            touch {output.done}; exit 0
-        fi
 
         # Identify qualifying MAGs from CheckM2 report
         python3 - <<'PYEOF'
@@ -84,15 +80,15 @@ with open("{input.checkm2}") as f:
             qualifying.append(name)
 with open("{params.outdir}/qualifying_bins.txt", "w") as f:
     f.write("\\n".join(qualifying) + "\\n")
-print(f"[bakta] Qualifying MAGs: {{len(qualifying)}}", file=sys.stderr)
+print(f"[prokka] Qualifying MAGs: {{len(qualifying)}}", file=sys.stderr)
 PYEOF
 
         N_QUAL=$(wc -l < {params.outdir}/qualifying_bins.txt 2>/dev/null || echo 0)
-        echo "[bakta] $N_QUAL qualifying MAGs (>={params.min_comp}% comp, <={params.max_cont}% cont)" \
+        echo "[prokka] $N_QUAL qualifying MAGs (>={params.min_comp}% comp, <={params.max_cont}% cont)" \
             | tee -a {log}
 
         if [ "$N_QUAL" -eq 0 ]; then
-            echo "[bakta] No qualifying MAGs — skipping" | tee -a {log}
+            echo "[prokka] No qualifying MAGs — skipping" | tee -a {log}
             echo -e "bin\tstatus" > {output.summary}
             touch {output.done}; exit 0
         fi
@@ -105,15 +101,12 @@ PYEOF
             [ -f "$BIN_FA" ] || {{ printf "%s\tmissing\n" "$BIN_NAME" >> {output.summary}; continue; }}
 
             BIN_OUT="{params.outdir}/$BIN_NAME"
-            mkdir -p "$BIN_OUT"
-            bakta \
-                --db {BAKTA_DB} \
-                --output "$BIN_OUT" \
+            prokka \
+                --outdir "$BIN_OUT" \
                 --prefix "$BIN_NAME" \
-                --threads {threads} \
-                --meta \
+                --cpus {threads} \
+                --metagenome \
                 --force \
-                --skip-plot \
                 "$BIN_FA" \
                 >> {log} 2>&1 && \
                 printf "%s\tok\n" "$BIN_NAME" >> {output.summary} || \
@@ -121,20 +114,20 @@ PYEOF
         done < {params.outdir}/qualifying_bins.txt
 
         touch {output.done}
-        echo "[bakta] Done — $(grep -c 'ok' {output.summary}) MAGs annotated" | tee -a {log}
+        echo "[prokka] Done — $(grep -c 'ok' {output.summary}) MAGs annotated" | tee -a {log}
         """
 
 
 rule mag_eggnog_prok:
     """
     EggNOG-mapper v2 — COG/KEGG/CAZy/GO functional annotation of MAG proteins.
-    Concatenates FAA files from all Bakta-annotated MAGs, then runs emapper.py.
+    Concatenates FAA files from all Prokka-annotated MAGs, then runs emapper.py.
     Standard for MAG functional characterisation; required for publication in
     high-impact journals (ATLAS, Aviary, SqueezeMeta all include this step).
-    Skipped if EGGNOG_DB is not configured or no Bakta FAA files exist.
+    Skipped if EGGNOG_DB is not configured or no Prokka FAA files exist.
     """
     input:
-        bakta_done = rules.mag_bakta.output.done,
+        prokka_done = rules.mag_prokka.output.done,
     output:
         done      = f"{MAG_CATALOG_DIR}/eggnog/done.txt",
         annot_tsv = f"{MAG_CATALOG_DIR}/eggnog/eggnog_annotations.tsv",
@@ -149,7 +142,7 @@ rule mag_eggnog_prok:
         # derivados do output, nao de {{sample}}: regra herdada por
         # coassembly.smk via `use rule ... as ... with:` (wildcard {group}).
         outdir      = lambda wc, output: os.path.dirname(output.done),
-        bakta_dir   = lambda wc, output: os.path.join(os.path.dirname(os.path.dirname(output.done)), "bakta"),
+        prokka_dir  = lambda wc, output: os.path.join(os.path.dirname(os.path.dirname(output.done)), "prokka"),
         all_faa     = lambda wc, output: os.path.join(os.path.dirname(output.done), "all_mags.faa"),
     shell:
         """
@@ -160,14 +153,14 @@ rule mag_eggnog_prok:
             touch {output.annot_tsv} {output.done}; exit 0
         fi
 
-        # Concatena os FAA do Bakta (um subdiretorio por MAG) PREFIXANDO
+        # Concatena os FAA do Prokka (um subdiretorio por MAG) PREFIXANDO
         # cada proteina com o nome do genoma. Sem isso o ID e o locus tag do
-        # Bakta ("LLOGBO_00001"), que nao carrega vinculo nenhum com o MAG:
+        # Prokka ("LLOGBO_00001"), que nao carrega vinculo nenhum com o MAG:
         # a saida do eggNOG ficaria sem atribuicao de genoma e nem a vista
         # por amostra nem o ko_per_mag.tsv teriam como saber de quem e cada
         # linha. Mesma convencao do _concat_proteins do lado AMR.
         rm -f {params.all_faa}
-        for FAA in {params.bakta_dir}/*/*.faa; do
+        for FAA in {params.prokka_dir}/*/*.faa; do
             [ -f "$FAA" ] && [ -s "$FAA" ] || continue
             GENOME=$(basename $(dirname "$FAA"))
             awk -v g="$GENOME" '/^>/ {{ sub(/^>/, ">" g "__"); print; next }} {{ print }}' \
@@ -175,7 +168,7 @@ rule mag_eggnog_prok:
         done
 
         if [ ! -s {params.all_faa} ]; then
-            echo "[eggnog] No Bakta FAA files found — skipping" | tee -a {log}
+            echo "[eggnog] No Prokka FAA files found — skipping" | tee -a {log}
             touch {output.annot_tsv} {output.done}; exit 0
         fi
 
@@ -244,13 +237,13 @@ rule mag_extract_kegg_kos:
     A coluna `mag` é o nome do genoma, recuperado do prefixo `{genome}__`
     que o `mag_eggnog_prok` põe em cada proteína. Antes de 2026-08-19 ela era
     derivada por regex do ID (`LLOGBO_00001` -> `LLOGBO`), ou seja, o
-    prefixo de locus tag que o Bakta sorteia — um proxy ilegível do MAG,
+    prefixo de locus tag que o Prokka sorteia — um proxy ilegível do MAG,
     apesar do nome do arquivo. Skipped if eggnog annotations are empty.
     """
     input:
         eggnog_done = rules.mag_eggnog_prok.output.done,
         annot_tsv   = rules.mag_eggnog_prok.output.annot_tsv,
-        bakta       = rules.mag_bakta.output.summary,
+        prokka      = rules.mag_prokka.output.summary,
     output:
         done       = f"{MAG_CATALOG_DIR}/kegg/done.txt",
         ko_table   = f"{MAG_CATALOG_DIR}/kegg/ko_per_mag.tsv",
@@ -286,11 +279,11 @@ rule mag_extract_kegg_kos:
             Path(str(output.done)).touch()
             return
 
-        # Genomas conhecidos = as representantes que o Bakta anotou. O ID do
+        # Genomas conhecidos = as representantes que o Prokka anotou. O ID do
         # catalogo ja contem "__" ({source}__{bin}), entao cortar a proteina
         # no primeiro separador devolveria a AMOSTRA em vez do MAG.
         genomes = set()
-        with open(str(input.bakta), newline="") as bf:
+        with open(str(input.prokka), newline="") as bf:
             for row in _csv.DictReader(bf, delimiter="\t"):
                 name = (row.get("bin") or "").strip()
                 if name:

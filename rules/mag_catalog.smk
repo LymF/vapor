@@ -711,7 +711,7 @@ def _mag_write_views(source_id, membership, inp, outp, log_path):
     for key, genome_col in (("df_systems", "genome"), ("df_anti", "genome"),
                             ("df_summary", "genome"),
                             ("vfdb", "genome"), ("plasmidfinder", "genome"),
-                            ("bakta", "bin"), ("kegg", "mag"),
+                            ("prokka", "bin"), ("kegg", "mag"),
                             ("cazy", "mag"), ("modules", "mag")):
         if key in outp:
             _mag_view_by_genome(str(inp[key]), membership, source_id,
@@ -724,7 +724,7 @@ def _mag_write_views(source_id, membership, inp, outp, log_path):
 
     for key in ("df_done", "amr_done", "rgi_done", "deeparg_done",
                 "abricate_done", "argnorm_done", "consensus_done",
-                "mmseqs_done", "bakta_done", "eggnog_done", "kegg_done",
+                "mmseqs_done", "prokka_done", "eggnog_done", "kegg_done",
                 "modules_done"):
         if key in outp:
             _mag_status_view(str(inp[key]), str(outp[key]))
@@ -753,8 +753,8 @@ def _mag_view_io(base):
         "argnorm_done":     f"{base}/bins/argnorm/done.txt",
         "consensus":        f"{base}/bins/amr_consensus/amr_consensus.tsv",
         "consensus_done":   f"{base}/bins/amr_consensus/done.txt",
-        "bakta":            f"{base}/annotation/bakta/bakta_summary.tsv",
-        "bakta_done":       f"{base}/annotation/bakta/done.txt",
+        "prokka":           f"{base}/annotation/prokka/prokka_summary.tsv",
+        "prokka_done":      f"{base}/annotation/prokka/done.txt",
         "eggnog":           f"{base}/annotation/eggnog/eggnog_annotations.tsv",
         "eggnog_done":      f"{base}/annotation/eggnog/done.txt",
         "kegg":             f"{base}/annotation/kegg_decoder/ko_per_mag.tsv",
@@ -788,8 +788,8 @@ _MAG_VIEW_GLOBAL = lambda: {
     "consensus_done":   rules.mag_amr_consensus.output.done,
     "mmseqs":           rules.mag_mmseqs_taxonomy_prok.output.hits,
     "mmseqs_done":      rules.mag_mmseqs_taxonomy_prok.output.done,
-    "bakta":            rules.mag_bakta.output.summary,
-    "bakta_done":       rules.mag_bakta.output.done,
+    "prokka":           rules.mag_prokka.output.summary,
+    "prokka_done":      rules.mag_prokka.output.done,
     "eggnog":           rules.mag_eggnog_prok.output.annot_tsv,
     "eggnog_done":      rules.mag_eggnog_prok.output.done,
     "kegg":             rules.mag_extract_kegg_kos.output.ko_table,

@@ -190,9 +190,9 @@ phold:
   image: phold
   version: "1.2.5"
 
-bakta:
-  image: bakta
-  version: "1.12.0"
+prokka:
+  image: prokka
+  version: "1.15.6"
 
 eggnog_mapper:
   image: eggnog-mapper

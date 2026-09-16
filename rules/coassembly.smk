@@ -414,10 +414,10 @@ if not LONG_READS:
 
 
     # `coassembly_bakta`, `coassembly_eggnog_prok` e
-    # `coassembly_extract_kegg_kos` foram APAGADAS em 2026-08-19: bakta,
+    # `coassembly_extract_kegg_kos` foram APAGADAS em 2026-08-19: anotacao,
     # eggNOG e a extracao de KO rodam uma vez nas representantes do catalogo
     # (rules/annotation.smk) e `mag_views_group` (rules/defense_amr.smk)
-    # escreve o sumario do Bakta no caminho de sempre.
+    # escreve o sumario do Prokka (que substituiu o Bakta em 2026-09-09).
 
 if LONG_READS:
 
@@ -1469,7 +1469,7 @@ if COASSEMBLY_ENABLED and GROUPS:
         if _COAS_PROK:
             d["checkm2"] = f"{b}/checkm2/quality_report.tsv"
             d["gtdbtk"]  = f"{b}/gtdbtk/done.txt"
-            d["bakta"]   = f"{b}/annotation/bakta/done.txt"
+            d["prokka"]  = f"{b}/annotation/prokka/done.txt"
             if DEFENSE_AMR_ENABLED:
                 d["pdef"]      = f"{b}/bins/defensefinder/done.txt"
                 d["amrfinder"] = f"{b}/bins/amrfinderplus/done.txt"
@@ -1667,8 +1667,8 @@ if COASSEMBLY_ENABLED and GROUPS:
                        f"{final}/bins/defense_amr/deeparg_normed.tsv")
 
                     # Prok annotation summaries
-                    cp(f"{b}/annotation/bakta/bakta_summary.tsv",
-                       f"{final}/annotation/bakta_summary.tsv")
+                    cp(f"{b}/annotation/prokka/prokka_summary.tsv",
+                       f"{final}/annotation/prokka_summary.tsv")
 
             with open(output.done, 'w') as f:
                 f.write('ok\n')

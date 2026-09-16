@@ -83,7 +83,7 @@ STATUS_VIEW_GROUPS = (
         "abricate":             "bins/abricate/done.txt",
         "argnorm":              "bins/argnorm/done.txt",
         "amr_consensus":        "bins/amr_consensus/done.txt",
-        "bakta":                "annotation/bakta/done.txt",
+        "prokka":               "annotation/prokka/done.txt",
     },
     # `viral_taxonomy` e uma vista tambem (sobre o catalogo de vOTU), mas de
     # OUTRA regra: numa rodada so procariotica ela nao existe, e agrupa-la

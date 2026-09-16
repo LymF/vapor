@@ -43,7 +43,7 @@
             The pipeline covers the full analysis workflow: quality control, assembly,
             deduplication, viral detection (VirSorter2, GeNomad), binning and quality
             assessment (CheckV, vRhyme, CheckM2, GUNC), taxonomy (MMseqs2, GTDB-Tk),
-            host prediction (PHIST), functional annotation (Pharokka, Phold, Bakta, EggNOG-mapper),
+            host prediction (PHIST), functional annotation (Pharokka, Phold, Prokka, EggNOG-mapper),
             abundance quantification (CoverM), and alpha/beta diversity analysis.
           </p>
           <p style="margin-top:.6rem">

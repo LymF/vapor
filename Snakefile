@@ -192,17 +192,14 @@ COVERM_METHOD        = config.get("coverm_method", "rpkm")
 PHAROKKA_DB               = config.get("pharokka_db", "")
 PHOLD_DB                  = config.get("phold_db", "")
 PHAROKKA_MIN_COMPLETENESS = config.get("pharokka_min_completeness", 90.0)
-BAKTA_DB                  = config.get("bakta_db", "")
-# Prokaryotic MAG quality gate for downstream annotation (Bakta), MIMAG
+# Prokaryotic MAG quality gate for downstream annotation (Prokka), MIMAG
 # Medium-quality by default (>=50% completeness, <=10% contamination). Lower
 # `prok_min_completeness` for high-novelty / fragmented datasets (e.g.
 # IonTorrent) where MAGs rarely reach MQ — analogous to `viral_min_quality`
 # on the viral side. AMR / defense / GTDB-Tk are NOT gated (they already run
-# on every bin). Legacy bakta_* keys still override the unified gate.
+# on every bin).
 PROK_MIN_COMPLETENESS     = config.get("prok_min_completeness", 50.0)
 PROK_MAX_CONTAMINATION    = config.get("prok_max_contamination", 10.0)
-BAKTA_MIN_COMPLETENESS    = config.get("bakta_min_completeness", PROK_MIN_COMPLETENESS)
-BAKTA_MAX_CONTAMINATION   = config.get("bakta_max_contamination", PROK_MAX_CONTAMINATION)
 EGGNOG_DB                 = config.get("eggnog_db", "")
 
 # ── Defense systems + AMR (prokaryotic bins) ───────────────────────────
@@ -559,7 +556,7 @@ def _t_prok():
     if ARGNORM_ENABLED:
         t += expand(f"{OUTDIR}/{{sample}}/bins/argnorm/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/abundance/prok_abundance.tsv", sample=SAMPLES)
-    t += expand(f"{OUTDIR}/{{sample}}/annotation/bakta/done.txt", sample=SAMPLES)
+    t += expand(f"{OUTDIR}/{{sample}}/annotation/prokka/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/annotation/eggnog/done.txt", sample=SAMPLES)
     t += expand(f"{OUTDIR}/{{sample}}/annotation/kegg_decoder/done.txt", sample=SAMPLES)
     # Fase 1 do pangenoma: sem flag de config, roda sempre sobre o catalogo
@@ -602,7 +599,7 @@ def _t_coassembly():
                     t.append(f"{OUTDIR}/coassembly/{g}/bins/abricate/done.txt")
                 if ARGNORM_ENABLED:
                     t.append(f"{OUTDIR}/coassembly/{g}/bins/argnorm/done.txt")
-                t.append(f"{OUTDIR}/coassembly/{g}/annotation/bakta/done.txt")
+                t.append(f"{OUTDIR}/coassembly/{g}/annotation/prokka/done.txt")
                 t.append(f"{OUTDIR}/coassembly/{g}/annotation/eggnog/done.txt")
                 t.append(f"{OUTDIR}/coassembly/{g}/annotation/kegg_decoder/done.txt")
             produced = True

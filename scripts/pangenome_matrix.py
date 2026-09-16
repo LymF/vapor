@@ -48,7 +48,7 @@ esperado no regime de clusters pequenos que a fase 1 produz -- nao ler
 `n_genes_core` como se houvesse folga ate ter clusters de ~10+ membros.
 """
 
-MIN_COMPLETENESS = 70.0   # mesmo piso do mag_bakta
+MIN_COMPLETENESS = 70.0   # mesmo piso do mag_prokka
 CORE_FRACTION = 0.90      # 99% zera o core com MAG (metaFun)
 
 

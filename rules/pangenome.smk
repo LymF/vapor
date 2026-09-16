@@ -4,7 +4,7 @@
 # Ver docs/superpowers/specs/2026-08-19-pangenoma-clusters-defesa-design.md
 #
 # PADRAO OBRIGATORIO: selecao dependente de dados DENTRO de um job de
-# numero fixo, como `mag_bakta` faz com qualifying_bins.txt. NUNCA um
+# numero fixo, como `mag_prokka` faz com qualifying_bins.txt. NUNCA um
 # `checkpoint` -- o DAG dinamico quebraria a invariante de dry-run que o
 # roadmap usa para verificar toda mudanca.
 # ══════════════════════════════════════════════════════════════════════

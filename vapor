@@ -39,7 +39,6 @@ Module switches (override config.yaml without editing):
   vapor --set use_cobra=true                  enable viral contig extension
   vapor --set use_pharokka=false              skip phage annotation
   vapor --set use_phold=false                 skip structure-based annotation
-  vapor --set use_bakta=false                 skip prokaryotic MAG annotation
   vapor --set use_eggnog=false                skip COG/KEGG functional annotation
   vapor --set use_gunc=false                  skip chimera detection
   vapor --set use_mag_derep=false             skip MAG dereplication
@@ -67,7 +66,7 @@ _PATH_KEYS = [
     "fastq_dir", "outdir",
     "checkv_db", "vs2_db", "genomad_db",
     "checkm2_db", "inphared_db", "gtdbtk_db",
-    "gunc_db", "pharokka_db", "phold_db", "bakta_db", "eggnog_db",
+    "gunc_db", "pharokka_db", "phold_db", "eggnog_db",
     "card_db", "deeparg_db", "defense_finder_models_db", "apis_db",
     "custom_prok_mmseqs_db", "custom_viral_mmseqs_db",
     "host_genome", "host_index",

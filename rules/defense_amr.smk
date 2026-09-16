@@ -68,7 +68,7 @@ rule mag_defensefinder:
         systems     = f"{MAG_CATALOG_DIR}/defensefinder/defensefinder_systems.tsv",
         antisystems = f"{MAG_CATALOG_DIR}/defensefinder/antidefensefinder_systems.tsv",
         # Sumario por genoma (bin TAB status, mesma convencao de
-        # bakta_summary.tsv em rules/annotation.smk): o laco abaixo e
+        # prokka_summary.tsv em rules/annotation.smk): o laco abaixo e
         # per-genoma e so loga um WARNING quando falha, sem derrubar a
         # regra -- entao um genoma ausente de defensefinder_systems.tsv e
         # ambiguo por construcao (rodou-e-nao-achou-nada vs quebrou). Este

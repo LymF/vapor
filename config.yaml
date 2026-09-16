@@ -18,7 +18,6 @@ use_mag_derep:     true    # MAG dereplication with galah before GTDB-Tk
 
 use_pharokka:      true    # phage annotation with PHROGS
 use_phold:         true    # structure-based annotation of hypothetical proteins
-use_bakta:         true    # prokaryotic MAG annotation
 use_eggnog:        true    # COG/KEGG/CAZy/GO functional annotation of MAG proteins
 
 use_defense_amr:   true    # DefenseFinder + AMRFinderPlus + RGI + DeepARG (prok)
@@ -139,13 +138,12 @@ mag_derep_ani: 95.0   # % ANI threshold for clustering MAGs
 
 pharokka_min_completeness: 90.0   # % CheckV completeness to annotate a phage
 
-# Prokaryotic MAG quality gate for Bakta annotation (MIMAG Medium-quality by
+# Prokaryotic MAG quality gate for Prokka annotation (MIMAG Medium-quality by
 # default). Analogous to viral_min_quality: lower it for high-novelty /
 # fragmented data (e.g. IonTorrent) where MAGs rarely reach 50% completeness.
 # AMR, defense and GTDB-Tk are NOT gated — they always run on every bin.
-prok_min_completeness:     50.0   # % CheckM2 completeness to annotate a MAG (Bakta)
-prok_max_contamination:    10.0   # % CheckM2 contamination cap to annotate a MAG (Bakta)
-# Legacy overrides (optional): bakta_min_completeness / bakta_max_contamination
+prok_min_completeness:     50.0   # % CheckM2 completeness to annotate a MAG (Prokka)
+prok_max_contamination:    10.0   # % CheckM2 contamination cap to annotate a MAG (Prokka)
 
 # Genome maps
 
@@ -177,7 +175,6 @@ custom_viral_mmseqs_db: "/media/nas1/LITRP.DBs/metagenDBs/img/IMG_VR/Cus_VR/imgv
 # Annotation (ignored when corresponding use_* flag is false)
 pharokka_db: "/media/nas1/LITRP.DBs/metagenDBs/pharokka_db"
 phold_db:    "/media/nas1/LITRP.DBs/metagenDBs/phold_db"
-bakta_db:    "/media/nas1/LITRP.DBs/metagenDBs/bakta/db"
 eggnog_db:   "/media/nas1/LITRP.DBs/metagenDBs/eggnog"
 
 # Defense + AMR (auto-downloaded on first run when path is set)
