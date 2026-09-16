@@ -106,10 +106,11 @@ checkv:
 
 diamond:
   image: diamond
-  version: "2.1.8"
+  version: "2.1.25"
 
 prodigal:
   image: prodigal
+  version: "2.6.3"
 
 # prodigal-gv: fork do prodigal para VIRUS -- reconhece os codigos geneticos
 # alternativos (recodificacao de TAG em Caudovirales tipo crAss, codigo 15/106

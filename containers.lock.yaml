@@ -14,7 +14,7 @@ coverm: docker://quay.io/biocontainers/coverm:0.7.0--hcb7b614_4
 cutadapt: docker://quay.io/biocontainers/cutadapt:5.0--py39hbcbf7aa_0
 deeparg: docker://quay.io/biocontainers/deeparg:1.0.4--pyhdfd78af_0
 defense_finder: docker://quay.io/biocontainers/defense-finder:3.0.0--pyhdfd78af_0
-diamond: docker://quay.io/biocontainers/diamond:2.1.8--h43eeafb_0
+diamond: docker://quay.io/biocontainers/diamond:2.1.25--he361c42_0
 eggnog_mapper: docker://quay.io/biocontainers/eggnog-mapper:2.1.13--pyhdfd78af_2
 fastp: docker://quay.io/biocontainers/fastp:1.3.3--h43da1c4_0
 filtlong: docker://quay.io/biocontainers/filtlong:0.3.1--h077b44d_0
@@ -24,6 +24,7 @@ genomad: docker://quay.io/biocontainers/genomad:1.11.2--pyhdfd78af_0
 genome_map: docker://ghcr.io/lymf/vapor-genome-map:1.0
 gtdbtk: docker://quay.io/biocontainers/gtdbtk:2.6.1--pyh1f0d9b5_2
 gunc: docker://quay.io/biocontainers/gunc:1.1.1--pyhdfd78af_0
+kegg_pathways_completeness: docker://quay.io/biocontainers/kegg-pathways-completeness:1.4.4--pyhdfd78af_0
 medaka: docker://quay.io/biocontainers/medaka:2.2.0--py312ha65e1bd_0
 megahit: docker://quay.io/biocontainers/megahit:1.2.9--haf24da9_8
 metabat2: docker://quay.io/biocontainers/metabat2:2.18--h6f16272_0
