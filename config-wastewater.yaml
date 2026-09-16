@@ -1,0 +1,233 @@
+# ══════════════════════════════════════════════════════════════════════
+# VAPOR — Viral And Prokaryotic genOme Recovery
+# config.yaml — edit this file before running
+#
+#   vapor --dry-run          # validate
+#   vapor --threads 32       # execute
+#   vapor -h                 # full help
+# ══════════════════════════════════════════════════════════════════════
+
+
+# ══ MODULE SWITCHES ════════════════════════════════════════════════════
+# Set false to disable entire modules.
+# All disabled modules write empty outputs so downstream rules never break.
+
+use_cobra:         true   # viral contig extension via k-mer overlap (PE only)
+use_gunc:          true    # chimera detection on MAGs
+use_mag_derep:     true    # MAG dereplication with galah before GTDB-Tk
+
+use_pharokka:      true    # phage annotation with PHROGS
+use_phold:         true    # structure-based annotation of hypothetical proteins
+use_eggnog:        true    # COG/KEGG/CAZy/GO functional annotation of MAG proteins
+
+use_defense_amr:   true    # DefenseFinder + AMRFinderPlus + RGI + DeepARG (prok)
+use_abricate:      true    # VFDB (virulence) + PlasmidFinder screens (prok)
+use_argnorm:       true    # normalize AMRFinderPlus/DeepARG calls to ARO
+use_defense_viral: true    # DefenseFinder + dbAPIS on viral ORFs
+use_amr_consensus: true    # consolidate AMR calls across tools by CDS locus + ARO
+
+use_gpu:           false   # CUDA for VAMB, SemiBin2, GeNomad
+
+
+# ══ I/O ════════════════════════════════════════════════════════════════
+
+fastq_dir: "/media/nas1/LITRP.DBs/lmelo/Global/redownload"
+outdir:    "/media/nas1/LITRP.DBs/lmelo/analyses/seawage"
+threads:   32
+
+
+# ══ READ TYPE ══════════════════════════════════════════════════════════
+
+single_end:  false    # SE Illumina or Ion Torrent (false = paired-end)
+long_reads:  false   # true for ONT / PacBio HiFi
+
+# Long-read parameters (ignored when long_reads: false)
+# One assembler per lr_tech: ONT -> metaFlye (+ Medaka polishing),
+# HiFi -> metaMDBG (no polishing).
+lr_tech:         "ont"    # "ont" | "hifi" — picks the assembler
+lr_min_len:      3000     # Filtlong minimum read length (bp)
+lr_min_mean_q:   10       # minimum mean quality (ONT only)
+lr_flye_overlap: 3000     # metaFlye --min-overlap (bp), ONT only
+lr_medaka_model: "auto"   # "auto" = --bacteria | or explicit model string, ONT only
+lr_ont_chem:     "hq"     # "hq" = R10/Q20+ | "raw" = R9 legacy
+
+
+# ══ HOST REMOVAL ═══════════════════════════════════════════════════════
+# Leave host_genome empty ("") to skip.
+
+host_genome: ""    # path to host reference FASTA
+host_index:  ""    # path to pre-built bwa-mem2 index prefix (built once if empty)
+
+
+# ══ ASSEMBLY ═══════════════════════════════════════════════════════════
+
+min_contig:  1000    # bp — minimum contig length post-assembly. Binners clamp
+                     # this themselves (vRhyme to 2000, MetaBAT2 to 1500) when
+                     # it is set below their own floor. The viral length floor
+                     # lives separately in viral_min_contig below — see item
+                     # (e), docs/ROADMAP_SIMPLIFICACAO.md, 2026-08-18: this
+                     # value stopped being viral detection's length gate.
+
+# Length-only arm of the composite viral length/quality/bin gate applied
+# AFTER vRhyme binning (rule viral_nonredundant / coassembly_viral_nonredundant).
+# A short contig is still kept if it sits in a vRhyme bin or CheckV calls it
+# Complete/High-quality/Medium-quality; this value only gates sequences with
+# NEITHER kind of independent evidence. 5000 bp is the IMG/VR / Earth's
+# Virome Protocol cutoff (Roux et al. 2021, NAR 49:D764) and the MVP pipeline
+# default (Coclet, Camargo & Roux 2024, mSystems 9:e00888-24) — NOT the
+# min_contig used for assembly/binning above. VirSorter2 and geNomad still
+# see every contig from min_contig upward; only this post-vRhyme gate applies
+# the 5 kb floor. See item (e), docs/ROADMAP_SIMPLIFICACAO.md.
+viral_min_contig: 5000
+
+# MEGAHIT
+megahit_mem_gb:        120              # RAM limit (GB)
+megahit_preset:        "meta-sensitive" # "default" | "meta-sensitive" | "meta-large" | "custom"
+megahit_custom_params: ""               # used only when megahit_preset: "custom"
+
+# COBRA — viral contig extension (ignored when use_cobra: false)
+cobra_megahit_mink: 21
+cobra_megahit_maxk: 141
+
+
+# ══ VIRAL DETECTION ════════════════════════════════════════════════════
+
+viral_consensus_mode: "score"   # "count" | "score" | "hybrid"
+min_viral_tools:      1          # >= N tools must agree (count/hybrid mode)
+score_vs2_min:        0.7
+score_genomad_min:    0.7
+
+
+# ══ VIRAL QC + vOTU ════════════════════════════════════════════════════
+
+# vOTU clustering thresholds (the global catalog always runs — it is the
+# hub of the viral track, not an optional step)
+votu_ani: 95.0   # % ANI threshold (ICTV standard)
+votu_af:  85.0   # % aligned fraction
+
+votu_presence_min_coverage: 75.0    # % of the representative covered to count as present (Roux 2017)
+votu_recruit_min_identity:  null    # min. read identity %; null = 95 (SR/HiFi) or 85 (ONT)
+
+# BACPHLIP — lifestyle dos vOTUs montados (litico/lisogenico)
+bacphlip_min_quality: ["Complete", "High-quality", "Medium-quality"]   # tiers CheckV aceitos; adicione "Medium-quality" por sua conta e risco
+bacphlip_virulence_threshold: 0.5
+
+# eggNOG sobre ORFs virais -> candidatos a AMG ("putative AMGs")
+use_eggnog_viral: true
+
+# Minimum CheckV quality tier kept for downstream viral analyses (taxonomy,
+# host prediction, pharokka/phold annotation, genome maps). Lower it for
+# high-novelty / short-fragment data (e.g. IonTorrent viromes) where most
+# contigs are Low-quality/Not-determined and the default would leave those
+# analyses empty.
+#   complete | high | medium | low | not_determined
+viral_min_quality: medium
+
+
+# ══ PROKARYOTIC BINNING ════════════════════════════════════════════════
+
+prok_filter_viral: true   # remove free-living viral contigs from binner input
+                          # (provirus-bearing contigs are always kept)
+semibin_env: "wastewater"      # "soil" | "ocean" | "gut" | "wastewater" | "global"
+
+# MAG dereplication (ignored when use_mag_derep: false)
+mag_derep_ani: 95.0   # % ANI threshold for clustering MAGs
+
+
+# ══ ANNOTATION ═════════════════════════════════════════════════════════
+
+pharokka_min_completeness: 70.0   # % CheckV completeness to annotate a phage
+
+# Prokaryotic MAG quality gate for Prokka annotation (MIMAG Medium-quality by
+# default). Analogous to viral_min_quality: lower it for high-novelty /
+# fragmented data (e.g. IonTorrent) where MAGs rarely reach 50% completeness.
+# AMR, defense and GTDB-Tk are NOT gated — they always run on every bin.
+prok_min_completeness:     50.0   # % CheckM2 completeness to annotate a MAG (Prokka)
+prok_max_contamination:    10.0   # % CheckM2 contamination cap to annotate a MAG (Prokka)
+
+# Genome maps
+
+
+# ══ ABUNDANCE ══════════════════════════════════════════════════════════
+
+coverm_method: "rpkm"   # "rpkm" | "tpm" | "mean" | "covered_fraction"
+
+
+# ══ DATABASES ══════════════════════════════════════════════════════════
+# Set correct paths for your system. See INSTALL.md for download instructions.
+
+# Core (required)
+checkv_db:    "/media/nas1/LITRP.DBs/metagenDBs/checkv/checkv-db-v1.5"
+vs2_db:       "/media/nas1/LITRP.DBs/metagenDBs/virsorter2"
+genomad_db:   "/media/nas1/LITRP.DBs/metagenDBs/genomad/genomad_db"
+checkm2_db:   "/media/nas1/LITRP.DBs/metagenDBs/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
+inphared_db:  "/media/nas1/LITRP.DBs/metagenDBs/inphared"
+gtdbtk_db:    "/media/nas1/LITRP.DBs/metagenDBs/gtdbtk/release226"
+
+# Optional — leave "" to skip the corresponding rule
+gunc_db:      "/media/nas1/LITRP.DBs/metagenDBs/gunc/gunc_db_progenomes2.1.dmnd"
+
+# Custom MMseqs2 seqTaxDBs for per-query LCA taxonomy.
+# Build once with scripts/prepare_mmseqs_taxdb.py (see INSTALL.md).
+custom_prok_mmseqs_db:  "/media/nas1/LITRP.DBs/metagenDBs/img/Cus_NR/IMG_NR_mmseqs/seqTaxDB"
+custom_viral_mmseqs_db: "/media/nas1/LITRP.DBs/metagenDBs/img/IMG_VR/Cus_VR/imgvr_mmseqs/seqTaxDB"
+
+# Annotation (ignored when corresponding use_* flag is false)
+pharokka_db: "/media/nas1/LITRP.DBs/metagenDBs/pharokka_db"
+phold_db:    "/media/nas1/LITRP.DBs/metagenDBs/phold_db"
+eggnog_db:   "/media/nas1/LITRP.DBs/metagenDBs/eggnog"
+
+# Defense + AMR (auto-downloaded on first run when path is set)
+card_db:                  "/media/nas1/LITRP.DBs/metagenDBs/card"
+deeparg_db:               "/media/nas1/LITRP.DBs/metagenDBs/deeparg"
+defense_finder_models_db: "/media/nas1/LITRP.DBs/metagenDBs/defense_finder_models"
+apis_db:                  "/media/nas1/LITRP.DBs/metagenDBs/dbapis"
+
+# ── Track selection (what to run) ──────────────────────────
+tracks:
+  reads:  true   # read-based classification (no assembly)
+  viral:  true    # viral detection/analysis (assembly-based)
+  prok:   true   # prokaryotic bins (assembly-based)
+
+use_host_defense: true   # phage↔host (PHIST) + defense↔anti-defense; needs viral+prok
+
+# ── Co-assembly / co-binning (opt-in, short reads only) ──────────────────────────
+# CO-ASSEMBLY: assembles a group's samples TOGETHER (recovers low-abundance organisms).
+# CO-BINNING (VAMB): bins contigs using differential coverage across the group's samples.
+coassembly:
+  enabled:  false        # enable per-group co-assembly
+  grouping: metadata     # metadata (use 'group' column of TSV) | all (one group) | none
+  metadata: "~/amazon/coassembly_groups.tsv"           # path to TSV with columns: sample, group
+  viral:    false         # viral detection on the co-assembly → per-group vOTUs + annotation/host
+  binning:  false         # VAMB co-binning on the co-assembly → per-group MAGs
+# MULTI-SPLIT: co-binning over the concatenated INDIVIDUAL assemblies (preserves strains),
+# without co-assembling. Independent of co-assembly.
+cobinning_multisplit: false
+
+# ── Reads-only classification (Sylph) ─────────────────────────────────
+# Set reads_classify: true to activate this module.
+# Configure at least one viral database (imgvr, uhgv, or custom).
+reads_classify: true
+
+reads_classify_dbs:
+  imgvr:    "/media/nas1/LITRP.DBs/metagenDBs/sylph/imgvr_c200_v0.3.0.syldb"
+  uhgv:     ""    # not used for this dataset (gut-focused DB, skip for environmental samples)
+  gtdb:     "/media/nas1/LITRP.DBs/metagenDBs/sylph/gtdb-r232-c200-dbv1.syldb"
+  gtdb_version: "r232"
+  custom:   ""
+  custom_taxonomy: ""
+
+# Where to store sylph-tax taxonomy annotation files (~50 MB, downloaded once).
+# Default: {outdir}/reads_classify/taxonomy
+reads_classify_tax_dir: "/media/nas1/LITRP.DBs/metagenDBs/sylph/taxonomy"
+
+# Minimum fraction of samples a taxon must appear in to be kept (0 = keep all).
+reads_classify_min_prevalence: 0.0
+
+# Minimum number of k-mers required to report a genome match (20 suits viral genomes).
+reads_classify_min_kmers: 5
+
+# BACPHLIP lifestyle prediction — optional, requires genome FASTA source.
+# Set to path of a FASTA containing all reference genomes in your sylph DB.
+# Leave empty to skip lifestyle prediction.
+
