@@ -398,7 +398,7 @@ def main():
             "they finished successfully, still reported as failed with no "
             "traceback. /dev/shm was cleaned on 2026-08-26, but keeping "
             "this on avoids the whole subprocess-respawn path rather than "
-            "trusting that directory to be clean next time too.",
+            "trusting that directory to be clean next time too."
         ),
     )
     parser.add_argument(
